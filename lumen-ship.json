@@ -1,0 +1,6 @@
+{
+  "repo": "bchoor/flareusage",
+  "notes": { "prompt": ".github/release-prompt.md" },
+  "cadence": { "every": 10, "days": 7 },
+  "tags": "v0.*"
+}

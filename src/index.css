@@ -1,0 +1,10 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@columenlabs/lumen-ui/theme.css";
+@source "../node_modules/@columenlabs/lumen-ui/dist";
+
+/* Cloudflare orange accent (LumenShell sets data-app on <html>) */
+:root[data-app="flareusage"] {
+  --primary: oklch(0.7 0.18 50);
+}
