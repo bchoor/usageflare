@@ -1,6 +1,8 @@
 # usageflare
 
-**Every account. Every limit. One gauge.** Usage and limits for every Cloudflare account, in one place: see what's blocked, what's already billing, and what's about to run out, before it happens. UI built with [`@columenlabs/lumen-ui`](https://www.npmjs.com/package/@columenlabs/lumen-ui).
+**Every account. Every limit. One gauge.** Usage and limits for every Cloudflare account, in one place: see what's blocked, what's already billing, and what's about to run out, before it happens. UI built with [`@columenlabs/lumen-ui`](https://www.npmjs.com/package/@columenlabs/lumen-ui). MIT licensed.
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/bchoor/usageflare)
 
 ![usageflare overview across three Cloudflare accounts](public/landing/overview.jpg)
 
@@ -46,6 +48,21 @@ bun run dev   # landing page at /, app at /app
 bun run lint && bun run type-check && bun run build
 ```
 
-## Deploy
+## Deploy your own
 
-Served at https://usageflare.icaruslab.dev (Worker custom domain). The landing page at `/` is public; the Cloudflare Access application covers the paths `/app` and `/api` on the custom domain, and the Worker still checks the Access JWT on every `/api` call. Cloudflare Workers Builds deploys every push to `main` (build `bun run build`, deploy `bunx wrangler deploy`). CI (`.github/workflows/ci.yml`) runs lint, typecheck and build; there are no unit tests. Releases: `lumen-ship release` every 10 merges (`.github/workflows/release.yml`, secret `ANTHROPIC_API_KEY`, repo variable `RELEASE_ON_MERGE=true`).
+It runs as one Worker and one KV namespace in your own Cloudflare account and only reads the accounts it watches.
+
+1. Click **Deploy to Cloudflare** above. It copies this repo to your GitHub, provisions the KV namespace and deploys with Workers Builds. When asked for `SETTINGS_KEY`, paste the output of `openssl rand -base64 32`.
+2. In Cloudflare Zero Trust, add a self-hosted **Access application** for your Worker's host with two paths, `/app` and `/api`, and a policy for the people who may use it. The landing page at `/` stays public.
+3. Set the Worker variables `ACCESS_TEAM_DOMAIN` (e.g. `myteam.cloudflareaccess.com`) and `ACCESS_AUD` (the application's audience tag). Until both are set the API answers 503.
+4. Open `/app`, go to Settings, Cloudflare API tokens, and add a read-only token for each account. The **Create token** link there pre-fills the permissions it needs.
+
+To deploy by hand instead: `bun install`, `bunx wrangler secret put SETTINGS_KEY`, set the two Access variables in `wrangler.jsonc`, then `bun run deploy`.
+
+## Deploy (this repo's instance)
+
+Served at https://usageflare.icaruslab.dev (Worker custom domain). The landing page at `/` is public; the Cloudflare Access application covers the paths `/app` and `/api` on the custom domain, and the Worker still checks the Access JWT on every `/api` call. Its values live in `env.production` in `wrangler.jsonc`; Cloudflare Workers Builds deploys every push to `main` with the build variable `CLOUDFLARE_ENV=production` (build `bun run build`, deploy `bunx wrangler deploy`). CI (`.github/workflows/ci.yml`) runs lint, typecheck and build; there are no unit tests. Releases: `lumen-ship release` every 10 merges (`.github/workflows/release.yml`, secret `ANTHROPIC_API_KEY`, repo variable `RELEASE_ON_MERGE=true`).
+
+## License
+
+MIT, see [LICENSE](LICENSE).

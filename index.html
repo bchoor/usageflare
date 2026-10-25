@@ -230,6 +230,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: s
       <a href="#views">Views</a>
       <a href="#coverage">Coverage</a>
       <a href="#setup">Setup</a>
+      <a href="https://github.com/bchoor/usageflare" target="_blank" rel="noopener">GitHub</a>
     </nav>
     <a class="btn btn-primary btn-sm" href="/app/">Open dashboard</a>
   </div>
@@ -247,9 +248,9 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: s
             <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 1.8v10.4L12 7z" fill="currentColor"/></svg>
             Watch the demo
           </a>
-          <a class="btn btn-ghost" href="#setup">Set it up</a>
+          <a class="btn btn-ghost" href="https://deploy.workers.cloudflare.com/?url=https://github.com/bchoor/usageflare" target="_blank" rel="noopener">Deploy to Cloudflare</a>
         </div>
-        <p class="fine">Runs as a Worker on your own Cloudflare account. Read-only tokens.</p>
+        <p class="fine">Open source (MIT). Runs as a Worker on your own Cloudflare account, with read-only tokens.</p>
       </div>
       <div style="position:relative; min-width:0">
         <div class="screen">
@@ -384,13 +385,17 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: s
       <div class="sec-head">
         <div class="kicker">Setup</div>
         <h2>Your Worker, your accounts, read-only.</h2>
-        <p>usageflare is a Hono app on Cloudflare Workers. It lives in your account and never writes to the ones it watches.</p>
+        <p>usageflare is an open-source Hono app on Cloudflare Workers. It lives in your account and never writes to the ones it watches.</p>
+        <div class="cta">
+          <a href="https://deploy.workers.cloudflare.com/?url=https://github.com/bchoor/usageflare" target="_blank" rel="noopener"><img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare" height="32" /></a>
+          <a class="btn btn-ghost btn-sm" href="https://github.com/bchoor/usageflare" target="_blank" rel="noopener">View on GitHub</a>
+        </div>
       </div>
       <div class="steps">
         <div class="step">
           <div class="n">Step 1</div>
           <h3>Deploy the Worker</h3>
-          <p>One Worker and one KV namespace. Put it behind Cloudflare Access so only your team can open it.</p>
+          <p>Use the Deploy to Cloudflare button: one Worker and one KV namespace in your account. Put <code>/app</code> and <code>/api</code> behind Cloudflare Access.</p>
         </div>
         <div class="step">
           <div class="n">Step 2</div>
@@ -435,8 +440,8 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: s
       <h2>Know before you're <em>blocked.</em></h2>
       <p>Usage and limits for every Cloudflare account, in one place.</p>
       <div class="cta">
-        <a class="btn btn-primary" href="/app/">Open dashboard</a>
-        <a class="btn btn-ghost" href="#demo">Watch the demo</a>
+        <a class="btn btn-primary" href="https://deploy.workers.cloudflare.com/?url=https://github.com/bchoor/usageflare" target="_blank" rel="noopener">Deploy to Cloudflare</a>
+        <a class="btn btn-ghost" href="/app/">Open dashboard</a>
       </div>
     </div>
   </section>
@@ -444,7 +449,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: s
 
 <footer>
   <div class="wrap">
-    <span>usageflare · Built with @columenlabs/lumen-ui · Hono on Cloudflare Workers</span>
+    <span>usageflare · MIT · <a href="https://github.com/bchoor/usageflare">GitHub</a> · Built with @columenlabs/lumen-ui · Hono on Cloudflare Workers</span>
     <span>Not affiliated with Cloudflare, Inc.</span>
   </div>
 </footer>

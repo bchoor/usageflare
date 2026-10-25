@@ -1,5 +1,10 @@
 {
   "name": "usageflare",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bchoor/usageflare"
+  },
   "dependencies": {
     "@columenlabs/lumen-ui": "0.1.48",
     "@columenlabs/lumen-ui-types": "0.1.48",
@@ -39,5 +44,21 @@
     "deploy": "vite build && wrangler deploy",
     "lint": "biome check .",
     "type-check": "tsc"
+  },
+  "cloudflare": {
+    "bindings": {
+      "SETTINGS_KEY": {
+        "description": "AES-GCM key for the API tokens you save: 32 random bytes in base64. Generate with `openssl rand -base64 32`."
+      },
+      "ACCESS_TEAM_DOMAIN": {
+        "description": "Your Cloudflare Access team domain, e.g. `myteam.cloudflareaccess.com`. Leave empty until you add the Access application; the API answers 503 until both Access values are set."
+      },
+      "ACCESS_AUD": {
+        "description": "The Application Audience (AUD) tag of the Access application that protects /app and /api on this Worker."
+      },
+      "KV": {
+        "description": "Settings, labels, saved views and the encrypted API tokens."
+      }
+    }
   }
 }
