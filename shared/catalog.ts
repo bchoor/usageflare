@@ -17,7 +17,8 @@ export type ProductId =
   | 'hyperdrive'
   | 'ai'
   | 'vectorize'
-  | 'queues';
+  | 'queues'
+  | 'basin';
 
 export interface Category {
   id: CategoryId;
@@ -46,15 +47,15 @@ export type Allowance = [number, 'day' | 'mo', number?];
  * compute time).
  */
 export const FAMILIES = [
-  { id: 'req', label: 'Requests' },
-  { id: 'q', label: 'Queries' },
-  { id: 'ops', label: 'Operations' },
-  { id: 'units', label: 'Inference' },
-  { id: 'cpu', label: 'Compute time' },
-  { id: 'mem', label: 'Memory · duration' },
-  { id: 'read', label: 'Reads' },
-  { id: 'write', label: 'Writes' },
-  { id: 'stor', label: 'Stored' },
+  { id: 'req', label: 'Requests', color: '#3b82f6' },
+  { id: 'q', label: 'Queries', color: '#06b6d4' },
+  { id: 'ops', label: 'Operations', color: '#84cc16' },
+  { id: 'units', label: 'Inference', color: '#8b5cf6' },
+  { id: 'cpu', label: 'Compute time', color: '#f97316' },
+  { id: 'mem', label: 'Memory · duration', color: '#eab308' },
+  { id: 'read', label: 'Reads', color: '#14b8a6' },
+  { id: 'write', label: 'Writes', color: '#a855f7' },
+  { id: 'stor', label: 'Stored', color: '#22c55e' },
 ] as const;
 export type FamilyId = (typeof FAMILIES)[number]['id'];
 export const FAMILY = Object.fromEntries(FAMILIES.map((f) => [f.id, f])) as Record<
@@ -70,6 +71,10 @@ export interface Metric {
   unit: '' | 'ms' | 'GB' | 'GB-s' | 'GB-h' | 'GiB-h' | 'vCPU-min' | 'min';
   /** `sum`: a count per day; `gauge`: a size at a point in time (latest day counts). */
   kind: 'sum' | 'gauge';
+  /** A storage tier with its own allowance (R2 Infrequent Access); its label ends `· IA`. */
+  tier?: string;
+  /** Billed, but Cloudflare offers no usage API for it: shown as "No usage API", never 0. */
+  noApi?: boolean;
   paid: Allowance | null;
   free: Allowance | null;
 }
@@ -147,6 +152,13 @@ export const PRODUCTS: Product[] = [
     label: 'Vectorize',
     color: '#ae3ec9',
     source: 'vectorizeV2QueriesAdaptiveGroups · vectorizeV2StorageAdaptiveGroups',
+  },
+  {
+    id: 'basin',
+    cat: 'storage',
+    label: 'R2 Data Catalog',
+    color: '#087f5b',
+    source: 'r2CatalogDataOperationsAdaptiveGroups (R2 SQL has no usage API)',
   },
   {
     id: 'queues',
@@ -287,6 +299,62 @@ export const METRICS: Metric[] = [
     kind: 'sum',
     paid: [10e6, 'mo', 0.36 / 1e6],
     free: [10e6, 'mo', 0.36 / 1e6],
+  },
+  // Infrequent Access buckets: no free tier, so every unit is billed (pay as you go).
+  {
+    key: 'r2.ia.stor',
+    family: 'stor',
+    product: 'r2',
+    label: 'Storage · IA',
+    tier: 'Infrequent Access',
+    unit: 'GB',
+    kind: 'gauge',
+    paid: [0, 'mo', 0.01],
+    free: [0, 'mo', 0.01],
+  },
+  {
+    key: 'r2.ia.a',
+    family: 'write',
+    product: 'r2',
+    label: 'Class A ops · IA',
+    tier: 'Infrequent Access',
+    unit: '',
+    kind: 'sum',
+    paid: [0, 'mo', 9 / 1e6],
+    free: [0, 'mo', 9 / 1e6],
+  },
+  {
+    key: 'r2.ia.b',
+    family: 'read',
+    product: 'r2',
+    label: 'Class B ops · IA',
+    tier: 'Infrequent Access',
+    unit: '',
+    kind: 'sum',
+    paid: [0, 'mo', 0.9 / 1e6],
+    free: [0, 'mo', 0.9 / 1e6],
+  },
+  // Basin: R2 Data Catalog (Iceberg) and R2 SQL, on every plan.
+  {
+    key: 'basin.ops',
+    family: 'ops',
+    product: 'basin',
+    label: 'Catalog operations',
+    unit: '',
+    kind: 'sum',
+    paid: [1e6, 'mo', 9 / 1e6],
+    free: [1e6, 'mo', 9 / 1e6],
+  },
+  {
+    key: 'basin.scan',
+    family: 'read',
+    product: 'basin',
+    label: 'R2 SQL data scanned',
+    unit: 'GB',
+    kind: 'sum',
+    noApi: true,
+    paid: [10, 'mo', 0.0025],
+    free: [10, 'mo', 0.0025],
   },
   {
     key: 'do.req',

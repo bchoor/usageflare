@@ -6,6 +6,8 @@ export interface Env {
   ACCESS_TEAM_DOMAIN: string;
   /** The Access application's audience tag. */
   ACCESS_AUD: string;
+  /** `1` serves sample accounts on localhost (worker/fixtures.ts); never set in production. */
+  FIXTURES?: string;
 }
 
 export type AppEnv = { Bindings: Env; Variables: { email: string } };

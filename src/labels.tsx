@@ -42,7 +42,13 @@ export function LabelMark({ m, name, withName }: { m: Model; name: string; withN
   const Icon = l?.icon ? iconOf(l.icon, Tag) : null;
   return (
     <span className="inline-flex items-center gap-1.5">
-      {Icon ? <Icon className="size-3.5" /> : <ColorDot color={color} />}
+      {Icon ? (
+        <span className="flex shrink-0" style={{ color }}>
+          <Icon className="size-3.5" />
+        </span>
+      ) : (
+        <ColorDot color={color} />
+      )}
       {withName && name}
     </span>
   );

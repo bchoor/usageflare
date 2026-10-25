@@ -43,6 +43,7 @@ import {
   METRIC,
   METRICS,
   PRODUCT,
+  type ProductId,
   permissionsFor,
 } from '../shared/catalog';
 import { DailyColumns, limitDomain, Meter, resourceDomain, view } from './domains';
@@ -584,7 +585,7 @@ function LimitRow({ u, m, open, onToggle }: { u: Usage; m: Model; open: boolean;
       type="button"
       onClick={onToggle}
       aria-expanded={open}
-      className="grid w-full grid-cols-[minmax(7rem,11rem)_minmax(0,1fr)_auto] items-center gap-x-3.5 gap-y-1.5 border-b px-3 py-2.5 text-left last:border-b-0 hover:bg-muted/40"
+      className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3.5 gap-y-1.5 border-b px-3 py-2.5 text-left last:border-b-0 hover:bg-muted/40 md:grid-cols-[minmax(7rem,11rem)_minmax(0,1fr)_auto]"
     >
       <span className="flex flex-col">
         <span className="inline-flex items-center gap-1.5 font-semibold text-[13px]">
@@ -592,19 +593,22 @@ function LimitRow({ u, m, open, onToggle }: { u: Usage; m: Model; open: boolean;
           {PRODUCT[u.m.product].label} · {u.m.label}
         </span>
         <small className="text-[11px] text-muted-foreground">
-          {u.hard ? 'Hard limit' : 'Included'} {fmt(u.limit, u.m.unit)}
-          {perText(u)}
+          {u.payg
+            ? 'Pay as you go'
+            : `${u.hard ? 'Hard limit' : 'Included'} ${fmt(u.limit, u.m.unit)}${perText(u)}`}
         </small>
       </span>
-      <Meter share={u.pct} status={u.st} wide />
-      <span className="flex items-center gap-2">
+      <span className="col-span-2 row-start-2 md:col-span-1 md:row-start-auto">
+        <Meter share={u.pct} status={u.st} wide />
+      </span>
+      <span className="col-start-2 row-start-1 flex items-center gap-2 md:col-start-auto md:row-start-auto">
         <span className="font-mono text-xs">
           <b>{fmt(u.used, u.m.unit)}</b>
         </span>
         <StatusPill u={u} dates={m.dates} />
       </span>
       {open && (
-        <span className="col-span-2 col-start-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+        <span className="col-span-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground md:col-start-2">
           {u.parts.slice(0, 6).map((p, i) => (
             <span key={p.r.id} className="inline-flex items-center gap-1.5">
               <ColorDot color={ACCOUNT_COLORS[i % ACCOUNT_COLORS.length] as string} />
@@ -844,7 +848,7 @@ export function AccountName({ a }: { a: AccountView }) {
 
 // ---------- Resources ----------
 
-const RES_COLUMNS = ['name', 'account', 'product', 'label', 'used', 'share', 'trend', 'cost'];
+const RES_COLUMNS = ['name', 'account', 'product', 'label', 'metric', 'used', 'share', 'trend', 'cost'];
 const RESOURCES = view({
   name: 'Resources',
   columns: RES_COLUMNS,
@@ -853,10 +857,21 @@ const RESOURCES = view({
   width: 'scroll',
 } as Partial<CustomViewConfig> & { name: string });
 
-export function ResourcesPage({ acct, label, open }: { acct?: string; label?: string; open?: string }) {
+export function ResourcesPage({
+  acct,
+  label,
+  open,
+  product,
+}: {
+  acct?: string;
+  label?: string;
+  open?: string;
+  /** A product link: its category tab, with a Product chip in the filter. */
+  product?: ProductId;
+}) {
   const m = useModel();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<'all' | CategoryId>('all');
+  const [tab, setTab] = useState<'all' | CategoryId>(product ? PRODUCT[product].cat : 'all');
   // The table can hold on to an older `selection` between renders, so its keys are one Set kept
   // current in place, and every change goes through one stable setter.
   const selKeys = useRef(new Set<string>()).current;
@@ -902,7 +917,15 @@ export function ResourcesPage({ acct, label, open }: { acct?: string; label?: st
   const config: CustomViewConfig = {
     ...saved.config,
     columns,
-    filters: { ...saved.config.filters, default: label ? [{ key: 'label', value: label }] : [] },
+    filters: {
+      ...saved.config.filters,
+      default: [
+        ...(label ? [{ key: 'label', value: label }] : []),
+        ...(product && (tab === 'all' || PRODUCT[product].cat === tab)
+          ? [{ key: 'product', value: PRODUCT[product].label }]
+          : []),
+      ],
+    },
   };
   const counts = (id: 'all' | CategoryId) =>
     scoped.filter((r) => id === 'all' || PRODUCT[r.product].cat === id).length;
@@ -920,7 +943,7 @@ export function ResourcesPage({ acct, label, open }: { acct?: string; label?: st
   return (
     <>
       <LumenLayout
-        key={`${acct ?? ''}|${label ?? ''}|${tab}`}
+        key={`${acct ?? ''}|${label ?? ''}|${product ?? ''}|${tab}`}
         crumbs={crumbs}
         meta={label ? 'Everything with this label' : 'Main metric month to date, today on Free'}
         intro={
