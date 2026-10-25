@@ -58,6 +58,7 @@ const viewPage = z.object({
     'overview-usage',
     'account-usage',
     'limits',
+    'account-limits',
     'resources',
     // The All tab since Usage + Watch for (v17): a fresh default, older saved columns left behind.
     'resources-all',

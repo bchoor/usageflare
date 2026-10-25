@@ -1,6 +1,6 @@
 /**
- * The pages: Overview, Limits, Resources (every account, one account, or one label) and an
- * account's Overview. Each is a LumenLayout: its cards, widths and table settings are a saved view
+ * The pages: Overview, Resources (every account, one account, or one label) and an
+ * account's Overview and Limits. Each is a LumenLayout: its cards, widths and table settings are a saved view
  * (Edit layout), kept per page in the Worker's KV.
  */
 import {
@@ -83,6 +83,7 @@ import {
 } from './model';
 import { hitting, PaceList } from './pace';
 import { CATEGORY_ICON, ProductIcon } from './products';
+import { meterName, quotaDomain, quotaRows } from './quotas';
 
 // ---------- Saved page layouts ----------
 
@@ -92,6 +93,7 @@ type PageId =
   | 'account'
   | 'account-usage'
   | 'limits'
+  | 'account-limits'
   | 'resources'
   | 'resources-all'
   | `resources-${CategoryId}`;
@@ -626,15 +628,7 @@ export function OverviewPage() {
         })}
       />,
     ),
-    pageCard(
-      'watch',
-      'Watch for',
-      TriangleAlert,
-      <WatchList m={m} us={xs} limit={6} showAccount />,
-      <Button size="sm" variant="ghost" asChild>
-        <Link to="/limits">All limits</Link>
-      </Button>,
-    ),
+    pageCard('watch', 'Watch for', TriangleAlert, <WatchList m={m} us={xs} limit={6} showAccount />),
     pageCard('pace', 'On pace to hit a cap', Timer, <PaceList us={xs} w={w} limit={6} showAccount />),
     pageCard(
       'usage',
@@ -686,29 +680,35 @@ function monthStart() {
 // ---------- Limits ----------
 
 const LIMITS = view({
-  name: 'Every allowance',
-  columns: ['account', 'product', 'metric', 'used', 'allowance', 'pct', 'fpct', 'pace', 'cost', 'status'],
-  group: { fields: ['account', 'category', 'product', 'family', 'status', 'pace'], default: 'account' },
-  sort: { key: 'fpct', desc: true },
-  width: 'scroll',
+  name: 'By label',
+  columns: ['label', 'used', 'quota', 'pct', 'fpct', 'pace', 'cost', 'top'],
+  group: { fields: ['product', 'label', 'status'], default: 'product' },
+  subgroup: 'meter',
+  sort: { key: 'pct', desc: true },
 } as Partial<CustomViewConfig> & { name: string });
 
-export function LimitsPage() {
+/**
+ * An account's Limits: each pooled meter by the labels that use it. Quotas are the account's, so
+ * this page is per account only.
+ */
+export function AccountLimitsPage({ acct }: { acct: string }) {
   const m = useModel();
   const [w] = usePaceWindow();
-  const saved = useSavedView('limits', LIMITS);
-  const domain = useMemo(() => limitDomain(m, w), [m, w]);
-  if (!m.accounts.length) return <Waiting m={m} crumbs={[{ label: 'Limits' }]} />;
-  const xs = m.usage;
+  const saved = useSavedView('account-limits', LIMITS);
+  const a = m.account[acct];
+  const xs = useMemo(() => m.usage.filter((u) => u.a.id === acct), [m, acct]);
+  const rows = useMemo(() => quotaRows(m, xs), [m, xs]);
+  const domain = useMemo(() => quotaDomain(m, w), [m, w]);
+  if (!a) return <Waiting m={m} crumbs={[{ label: 'Limits' }]} />;
   return (
     <LumenLayout
-      crumbs={[{ label: 'Limits' }]}
-      meta="Paid: month to date · Free: today"
+      crumbs={[{ label: <AccountName a={a} />, name: a.name }, { label: 'Limits' }]}
+      meta={a.plan === 'paid' ? `Month to date · resets ${nextMonth()}` : 'Today · resets 00:00 UTC'}
       actions={<PaceWindowPicker />}
       intro={
         <div className="flex flex-col gap-3">
-          <Problems m={m} />
-          <TileRow aria-label="Limits">
+          <Problems m={m} acct={acct} />
+          <TileRow fill aria-label="Limits">
             <Tile
               label="Blocked"
               value={xs.filter((u) => u.st === 'block').length}
@@ -736,10 +736,9 @@ export function LimitsPage() {
         </div>
       }
       domain={domain}
-      rows={xs}
+      rows={rows}
       load={m.load}
-      tile={usageTile(m, w)}
-      rowTitle={(u) => `${u.a.name} · ${PRODUCT[u.m.product].label} ${u.m.label}`}
+      rowTitle={(q) => `${q.label} · ${meterName(q.u)}`}
       {...saved}
     />
   );

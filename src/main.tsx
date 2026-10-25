@@ -17,7 +17,14 @@ import { Slider } from '@columenlabs/lumen-ui/ui/slider';
 import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister';
 import { useQuery } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
-import { createRootRoute, createRoute, createRouter, Outlet, RouterProvider } from '@tanstack/react-router';
+import {
+  createRootRoute,
+  createRoute,
+  createRouter,
+  Outlet,
+  RouterProvider,
+  redirect,
+} from '@tanstack/react-router';
 import { Bell, Building2, Gauge, KeyRound, LayoutDashboard, Plus, Rows3, Tag } from 'lucide-react';
 import { StrictMode, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -36,7 +43,7 @@ import {
   useSaveLabels,
   useSavePrefs,
 } from './model';
-import { AccountPage, LimitsPage, OverviewPage, ResourcesPage } from './pages';
+import { AccountLimitsPage, AccountPage, OverviewPage, ResourcesPage } from './pages';
 import { PRODUCT_ICON } from './products';
 import { TokensSettings } from './settings';
 
@@ -108,6 +115,14 @@ function AccountNav({ m }: { m: Model }) {
         const labels = m.labels.labels.filter((l) => rs.some((r) => m.labelsOf(r).includes(l.name)));
         const items: SectionItem[] = [
           { id: 'overview', title: 'Overview', to: `/a/${a.id}`, icon: LayoutDashboard, fixed: true },
+          {
+            id: 'limits',
+            title: 'Limits',
+            to: `/a/${a.id}/limits`,
+            icon: Gauge,
+            badge: us.filter((u) => SEVERITY[u.st] >= 2).length || undefined,
+            fixed: true,
+          },
           {
             id: 'resources',
             title: 'Resources',
@@ -281,7 +296,6 @@ function Shell() {
   const m = useModel();
   const saveLabels = useSaveLabels();
   registerLabelSaver((doc) => saveLabels.mutateAsync(doc));
-  const atRisk = m.usage.filter((u) => SEVERITY[u.st] >= 2).length;
   const synced = m.accounts.map((a) => a.syncedAt).sort()[0];
   const ago = useAgo(synced);
   const refreshing = useRefreshing();
@@ -296,7 +310,6 @@ function Shell() {
           <NavGroup
             items={[
               { title: 'Overview', to: '/', icon: LayoutDashboard, exact: true },
-              { title: 'Limits', to: '/limits', icon: Gauge, badge: atRisk || undefined },
               {
                 title: 'All resources',
                 to: '/resources',
@@ -363,7 +376,14 @@ const resSearch = z.object({
 
 const routes = [
   createRoute({ getParentRoute: () => root, path: '/', component: OverviewPage }),
-  createRoute({ getParentRoute: () => root, path: '/limits', component: LimitsPage }),
+  // Limits are per account now: an old link lands on the Overview.
+  createRoute({
+    getParentRoute: () => root,
+    path: '/limits',
+    beforeLoad: () => {
+      throw redirect({ to: '/' });
+    },
+  }),
   createRoute({
     getParentRoute: () => root,
     path: '/resources',
@@ -401,8 +421,16 @@ const routes = [
       );
     },
   }),
+  createRoute({
+    getParentRoute: () => root,
+    path: '/a/$acct/limits',
+    component: function AccountLimits() {
+      const { acct } = accountLimitsRoute.useParams();
+      return <AccountLimitsPage key={acct} acct={acct} />;
+    },
+  }),
 ] as const;
-const [, , resourcesRoute, accountRoute, accountResourcesRoute] = routes;
+const [, , resourcesRoute, accountRoute, accountResourcesRoute, accountLimitsRoute] = routes;
 
 // The public landing page owns `/`; the app is served under /app (wrangler.jsonc).
 const router = createRouter({ routeTree: root.addChildren([...routes]), basepath: '/app' });
