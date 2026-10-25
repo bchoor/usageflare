@@ -1,0 +1,11 @@
+export interface Env {
+  KV: KVNamespace;
+  /** AES-GCM key for secrets kept in KV: 32 random bytes, base64 (a Worker secret). */
+  SETTINGS_KEY: string;
+  /** Cloudflare Access team domain, e.g. `myteam.cloudflareaccess.com`. */
+  ACCESS_TEAM_DOMAIN: string;
+  /** The Access application's audience tag. */
+  ACCESS_AUD: string;
+}
+
+export type AppEnv = { Bindings: Env; Variables: { email: string } };
