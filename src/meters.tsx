@@ -3,11 +3,11 @@
  * listing every meter with its value, share of the allowance and forecast cost. Rows stay one
  * line; the detail lives in the card.
  */
-import { ShareMeter } from '@columenlabs/lumen-ui';
+import { METER_LEVEL_COLOR, meterLevel, ShareMeter } from '@columenlabs/lumen-ui';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@columenlabs/lumen-ui/ui/hover-card';
 import type { ReactNode } from 'react';
 import { FAMILY, METRICS, type Metric, PRODUCT, type Resource } from '../shared/catalog';
-import { barColor, costNote, fmt, type Model, pctText, shareOf, type Usage, usd } from './model';
+import { costNote, fmt, type Model, pctText, shareOf, type Usage, usd } from './model';
 import { ProductIcon } from './products';
 
 export interface MeterRow {
@@ -34,8 +34,6 @@ export function metersOf(model: Model, r: Resource): MeterRow[] {
   return rows;
 }
 
-const tone = (share: number) => (share >= 1 ? 'over' : share >= 0.75 ? 'watch' : 'ok');
-
 /** The metric's name in a chip tinted by its family (Reads, Writes, Stored...). */
 export function MetricChip({ m }: { m: Metric }) {
   const c = FAMILY[m.family].color;
@@ -58,7 +56,7 @@ export function MetricChip({ m }: { m: Metric }) {
 export function ShareBar({ row }: { row: MeterRow }) {
   if (row.m.noApi) return <span className="text-muted-foreground text-xs">No usage API</span>;
   if (row.u?.payg) return <span className="text-muted-foreground text-xs">Pay as you go</span>;
-  return <ShareMeter value={row.share} label={pctText(row.share)} color={barColor(tone(row.share))} />;
+  return <ShareMeter value={row.share} label={pctText(row.share)} />;
 }
 
 /** Hover or focus `children` to see every meter of `r`; `hl` marks the one the cell shows. */
@@ -113,7 +111,8 @@ export function MetersCard({
           </tbody>
         </table>
         <p className="border-t px-3 py-1.5 text-muted-foreground text-xs">
-          Share of the {a?.name ?? ''} allowance
+          Usage {planText(model.info(r).plan)} of the {a?.name ?? ''} allotment at list prices. Bars: share of
+          each meter's allowance
           {a?.plan === 'free' ? ' (Free plan, daily limits)' : '; cost is the forecast to month end'}.
         </p>
       </HoverCardContent>
@@ -148,5 +147,62 @@ export function ResourceCard({ model, r, children }: { model: Model; r: Resource
         </dl>
       </HoverCardContent>
     </HoverCard>
+  );
+}
+
+/** A share of the allotment: `<1%` rather than a misleading 0%. */
+export const planText = (p: number) => (p > 0 && p < 0.005 ? '<1%' : pctText(p));
+
+/** Usage: the resource's share of its account's allotment, a quiet bar (it is a size, not a warning). */
+export function UsageCell({ model, r }: { model: Model; r: Resource }) {
+  const p = model.info(r).plan;
+  return (
+    <MetersCard model={model} r={r}>
+      <ShareMeter
+        className="max-md:hidden"
+        value={p}
+        label={planText(p)}
+        color="color-mix(in oklab, var(--primary) 70%, transparent)"
+      />
+      <span className="num md:hidden">{planText(p)}</span>
+    </MetersCard>
+  );
+}
+
+/** Watch for: the meter closest to its own cap, name and share, tinted by the kit's meter levels. */
+export function WatchFor({ model, r }: { model: Model; r: Resource }) {
+  const x = model.info(r).main;
+  if (!x) return <span className="text-muted-foreground">—</span>;
+  const level = x.u.payg ? 'ok' : meterLevel(x.share);
+  const c = METER_LEVEL_COLOR[level];
+  return (
+    <MetersCard model={model} r={r} hl={x.key}>
+      <span
+        className="inline-flex h-5 min-w-0 items-center gap-1.5 whitespace-nowrap rounded-[5px] px-1.5 text-xs"
+        style={
+          level === 'ok'
+            ? { background: 'var(--muted)' }
+            : {
+                background: `color-mix(in oklab, ${c} 18%, transparent)`,
+                color: `color-mix(in oklab, ${c} 80%, var(--foreground))`,
+              }
+        }
+      >
+        <span className="truncate max-md:max-w-16">{x.u.m.label}</span>
+        <span className="num">{x.u.payg ? 'pay as you go' : pctText(x.share)}</span>
+      </span>
+    </MetersCard>
+  );
+}
+
+/** The last 7 days against the 7 before: an arrow and a share, never a bare number. */
+export function Trend7({ t }: { t: number | null }) {
+  if (t === null) return <span className="text-muted-foreground">—</span>;
+  const p = Math.round(t * 100);
+  if (p === 0) return <span className="num text-muted-foreground">0%</span>;
+  return (
+    <span className="num whitespace-nowrap">
+      {p > 0 ? '▲' : '▼'} {Math.abs(p)}%
+    </span>
   );
 }
