@@ -21,8 +21,8 @@ Cloudflare bills by resource, but you think in projects.
 00:00:34.412 --> 00:00:41.102
 Filter for anything without a label, pick resources from any account, and tag them all in one go.
 
-00:00:44.700 --> 00:00:48.355
-Then group by account and product, and save the view.
+00:00:43.800 --> 00:00:49.662
+Then group by account and product, open the groups you care about, and save the view.
 
 00:00:54.000 --> 00:00:56.069
 And it adapts to how you work.

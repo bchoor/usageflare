@@ -1,6 +1,22 @@
 # usageflare
 
-Cloudflare usage dashboard across one or more accounts, pairing usage and limits with the real services and resources behind them. UI built with [`@columenlabs/lumen-ui`](https://www.npmjs.com/package/@columenlabs/lumen-ui).
+**Every account. Every limit. One gauge.** Usage and limits for every Cloudflare account, in one place: see what's blocked, what's already billing, and what's about to run out, before it happens. UI built with [`@columenlabs/lumen-ui`](https://www.npmjs.com/package/@columenlabs/lumen-ui).
+
+![usageflare overview across three Cloudflare accounts](public/landing/overview.jpg)
+
+## What it does
+
+- **Limits.** Every allowance across accounts (Workers, KV, D1, R2, Durable Objects, Queues, Workers AI, Containers and more), measured against your Free or Paid plan and forecast to the end of the month. Each one gets a status: Blocked, Over (billed), Will exceed, Watch or OK.
+- **Projects.** Cloudflare bills by resource; labels turn resources into projects across accounts. Filter for anything without a label, tag many resources in one go, group by account and product, and save the view.
+- **Your own views.** Formula columns checked as you type, plus cards, charts and widgets you can drag around and save.
+
+| Limits | Grouping |
+|---|---|
+| ![Limits: every allowance with forecast and status](public/landing/limits.jpg) | ![Resources grouped by account and product](public/landing/group.jpg) |
+| **Formula columns** | **Widgets** |
+| ![Adding a formula column](public/landing/formula.jpg) | ![Adding a widget to the dashboard](public/landing/widgets.jpg) |
+
+The landing page at `/` plays the full narrated demo (`public/landing/demo.mp4`).
 
 ## Stack
 
@@ -24,10 +40,12 @@ KV layout: `secret:<name>` → `{v, kind, label, iv, ct, last4, updatedAt, updat
 ```bash
 bun install
 printf 'SETTINGS_KEY=%s\n' "$(openssl rand -base64 32)" > .dev.vars
-bun run dev
+# Optional: sample data for three accounts, no token needed (localhost only)
+printf 'FIXTURES=1\nACCESS_TEAM_DOMAIN=\nACCESS_AUD=\n' >> .dev.vars
+bun run dev   # landing page at /, app at /app
 bun run lint && bun run type-check && bun run build
 ```
 
 ## Deploy
 
-Served at https://usageflare.icaruslab.dev (Worker custom domain). The landing page at `/` is public; the Cloudflare Access application covers the paths `/app` and `/api` (both hosts), and the Worker still checks the Access JWT on every `/api` call. Cloudflare Workers Builds deploys every push to `main` (build `bun run build`, deploy `bunx wrangler deploy`). CI (`.github/workflows/ci.yml`) runs lint, typecheck and build; there are no unit tests. Releases: `lumen-ship release` every 10 merges (`.github/workflows/release.yml`, secret `ANTHROPIC_API_KEY`, repo variable `RELEASE_ON_MERGE=true`).
+Served at https://usageflare.icaruslab.dev (Worker custom domain). The landing page at `/` is public; the Cloudflare Access application covers the paths `/app` and `/api` on the custom domain, and the Worker still checks the Access JWT on every `/api` call. Cloudflare Workers Builds deploys every push to `main` (build `bun run build`, deploy `bunx wrangler deploy`). CI (`.github/workflows/ci.yml`) runs lint, typecheck and build; there are no unit tests. Releases: `lumen-ship release` every 10 merges (`.github/workflows/release.yml`, secret `ANTHROPIC_API_KEY`, repo variable `RELEASE_ON_MERGE=true`).
