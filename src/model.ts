@@ -549,7 +549,14 @@ export function useModel(): Model {
       infoCache.set(r.id, out);
       return out;
     };
-    const doc = labels.data ?? { labels: [], assign: {} };
+    // Labels list A to Z everywhere (pickers, sidebar, search), whatever order they were made in.
+    const raw = labels.data ?? { labels: [], assign: {} };
+    const doc = {
+      ...raw,
+      labels: [...raw.labels].sort((a, b) =>
+        a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+      ),
+    };
     const known = new Set(doc.labels.map((l) => l.name));
     return {
       load,
