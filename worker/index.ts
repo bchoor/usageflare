@@ -13,6 +13,7 @@ import { deleteSecret, hasSecret, listSecrets, putSecret, testSecret } from './s
 import {
   accountRefs,
   accountUsage,
+  type Defer,
   deleteView,
   getLabels,
   getPrefs,
@@ -121,7 +122,7 @@ const api = new Hono<AppEnv>()
     c.json(
       fixturesOn(c.env, c.req.url)
         ? publicRefs(fixtureRefs())
-        : await accountRefsPublic(c.env, fresh(c.req.query('fresh'))),
+        : await accountRefsPublic(c.env, fresh(c.req.query('fresh')), (w) => c.executionCtx.waitUntil(w)),
     ),
   )
   .get('/accounts/:id/usage', zValidator('param', accountParam), async (c) => {
@@ -129,7 +130,9 @@ const api = new Hono<AppEnv>()
       const usage = fixtureUsage(c.req.valid('param').id, historyDates());
       return usage ? c.json(usage) : c.json({ error: 'No token reaches that account' }, 404);
     }
-    const usage = await accountUsage(c.env, c.req.valid('param').id, fresh(c.req.query('fresh')));
+    const usage = await accountUsage(c.env, c.req.valid('param').id, fresh(c.req.query('fresh')), (w) =>
+      c.executionCtx.waitUntil(w),
+    );
     return usage ? c.json(usage) : c.json({ error: 'No token reaches that account' }, 404);
   })
   .get('/prefs', async (c) => c.json(await getPrefs(c.env)))
@@ -168,8 +171,8 @@ const api = new Hono<AppEnv>()
   });
 
 /** Account refs without the token's KV name: the UI only needs the label it's read with. */
-async function accountRefsPublic(env: AppEnv['Bindings'], fresh: boolean) {
-  return publicRefs(await accountRefs(env, fresh));
+async function accountRefsPublic(env: AppEnv['Bindings'], fresh: boolean, defer: Defer) {
+  return publicRefs(await accountRefs(env, fresh, defer));
 }
 
 function publicRefs({ accounts, errors }: Awaited<ReturnType<typeof accountRefs>>) {
