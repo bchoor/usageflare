@@ -11,6 +11,7 @@ import {
   LumenEChart,
   ShareMeter,
   StackedColumns,
+  TileSpark,
   UnitValue,
   useChartTokens,
   type ViewDomain,
@@ -34,6 +35,7 @@ import {
   Text,
   TriangleAlert,
 } from 'lucide-react';
+import { useState } from 'react';
 import {
   CATEGORY,
   FAMILIES,
@@ -47,8 +49,10 @@ import {
 import { LabelPicker, setLabels } from './labels';
 import { MetersCard, MetricChip, metersOf, ResourceCard, ShareBar } from './meters';
 import {
+  barColor,
   costNote,
   fmt,
+  gbUnit,
   labelColor,
   type Model,
   pctText,
@@ -110,7 +114,7 @@ export function Spark({ values, color }: { values: number[]; color: string }) {
 const UNIT_SHORT: Record<string, string> = { 'vCPU-min': 'vCPU-m' };
 /** A meter's amount as number and unit, for `UnitValue`. */
 export const amountParts = (v: number, unit: string): [string, string] =>
-  unit === 'GB' ? [fmt(v, 'GB').replace(' GB', ''), 'GB'] : [fmt(v), UNIT_SHORT[unit] ?? unit];
+  unit === 'GB' ? (fmt(v, 'GB').split(' ') as [string, string]) : [fmt(v), UNIT_SHORT[unit] ?? unit];
 const toneOf = (share: number, payg?: boolean) =>
   payg ? undefined : share >= 1 ? ('loss' as const) : share >= 0.5 ? ('warning' as const) : undefined;
 
@@ -155,7 +159,26 @@ function familyRoll(m: Model, family: string, as: 'amount' | 'share') {
 
 /** Used against the allowance: a bar coloured by status, with the share beside it. */
 export function Meter({ share, status, wide }: { share: number; status: Usage['st']; wide?: boolean }) {
-  return <ShareMeter value={share} label={pctText(share)} color={sevColor(status)} wide={wide} />;
+  // Wide meters stop at a short track: a full-width bar shouts even when there is room.
+  return (
+    <ShareMeter
+      value={share}
+      label={pctText(share)}
+      color={barColor(status)}
+      wide={wide}
+      className={wide ? 'max-w-48' : undefined}
+    />
+  );
+}
+
+/** Axis and tooltip numbers in one unit picked from the tallest column, so storage never reads 0.00 GB. */
+function axisFmt(max: number, unit: string): (v: number) => string {
+  const trim = (x: number) => +x.toPrecision(3);
+  if (unit === 'GB') {
+    const [u, f] = gbUnit(max);
+    return (v) => (v === 0 ? '0' : `${trim(v / f)} ${u}`);
+  }
+  return (v) => fmt(v, unit);
 }
 
 /** Daily values of one or more series, stacked, with the dates under them. */
@@ -184,7 +207,10 @@ export function DailyColumns({
       label={label}
       height={height}
       tick={(v) => v.slice(5)}
-      fmt={(v) => fmt(v, unit)}
+      fmt={axisFmt(
+        Math.max(0, ...dates.map((_, i) => series.reduce((n, s) => n + (s.values[i] ?? 0), 0))),
+        unit,
+      )}
       legend={series.length > 1}
     />
   );
@@ -528,42 +554,85 @@ function ResourceLinks({ m, ids, open }: { m: Model; ids: string[]; open: (id: s
   );
 }
 
+/** Every metric of `r` on one line (its 30 days, this period, share of allowance); the picked one is charted below. */
 function ResourceUsage({ m, r }: { m: Model; r: Resource }) {
   const keys = Object.keys(r.series);
   const a = m.account[r.acct];
-  const k0 = m.info(r).main?.key ?? keys[0];
+  const [picked, setPicked] = useState<string>();
   if (!keys.length || !a)
     return <p className="text-muted-foreground text-sm">No usage in the last 30 days.</p>;
+  const k0 = picked && keys.includes(picked) ? picked : (m.info(r).main?.key ?? keys[0]);
+  const color = (k: string) => {
+    const f = METRIC[k]?.family;
+    return f ? FAMILY[f].color : a.color;
+  };
   return (
     <div className="flex flex-col gap-3">
       <DetailsTable
         head={[
           { label: 'Metric', grow: true },
+          { label: '30 days' },
           { label: 'This period', right: true },
-          { label: 'Of allowance', right: true },
+          { label: 'Of limit', right: true },
         ]}
+        selected={k0}
+        onSelect={setPicked}
         rows={keys.map((k) => {
           const u = m.usage.find((x) => x.a.id === r.acct && x.m.key === k);
           const v = u?.parts.find((p) => p.r.id === r.id)?.v ?? 0;
           const met = METRIC[k];
+          const share = u ? shareOf(u, v) : 0;
           return {
             key: k,
             cells: [
-              met?.label ?? k,
+              <span key="n" className="inline-flex items-center gap-2 whitespace-nowrap font-sans">
+                <ColorDot color={color(k)} />
+                {met?.label ?? k}
+              </span>,
+              <span key="s" className="block w-12 md:w-16">
+                <TileSpark values={r.series[k] ?? []} color={color(k)} />
+              </span>,
               fmt(v, met?.unit),
-              u ? (u.payg ? 'Pay as you go' : pctText(shareOf(u, v))) : '—',
+              u ? (
+                u.payg ? (
+                  <span key="p" className="text-muted-foreground text-xs">
+                    Pay as you go
+                  </span>
+                ) : (
+                  // A phone drawer has room for the share, not its bar.
+                  <span key="p">
+                    <ShareMeter
+                      className="max-md:hidden"
+                      value={share}
+                      label={pctText(share)}
+                      color={barColor(share >= 1 ? 'over' : share >= 0.75 ? 'watch' : 'ok')}
+                    />
+                    <span className="md:hidden">{pctText(share)}</span>
+                  </span>
+                )
+              ) : (
+                '—'
+              ),
             ],
           };
         })}
       />
       {k0 && (
-        <DailyColumns
-          dates={m.dates}
-          series={[{ name: r.name, color: a.color, values: r.series[k0] ?? [] }]}
-          unit={METRIC[k0]?.unit ?? ''}
-          label={`${r.name} daily ${METRIC[k0]?.label ?? ''}`}
-          height={160}
-        />
+        <div className="flex flex-col gap-1">
+          <span className="font-medium text-muted-foreground text-xs">
+            {METRIC[k0]?.label ?? k0}, last 30 days
+          </span>
+          <DailyColumns
+            dates={m.dates}
+            series={[{ name: r.name, color: color(k0), values: r.series[k0] ?? [] }]}
+            unit={METRIC[k0]?.unit ?? ''}
+            label={`${r.name} daily ${METRIC[k0]?.label ?? ''}`}
+            height={160}
+          />
+          {keys.length > 1 && (
+            <span className="text-muted-foreground text-xs">Click a metric above to chart it.</span>
+          )}
+        </div>
       )}
     </div>
   );

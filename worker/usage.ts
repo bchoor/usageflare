@@ -1,7 +1,9 @@
 /**
  * Which accounts the Settings tokens reach, and each account's usage, cached in KV so a page load
- * doesn't re-read Cloudflare. One account per request keeps every call well inside the Worker's
- * subrequest limit.
+ * doesn't re-read Cloudflare. A copy past its 10 minutes is still served at once (stale while
+ * revalidate): the account list refreshes in the background, and a usage reply says `stale` so the
+ * UI reads it again with `?fresh` without anyone waiting. One account per request keeps every call
+ * well inside the Worker's subrequest limit.
  *
  * KV: `accounts:v1` → AccountRef[] (10 min), `usage:v2:<account>` → { account, resources } (10 min),
  * `prefs:v1`, `labels:v1`, `view:v1:<page>` → the person's settings, labels and saved page layouts.
@@ -25,42 +27,64 @@ interface Cached<T> {
   value: T;
 }
 
-async function cached<T>(env: Env, key: string, fresh: boolean, load: () => Promise<T>): Promise<T> {
+/** Runs work after the reply is sent (the request's `waitUntil`). */
+export type Defer = (work: Promise<unknown>) => void;
+
+async function cached<T>(
+  env: Env,
+  key: string,
+  fresh: boolean,
+  load: () => Promise<T>,
+  defer?: Defer,
+): Promise<T> {
+  const save = async () => {
+    const value = await load();
+    await env.KV.put(key, JSON.stringify({ at: Date.now(), value } satisfies Cached<T>), {
+      expirationTtl: 86_400,
+    });
+    return value;
+  };
   if (!fresh) {
     const hit = await env.KV.get<Cached<T>>(key, 'json');
     if (hit && Date.now() - hit.at < TTL_MS) return hit.value;
+    if (hit && defer) {
+      defer(save().catch((e) => console.error(e)));
+      return hit.value;
+    }
   }
-  const value = await load();
-  await env.KV.put(key, JSON.stringify({ at: Date.now(), value } satisfies Cached<T>), {
-    expirationTtl: 86_400,
-  });
-  return value;
+  return save();
 }
 
 /** Every account any token can read; the first token (by label) that reaches an account reads it. */
-export async function accountRefs(env: Env, fresh: boolean) {
-  return cached(env, 'accounts:v1', fresh, async () => {
-    const accounts: AccountRef[] = [];
-    const errors: { token: string; label: string; error: string }[] = [];
-    for (const s of await listSecrets(env)) {
-      try {
-        const token = await revealSecret(env, s.name);
-        if (!token) continue;
-        for (const a of await listAccounts(token)) {
-          if (!accounts.some((x) => x.id === a.id)) {
-            accounts.push({ id: a.id, name: a.name, token: s.name, tokenLabel: s.label });
+export async function accountRefs(env: Env, fresh: boolean, defer?: Defer) {
+  return cached(
+    env,
+    'accounts:v1',
+    fresh,
+    async () => {
+      const accounts: AccountRef[] = [];
+      const errors: { token: string; label: string; error: string }[] = [];
+      for (const s of await listSecrets(env)) {
+        try {
+          const token = await revealSecret(env, s.name);
+          if (!token) continue;
+          for (const a of await listAccounts(token)) {
+            if (!accounts.some((x) => x.id === a.id)) {
+              accounts.push({ id: a.id, name: a.name, token: s.name, tokenLabel: s.label });
+            }
           }
+        } catch (e) {
+          errors.push({ token: s.name, label: s.label, error: e instanceof Error ? e.message : 'Failed' });
         }
-      } catch (e) {
-        errors.push({ token: s.name, label: s.label, error: e instanceof Error ? e.message : 'Failed' });
       }
-    }
-    return { accounts, errors };
-  });
+      return { accounts, errors };
+    },
+    defer,
+  );
 }
 
-export async function accountUsage(env: Env, accountId: string, fresh: boolean) {
-  const { accounts } = await accountRefs(env, false);
+export async function accountUsage(env: Env, accountId: string, fresh: boolean, defer?: Defer) {
+  const { accounts } = await accountRefs(env, false, defer);
   const ref = accounts.find((a) => a.id === accountId);
   if (!ref) return null;
   const prefs = await getPrefs(env);
@@ -68,24 +92,24 @@ export async function accountUsage(env: Env, accountId: string, fresh: boolean) 
   // A plan change in Settings must show at once, so it's part of what the cache is checked against.
   const hit = fresh ? null : await env.KV.get<Cached<Awaited<ReturnType<typeof readAccount>>>>(key, 'json');
   const want = prefs.plans[accountId];
-  if (
-    hit &&
-    Date.now() - hit.at < TTL_MS &&
-    historyDates(new Date(hit.at)).at(-1) === historyDates().at(-1) &&
-    (want ? hit.value.account.plan === want : hit.value.account.planSource !== 'set')
-  ) {
-    return { dates: historyDates(new Date(hit.at)), ...publicUsage(hit.value) };
+  // An older copy is served as it is, marked stale; only a plan change in Settings waits for a read.
+  if (hit && (want ? hit.value.account.plan === want : hit.value.account.planSource !== 'set')) {
+    const stale =
+      Date.now() - hit.at >= TTL_MS || historyDates(new Date(hit.at)).at(-1) !== historyDates().at(-1);
+    return { dates: historyDates(new Date(hit.at)), stale, ...publicUsage(hit.value) };
   }
   const token = await revealSecret(env, ref.token);
   if (!token) throw new Error('Token missing');
   const read = await readAccount(token, { ...ref, planOverride: want }, historyDates());
   // Out of analytics budget: a stale but whole copy beats a fresh one full of gaps.
   const prev = hit ?? (await env.KV.get<Cached<Awaited<ReturnType<typeof readAccount>>>>(key, 'json'));
-  if (read.rateLimited && prev) return { dates: historyDates(new Date(prev.at)), ...publicUsage(prev.value) };
+  if (read.rateLimited && prev) {
+    return { dates: historyDates(new Date(prev.at)), stale: false, ...publicUsage(prev.value) };
+  }
   await env.KV.put(key, JSON.stringify({ at: Date.now(), value: read } satisfies Cached<typeof read>), {
     expirationTtl: 86_400,
   });
-  return { dates: historyDates(), ...publicUsage(read) };
+  return { dates: historyDates(), stale: false, ...publicUsage(read) };
 }
 
 /** The token's KV name stays in the Worker; the UI only shows its label. */

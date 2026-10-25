@@ -4,8 +4,8 @@
  * these hooks, so one fetch serves them all.
  */
 import { apiJson, type LumenLoad, useLumenLoad } from '@columenlabs/lumen-ui';
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo } from 'react';
+import { type QueryClient, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo, useSyncExternalStore } from 'react';
 import {
   type Account,
   type LabelsDoc,
@@ -47,6 +47,42 @@ interface AccountUsage {
   dates: string[];
   account: Account;
   resources: Resource[];
+  /** The Worker's copy is past its 10 minutes: shown now, read again in the background. */
+  stale?: boolean;
+}
+
+/** Accounts whose stale copy is being read again in the background. */
+const refreshing = new Set<string>();
+const listeners = new Set<() => void>();
+const ping = () => {
+  for (const l of listeners) l();
+};
+const subscribe = (l: () => void) => {
+  listeners.add(l);
+  return () => listeners.delete(l);
+};
+
+/** True while a stale copy is being swapped for a fresh one (the status bar's "refreshing…"). */
+export const useRefreshing = () => useSyncExternalStore(subscribe, () => refreshing.size > 0);
+
+/**
+ * One account's usage. A stale copy comes back at once so the page draws it, and a `?fresh` read
+ * runs behind it and swaps the new numbers in quietly when it lands.
+ */
+async function readUsage(qc: QueryClient, id: string) {
+  const d = await apiJson<AccountUsage>(`/api/accounts/${id}/usage${q()}`, undefined, 'usage');
+  if (d.stale && !refreshing.has(id)) {
+    refreshing.add(id);
+    ping();
+    apiJson<AccountUsage>(`/api/accounts/${id}/usage?fresh`, undefined, 'usage')
+      .then((f) => qc.setQueryData(['usage', id], f))
+      .catch(() => {})
+      .finally(() => {
+        refreshing.delete(id);
+        ping();
+      });
+  }
+  return d;
 }
 
 export function usePrefs() {
@@ -271,11 +307,12 @@ export function useModel(): Model {
   const accounts = useAccounts();
   const prefs = usePrefs();
   const labels = useLabels();
+  const qc = useQueryClient();
   const refs = accounts.data?.accounts ?? [];
   const usages = useQueries({
     queries: refs.map((ref) => ({
       queryKey: ['usage', ref.id],
-      queryFn: () => apiJson<AccountUsage>(`/api/accounts/${ref.id}/usage${q()}`, undefined, 'usage'),
+      queryFn: () => readUsage(qc, ref.id),
       staleTime: 5 * 60_000,
     })),
   });
@@ -362,8 +399,17 @@ export function useModel(): Model {
 
 // ---------- Formatting ----------
 
+/** The unit a storage amount in GB reads best in: 2.4 MB, never 0.00 GB. */
+export const gbUnit = (v: number): [string, number] =>
+  v >= 1 || v === 0 ? ['GB', 1] : v >= 1e-3 ? ['MB', 1e-3] : v >= 1e-6 ? ['KB', 1e-6] : ['B', 1e-9];
+
 export function fmt(v: number, unit = ''): string {
-  if (unit === 'GB') return `${v < 10 ? v.toFixed(2) : v.toFixed(1)} GB`;
+  if (unit === 'GB') {
+    const [u, f] = gbUnit(Math.abs(v));
+    const x = v / f;
+    const a = Math.abs(x);
+    return `${a === 0 ? '0' : a < 10 ? +x.toFixed(2) : a < 100 ? +x.toFixed(1) : Math.round(x)} ${u}`;
+  }
   if (unit === 'min') return `${Math.round(v).toLocaleString('en-US')} min`;
   const a = Math.abs(v);
   let s: string;
@@ -393,6 +439,9 @@ export function costNote(u: Usage): string {
   return `(${what} − ${fmt(u.limit, u.m.unit)} included) = ${fmt(over, u.m.unit)} × ${priceText(u)} = ${usd(u.fcost)} for the account`;
 }
 export const perText = (u: Usage) => (u.per === 'day' ? '/day' : u.m.kind === 'gauge' ? '' : '/mo');
+/** A meter's bar: coloured only from Watch up, quiet grey while there is room. */
+export const barColor = (st: Status) =>
+  st === 'ok' ? 'color-mix(in oklab, var(--muted-foreground) 55%, transparent)' : sevColor(st);
 export const sevColor = (st: Status) =>
   st === 'block' || st === 'over'
     ? 'var(--loss)'
