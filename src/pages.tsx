@@ -976,7 +976,7 @@ export function ResourcesPage({ acct, label, open }: { acct?: string; label?: st
         }
       />
       <LumenDrawer
-        open={!!drawer}
+        open={!!current}
         onClose={() => openRes(undefined)}
         title={
           drawer ? (

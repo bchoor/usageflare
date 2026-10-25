@@ -310,7 +310,7 @@ const root = createRootRoute({ component: Shell });
 const catSearch = z.object({
   cat: z.enum(CATEGORIES.map((c) => c.id) as [CategoryId, ...CategoryId[]]).optional(),
 });
-const resSearch = z.object({ label: z.string().optional(), open: z.string().optional() });
+const resSearch = z.object({ label: z.coerce.string().optional(), open: z.coerce.string().optional() });
 
 const routes = [
   createRoute({ getParentRoute: () => root, path: '/', component: OverviewPage }),
@@ -341,7 +341,7 @@ const routes = [
     component: function AccountResources() {
       const { acct } = accountResourcesRoute.useParams();
       const s = accountResourcesRoute.useSearch();
-      return <ResourcesPage acct={acct} label={s.label} open={s.open} />;
+      return <ResourcesPage key={acct} acct={acct} label={s.label} open={s.open} />;
     },
   }),
 ] as const;

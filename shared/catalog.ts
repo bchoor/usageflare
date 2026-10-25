@@ -445,7 +445,7 @@ export const PRODUCT = Object.fromEntries(PRODUCTS.map((p) => [p.id, p])) as Rec
 export const METRIC = Object.fromEntries(METRICS.map((m) => [m.key, m])) as Record<string, Metric>;
 
 /** Days of history every series holds, oldest first, ending today (UTC). */
-export const HISTORY_DAYS = 30;
+export const HISTORY_DAYS = 31;
 
 export type Plan = 'free' | 'paid';
 

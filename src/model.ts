@@ -151,7 +151,7 @@ function judge(a: AccountView, m: Metric, rs: Resource[], warn: number): Usage |
   if (m.kind === 'gauge') {
     used = days[last] ?? 0;
     const weekAgo = days[Math.max(0, last - 7)] ?? 0;
-    forecast = weekAgo > 0 ? used * (used / weekAgo) ** ((a.monthDays - a.day) / 7) : used;
+    forecast = Math.max(used, used + ((used - weekAgo) / 7) * (a.monthDays - a.day));
     basis = 'now';
   } else if (per === 'day') {
     used = days[last] ?? 0;
@@ -160,7 +160,7 @@ function judge(a: AccountView, m: Metric, rs: Resource[], warn: number): Usage |
     // Today is partial: scale it by the share of the UTC day gone.
     const now = new Date();
     const gone = Math.max(0.05, (now.getUTCHours() * 60 + now.getUTCMinutes()) / 1440);
-    forecast = Math.max(used / gone, peak);
+    forecast = a.plan === 'free' && price === 0 ? Math.max(used / gone, peak) : used / gone;
     basis = 'today';
   } else {
     used = monthDays.reduce((x, y) => x + y, 0);
@@ -269,7 +269,9 @@ export function useModel(): Model {
     })),
   });
   if (usages.length && usages.every((u) => !u.isFetching)) freshOnce = false;
-  const stamp = usages.map((u) => u.dataUpdatedAt).join(',');
+  const stamp = usages
+    .map((u) => `${u.dataUpdatedAt}:${u.status}:${u.fetchStatus}:${u.errorUpdatedAt}`)
+    .join(',');
   const load = useLumenLoad(accounts, ...usages);
   const warn = prefs.data?.warn ?? 75;
 
@@ -427,4 +429,5 @@ export const labelSlug = (q: string) =>
     .toLowerCase()
     .replace(/\s+/g, '-')
     .replace(/[^a-z0-9._-]/g, '')
+    .replace(/^[^a-z0-9]+/, '')
     .slice(0, 32);

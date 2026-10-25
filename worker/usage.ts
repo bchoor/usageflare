@@ -3,7 +3,7 @@
  * doesn't re-read Cloudflare. One account per request keeps every call well inside the Worker's
  * subrequest limit.
  *
- * KV: `accounts:v1` → AccountRef[] (10 min), `usage:v1:<account>` → { account, resources } (10 min),
+ * KV: `accounts:v1` → AccountRef[] (10 min), `usage:v2:<account>` → { account, resources } (10 min),
  * `prefs:v1`, `labels:v1`, `view:v1:<page>` → the person's settings, labels and saved page layouts.
  */
 import type { LabelsDoc, Prefs } from '../shared/catalog';
@@ -64,23 +64,30 @@ export async function accountUsage(env: Env, accountId: string, fresh: boolean) 
   const ref = accounts.find((a) => a.id === accountId);
   if (!ref) return null;
   const prefs = await getPrefs(env);
-  const key = `usage:v1:${accountId}`;
+  const key = `usage:v2:${accountId}`;
   // A plan change in Settings must show at once, so it's part of what the cache is checked against.
   const hit = fresh ? null : await env.KV.get<Cached<Awaited<ReturnType<typeof readAccount>>>>(key, 'json');
   const want = prefs.plans[accountId];
   if (
     hit &&
     Date.now() - hit.at < TTL_MS &&
+    historyDates(new Date(hit.at)).at(-1) === historyDates().at(-1) &&
     (want ? hit.value.account.plan === want : hit.value.account.planSource !== 'set')
   ) {
-    return { dates: historyDates(new Date(hit.at)), ...hit.value };
+    return { dates: historyDates(new Date(hit.at)), ...publicUsage(hit.value) };
   }
   return cached(env, key, true, async () => {
     const token = await revealSecret(env, ref.token);
     if (!token) throw new Error('Token missing');
     return readAccount(token, { ...ref, planOverride: want }, historyDates());
-  }).then((v) => ({ dates: historyDates(), ...v }));
+  }).then((v) => ({ dates: historyDates(), ...publicUsage(v) }));
 }
+
+/** The token's KV name stays in the Worker; the UI only shows its label. */
+const publicUsage = (v: Awaited<ReturnType<typeof readAccount>>) => ({
+  ...v,
+  account: { ...v.account, token: '' },
+});
 
 // ---------- The person's settings, labels and layouts ----------
 

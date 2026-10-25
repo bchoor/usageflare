@@ -67,16 +67,21 @@ export function LabelForm({
   const slug = labelSlug(name);
   const taken = !!slug && slug !== ex?.name && m.labels.labels.some((l) => l.name === slug);
   const save = async () => {
-    await saveLabelDoc(m, (doc) => {
-      const label = { name: slug, c, ...(icon ? { icon } : {}) };
-      const i = doc.labels.findIndex((l) => l.name === (ex?.name ?? slug));
-      if (i >= 0) doc.labels[i] = label;
-      else doc.labels.push(label);
-      if (ex && ex.name !== slug) {
-        for (const [id, names] of Object.entries(doc.assign))
-          doc.assign[id] = names.map((n) => (n === ex.name ? slug : n));
-      }
-    });
+    try {
+      await saveLabelDoc(m, (doc) => {
+        const label = { name: slug, c, ...(icon ? { icon } : {}) };
+        const i = doc.labels.findIndex((l) => l.name === (ex?.name ?? slug));
+        if (i >= 0) doc.labels[i] = label;
+        else doc.labels.push(label);
+        if (ex && ex.name !== slug) {
+          for (const [id, names] of Object.entries(doc.assign))
+            doc.assign[id] = names.map((n) => (n === ex.name ? slug : n));
+        }
+      });
+    } catch (e) {
+      lumenToast.error(e instanceof Error ? e.message : 'Saving the label failed');
+      return;
+    }
     lumenToast.success(ex ? `Saved ${slug}` : `Made ${slug}; label resources from their Labels cell`);
     setOpen(false);
     onDone?.(slug);

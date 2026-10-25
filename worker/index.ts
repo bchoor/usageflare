@@ -43,12 +43,16 @@ const labelsBody = z.object({
       z.object({ name: labelName, c: z.number().int().min(0).max(99), icon: z.string().max(32).optional() }),
     )
     .max(200),
-  assign: z.record(z.string().max(300), z.array(labelName).max(50)),
+  assign: z
+    .record(z.string().max(300), z.array(labelName).max(50))
+    .refine((o) => Object.keys(o).length <= 5000, 'Too many labelled resources'),
 });
 const viewPage = z.object({ page: z.enum(['overview', 'account', 'limits', 'resources']) });
 const prefsBody = z.object({
   warn: z.number().int().min(50).max(95),
-  plans: z.record(z.string().regex(/^[a-f0-9]{32}$/), z.enum(['free', 'paid'])),
+  plans: z
+    .record(z.string().regex(/^[a-f0-9]{32}$/), z.enum(['free', 'paid']))
+    .refine((o) => Object.keys(o).length <= 200, 'Too many accounts'),
 });
 const fresh = (q: string | undefined) => q !== undefined;
 

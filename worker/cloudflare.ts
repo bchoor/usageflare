@@ -351,7 +351,7 @@ async function inventory(token: string, acct: string, missing: string[]): Promis
       return [];
     }
   };
-  const [scripts, domains, kvs, d1s, r2, dos, queues, workflows, hyper, vec] = await Promise.all([
+  const [allScripts, domains, kvs, d1s, r2, dos, queues, workflows, hyper, vec] = await Promise.all([
     tryList('Workers scripts', () => restList<{ id: string }>(token, `${a}/workers/scripts`)),
     tryList('Workers custom domains', () =>
       restList<{ hostname: string; service: string }>(token, `${a}/workers/domains`),
@@ -386,6 +386,8 @@ async function inventory(token: string, acct: string, missing: string[]): Promis
     ),
   ]);
 
+  // Some lists ignore paging and answer every page in full: keep each script once.
+  const scripts = [...new Map(allScripts.map((x) => [x.id, x])).values()];
   const kvById = new Map(kvs.map((k) => [norm(k.id), k.title]));
   const d1ById = new Map(d1s.map((d) => [norm(d.uuid), d.name]));
   const doByClass = new Map(dos.map((d) => [d.class, d]));
