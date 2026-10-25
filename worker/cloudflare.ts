@@ -7,16 +7,27 @@ import { type Account, HISTORY_DAYS, type Plan, type ProductId, type Resource } 
 
 const API = 'https://api.cloudflare.com/client/v4';
 
-class CfError extends Error {}
+class CfError extends Error {
+  constructor(
+    message: string,
+    readonly code?: number,
+  ) {
+    super(message);
+  }
+}
+
+/** The product isn't turned on in the account (R2 answers 10042): nothing to list, not a missing scope. */
+const NOT_ENABLED = new Set([10042]);
 
 async function rest<T>(token: string, path: string): Promise<T> {
   const res = await fetch(API + path, { headers: { Authorization: `Bearer ${token}` } });
   const body = (await res.json().catch(() => null)) as {
     success?: boolean;
     result?: T;
-    errors?: { message: string }[];
+    errors?: { message: string; code?: number }[];
   } | null;
-  if (!res.ok || !body?.success) throw new CfError(body?.errors?.[0]?.message ?? `HTTP ${res.status}`);
+  if (!res.ok || !body?.success)
+    throw new CfError(body?.errors?.[0]?.message ?? `HTTP ${res.status}`, body?.errors?.[0]?.code);
   return body.result as T;
 }
 
@@ -378,7 +389,8 @@ async function inventory(token: string, acct: string, missing: string[]): Promis
   const tryList = async <T>(label: string, fn: () => Promise<T[]>): Promise<T[]> => {
     try {
       return await fn();
-    } catch {
+    } catch (e) {
+      if (e instanceof CfError && e.code !== undefined && NOT_ENABLED.has(e.code)) return [];
       missing.push(label);
       return [];
     }
