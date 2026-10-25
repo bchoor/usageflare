@@ -533,6 +533,23 @@ export interface Account {
   syncedAt: string;
   /** Datasets or lists the token couldn't read, e.g. `R2 buckets` or `d1AnalyticsAdaptiveGroups`. */
   missing: string[];
+  /**
+   * What Cloudflare has billed this period (its Billable Usage API): `no-access` without Billing
+   * Read, `not-covered` where Cloudflare doesn't report it (Enterprise, for now). Optional: a token
+   * without Billing Read keeps the estimates alone.
+   */
+  billing?: Billed | 'no-access' | 'not-covered';
+}
+
+/** One account's billed usage this billing period, per Cloudflare service. */
+export interface Billed {
+  /** First day of the billing period (`YYYY-MM-DD`), from the subscription's anchor day. */
+  from: string;
+  /** Last day Cloudflare has billed so far (`YYYY-MM-DD`); null before the first daily row. */
+  through: string | null;
+  currency: string;
+  /** Usage charges only: the plan's base fee isn't in them. */
+  lines: { service: string; product: ProductId | null; cost: number }[];
 }
 
 export interface Resource {

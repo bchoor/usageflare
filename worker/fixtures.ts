@@ -3,7 +3,7 @@
  * renders without a Cloudflare token. On only when `FIXTURES=1` (in `.dev.vars`) and the request
  * is to localhost; a deployed Worker never serves it.
  */
-import type { Account, LabelsDoc, ProductId, Resource } from '../shared/catalog';
+import type { Account, Billed, LabelsDoc, ProductId, Resource } from '../shared/catalog';
 import type { Env } from './env';
 
 const ACCOUNTS = [
@@ -100,6 +100,34 @@ const SPECS: Record<string, Spec[]> = {
   ],
 };
 
+/** Billed usage per account, USD this month to yesterday: Personal is off our estimate on D1. */
+const BILLED: Record<string, [string, ProductId | null, number][] | 'no-access'> = {
+  a1000000000000000000000000000001: [
+    ['Workers Standard', 'workers', 0],
+    ['D1 Rows Read', 'd1', 0.86],
+    ['R2 Storage', 'r2', 0.12],
+  ],
+  a2000000000000000000000000000002: 'no-access',
+  a3000000000000000000000000000003: [
+    ['Workers Standard', 'workers', 0],
+    ['D1 Rows Read', 'd1', 0],
+    ['Images Transformations', null, 1.2],
+  ],
+};
+
+function fixtureBilling(id: string, dates: string[]): Account['billing'] {
+  const b = BILLED[id];
+  if (!b || b === 'no-access') return b;
+  const today = dates.at(-1) ?? '';
+  return {
+    from: `${today.slice(0, 8)}01`,
+    // Billed to yesterday; on the 1st, nothing yet.
+    through: today.endsWith('-01') ? null : (dates.at(-2) ?? null),
+    currency: 'USD',
+    lines: b.map(([service, product, cost]): Billed['lines'][number] => ({ service, product, cost })),
+  };
+}
+
 const GAUGES = new Set(['kv.stor', 'd1.stor', 'r2.stor', 'r2.ia.stor', 'do.stor', 'vec.stor']);
 
 export function fixtureRefs() {
@@ -121,6 +149,7 @@ export function fixtureUsage(accountId: string, dates: string[]) {
     tokenLabel: 'Sample data',
     syncedAt: new Date().toISOString(),
     missing: a.plan === 'free' ? ['R2 buckets'] : [],
+    billing: fixtureBilling(a.id, dates),
   };
   const resources: Resource[] = (SPECS[a.id] ?? []).map(([product, name, base, extra], i) => ({
     id: `${a.id}:${product}:${name}`,

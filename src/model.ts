@@ -8,11 +8,13 @@ import { type QueryClient, useMutation, useQueries, useQuery, useQueryClient } f
 import { useMemo, useSyncExternalStore } from 'react';
 import {
   type Account,
+  type Billed,
   type LabelsDoc,
   METRICS,
   type Metric,
   PRODUCT,
   type Prefs,
+  type ProductId,
   type Resource,
 } from '../shared/catalog';
 
@@ -272,6 +274,94 @@ function judge(a: AccountView, m: Metric, rs: Resource[], warn: number): Usage |
     parts: mine.map((r) => ({ r, v: partOf(r) })).sort((x, y) => y.v - x.v),
   };
 }
+
+/**
+ * A meter's estimated charge over the month's first `k` days, worked out the way `judge` works out
+ * `cost`, so it lines up with a bill that runs `k` days.
+ */
+function costTo(u: Usage, k: number): number {
+  if (u.hard || k <= 0) return 0;
+  const n = u.days.length;
+  const days = u.days.slice(Math.max(0, n - u.a.day), Math.max(0, n - u.a.day) + k);
+  const over = (x: number) => Math.max(0, x - u.limit);
+  if (u.m.kind === 'gauge') {
+    const sofar = days.reduce((x, y) => x + y, 0) / u.a.monthDays;
+    return Math.max(0, sofar - (u.limit * days.length) / u.a.monthDays) * u.price;
+  }
+  if (u.per === 'day') return days.reduce((s, v) => s + over(v), 0) * u.price;
+  return over(days.reduce((x, y) => x + y, 0)) * u.price;
+}
+
+/** Billed usage beside our estimate for the same days, per product and in all. */
+export interface BillCheck {
+  billed: number;
+  /** Our estimate over the days billed; null when the billing period isn't the calendar month. */
+  est: number | null;
+  /** Billed (for the products we track) and estimated differ by more than 10% and 50¢. */
+  gap: boolean;
+  from: string;
+  through: string | null;
+  lines: { key: string; label: string; product: ProductId | null; billed: number; est: number | null }[];
+}
+
+const gapOf = (billed: number, est: number) => Math.abs(billed - est) > Math.max(0.5, 0.1 * billed);
+
+/**
+ * What Cloudflare billed an account (its usage charges, never the base fee) against what we
+ * estimate for the same days. `keep` narrows it to some products, as a filtered card does.
+ */
+export function billCheck(
+  usage: Usage[],
+  a: AccountView,
+  keep: (p: ProductId | null) => boolean = () => true,
+): BillCheck | null {
+  const b: Billed | undefined = typeof a.billing === 'object' ? a.billing : undefined;
+  if (!b) return null;
+  const now = new Date();
+  const month = now.toISOString().slice(0, 8);
+  // Our estimates run over the calendar month, so they compare only when the bill does too.
+  const k = b.from === `${month}01` ? (b.through?.startsWith(month) ? Number(b.through.slice(8)) : 0) : null;
+  const est = new Map<ProductId, number>();
+  for (const u of usage) {
+    if (u.a.id !== a.id || !keep(u.m.product)) continue;
+    est.set(u.m.product, (est.get(u.m.product) ?? 0) + (k === null ? 0 : costTo(u, k)));
+  }
+  const lines = new Map<string, BillCheck['lines'][number]>();
+  for (const l of b.lines) {
+    if (!keep(l.product)) continue;
+    const key = l.product ?? l.service;
+    const line = lines.get(key) ?? {
+      key,
+      label: l.product ? PRODUCT[l.product].label : l.service,
+      product: l.product,
+      billed: 0,
+      est: l.product && k !== null ? (est.get(l.product) ?? 0) : null,
+    };
+    line.billed += l.cost;
+    lines.set(key, line);
+  }
+  // A product we estimate a charge for that Cloudflare hasn't billed.
+  for (const [p, v] of est) {
+    if (v >= 0.005 && !lines.has(p))
+      lines.set(p, { key: p, label: PRODUCT[p].label, product: p, billed: 0, est: v });
+  }
+  const all = [...lines.values()];
+  const billed = all.reduce((s, l) => s + l.billed, 0);
+  const total = k === null ? null : [...est.values()].reduce((s, v) => s + v, 0);
+  // Services we don't track (Images, Stream) have no estimate, so they stay out of the gap.
+  const tracked = all.reduce((s, l) => s + (l.est === null ? 0 : l.billed), 0);
+  return {
+    billed,
+    est: total,
+    gap: total !== null && gapOf(tracked, total),
+    from: b.from,
+    through: b.through,
+    lines: [...lines.values()].sort((p, q) => q.billed - p.billed || (q.est ?? 0) - (p.est ?? 0)),
+  };
+}
+
+/** One product line's gap, for its row in the billed card. */
+export const lineGap = (l: BillCheck['lines'][number]) => l.est !== null && gapOf(l.billed, l.est);
 
 /** A resource's numbers: its main metric's share of the allowance, and its share of the bill. */
 /**
