@@ -46,7 +46,7 @@ import {
   permissionsFor,
 } from '../shared/catalog';
 import { DailyColumns, limitDomain, Meter, resourceDomain, view } from './domains';
-import { BulkLabels, LabelForm, LabelMark } from './labels';
+import { BulkBar, LabelForm, LabelMark } from './labels';
 import {
   ACCOUNT_COLORS,
   type AccountView,
@@ -67,7 +67,7 @@ import { CATEGORY_ICON, CategoryIcon, ProductIcon } from './products';
 
 // ---------- Saved page layouts ----------
 
-type PageId = 'overview' | 'account' | 'limits' | 'resources';
+type PageId = 'overview' | 'account' | 'limits' | 'resources' | `resources-${CategoryId}`;
 
 function useSavedView(page: PageId, fallback: CustomViewConfig) {
   const qc = useQueryClient();
@@ -513,7 +513,7 @@ const LIMITS = view({
   columns: ['account', 'product', 'metric', 'used', 'allowance', 'pct', 'fpct', 'cost', 'status'],
   group: { fields: ['account', 'category', 'product', 'family', 'status'], default: 'account' },
   sort: { key: 'fpct', desc: true },
-  width: 'fit',
+  width: 'scroll',
 } as Partial<CustomViewConfig> & { name: string });
 
 export function LimitsPage() {
@@ -850,15 +850,38 @@ const RESOURCES = view({
   columns: RES_COLUMNS,
   group: { fields: ['account', 'category', 'product', 'type', 'label'], default: null },
   sort: { key: 'share', desc: true },
-  width: 'fit',
+  width: 'scroll',
 } as Partial<CustomViewConfig> & { name: string });
 
 export function ResourcesPage({ acct, label, open }: { acct?: string; label?: string; open?: string }) {
   const m = useModel();
   const navigate = useNavigate();
   const [tab, setTab] = useState<'all' | CategoryId>('all');
-  const [sel, setSel] = useState<Set<string>>(new Set());
-  const saved = useSavedView('resources', RESOURCES);
+  // The table can hold on to an older `selection` between renders, so its keys are one Set kept
+  // current in place, and every change goes through one stable setter.
+  const selKeys = useRef(new Set<string>()).current;
+  const [, bump] = useState(0);
+  const setSel = useRef((next: Set<string>) => {
+    if (next !== selKeys) {
+      selKeys.clear();
+      for (const k of next) selKeys.add(k);
+    }
+    bump((n) => n + 1);
+  }).current;
+  const selection = useRef({ keys: selKeys, onChange: setSel }).current;
+  const sel = selKeys;
+  // Each category tab is its own table (its metric-family columns), saved apart from All.
+  const tabDefault = useMemo(() => {
+    if (tab === 'all') return RESOURCES;
+    const fams = FAMILIES.filter((f) =>
+      m.resources.some(
+        (r) =>
+          PRODUCT[r.product].cat === tab && Object.keys(r.series).some((k) => METRIC[k]?.family === f.id),
+      ),
+    );
+    return { ...RESOURCES, columns: [...RES_COLUMNS.slice(0, 4), ...fams.map((f) => `fam_${f.id}`), 'cost'] };
+  }, [tab, m.resources]);
+  const saved = useSavedView(tab === 'all' ? 'resources' : `resources-${tab}`, tabDefault);
   const openRes = (id: string | undefined) =>
     navigate({ to: '.', search: (s: Record<string, unknown>) => ({ ...s, open: id }), replace: true });
   // biome-ignore lint/correctness/useExhaustiveDependencies: openRes only navigates.
@@ -875,18 +898,7 @@ export function ResourcesPage({ acct, label, open }: { acct?: string; label?: st
   const rows = scoped.filter((r) => tab === 'all' || PRODUCT[r.product].cat === tab);
   if (!m.accounts.length) return <Waiting m={m} crumbs={[{ label: 'Resources' }]} />;
 
-  // A category tab swaps the single Used column for one column per metric family it has.
-  const families =
-    tab === 'all'
-      ? []
-      : FAMILIES.filter((f) =>
-          rows.some((r) => Object.keys(r.series).some((k) => METRIC[k]?.family === f.id)),
-        );
-  const columns = (
-    tab === 'all'
-      ? saved.config.columns
-      : [...RES_COLUMNS.slice(0, 4), ...families.map((f) => `fam_${f.id}`), 'cost']
-  ).filter((c) => !(acct && c === 'account'));
+  const columns = saved.config.columns.filter((c) => !(acct && c === 'account'));
   const config: CustomViewConfig = {
     ...saved.config,
     columns,
@@ -962,9 +974,9 @@ export function ResourcesPage({ acct, label, open }: { acct?: string; label?: st
         rows={rows}
         load={m.load}
         config={config}
-        onConfigChange={tab === 'all' ? saved.onConfigChange : undefined}
+        onConfigChange={saved.onConfigChange}
         onReset={saved.onReset}
-        selection={{ keys: sel, onChange: setSel }}
+        selection={selection}
         rowTitle={(r) => r.name}
         onOpen={(r) => openRes(r.id)}
         actions={
@@ -981,10 +993,8 @@ export function ResourcesPage({ acct, label, open }: { acct?: string; label?: st
             </LabelForm>
           ) : undefined
         }
-        viewTools={
-          sel.size ? <BulkLabels m={m} ids={[...sel]} onClear={() => setSel(new Set())} /> : undefined
-        }
       />
+      <BulkBar m={m} ids={[...sel]} shown={rows.map((r) => r.id)} onSelect={setSel} />
       <LumenDrawer
         open={!!current}
         onClose={() => openRes(undefined)}

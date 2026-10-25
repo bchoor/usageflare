@@ -47,7 +47,18 @@ const labelsBody = z.object({
     .record(z.string().max(300), z.array(labelName).max(50))
     .refine((o) => Object.keys(o).length <= 5000, 'Too many labelled resources'),
 });
-const viewPage = z.object({ page: z.enum(['overview', 'account', 'limits', 'resources']) });
+const viewPage = z.object({
+  page: z.enum([
+    'overview',
+    'account',
+    'limits',
+    'resources',
+    'resources-compute',
+    'resources-storage',
+    'resources-ai',
+    'resources-messaging',
+  ]),
+});
 const prefsBody = z.object({
   warn: z.number().int().min(50).max(95),
   plans: z

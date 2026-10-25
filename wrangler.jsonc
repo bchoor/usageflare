@@ -18,6 +18,8 @@
   },
   // Custom domain; the Access app covers it and flareusage.deployapps.workers.dev with one audience.
   "routes": [{ "pattern": "usageflare.icaruslab.dev", "custom_domain": true }],
+  // Also serve usageflare.deployapps.workers.dev (wrangler turns it off once routes are set).
+  "workers_dev": true,
   // Previews would serve on hosts the Access app does not cover.
   "preview_urls": false
   // Secret (wrangler secret put): SETTINGS_KEY, 32 random bytes in base64, the AES-GCM key.
