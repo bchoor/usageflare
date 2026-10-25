@@ -3,7 +3,14 @@
  * listing every meter with its value, share of the allowance and forecast cost. Rows stay one
  * line; the detail lives in the card.
  */
-import { ColorDot, METER_LEVEL_COLOR, meterLevel, ShareMeter } from '@columenlabs/lumen-ui';
+import {
+  ColorDot,
+  METER_LEVEL_COLOR,
+  meterLevel,
+  ShareMeter,
+  type TrendChange,
+  TrendValue,
+} from '@columenlabs/lumen-ui';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@columenlabs/lumen-ui/ui/hover-card';
 import { CircleDashed, CircleSlash } from 'lucide-react';
 import type { ReactNode } from 'react';
@@ -424,13 +431,6 @@ export function BilledCell({ model, a }: { model: Model; a: AccountView }) {
 }
 
 /** The last 7 days against the 7 before: an arrow and a share, never a bare number. */
-export function Trend7({ t }: { t: number | null }) {
-  if (t === null) return <span className="text-muted-foreground">—</span>;
-  const p = Math.round(t * 100);
-  if (p === 0) return <span className="num text-muted-foreground">0%</span>;
-  return (
-    <span className="num whitespace-nowrap">
-      {p > 0 ? '▲' : '▼'} {Math.abs(p)}%
-    </span>
-  );
+export function Trend7({ change, unit }: { change: TrendChange; unit?: string }) {
+  return <TrendValue change={change} format={(v) => fmt(v, unit)} />;
 }

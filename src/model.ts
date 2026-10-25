@@ -3,7 +3,14 @@
  * (used, forecast, cost, status per account and metric), plus labels and prefs. Every page shares
  * these hooks, so one fetch serves them all.
  */
-import { apiJson, KIT, type LumenLoad, useLumenLoad } from '@columenlabs/lumen-ui';
+import {
+  apiJson,
+  KIT,
+  type LumenLoad,
+  type TrendChange,
+  trendChange,
+  useLumenLoad,
+} from '@columenlabs/lumen-ui';
 import { type QueryClient, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useSyncExternalStore } from 'react';
 import {
@@ -399,8 +406,13 @@ export interface ResourceInfo {
   /** Share of the account's allotment: every meter priced at list rates, summed, over the list
    *  value of the whole allotment. One formula for every product, so any two rows compare. */
   plan: number;
-  /** The last 7 days' use against the 7 before, priced the same way (0.12 = +12%). */
+  /**
+   * The last 7 days' use against the 7 before, priced the same way (0.12 = +12%); null where the
+   * week before is too small to divide by (`change` then holds the plain difference).
+   */
   trend: number | null;
+  /** The same change as Trend 7d draws it: a %, `>10×`, or the main meter's plain difference. */
+  change: TrendChange;
 }
 
 export interface PlanInfo {
@@ -410,9 +422,14 @@ export interface PlanInfo {
   watch: Usage | null;
   /** Last 7 days against the 7 before, priced (0.12 = +12%). */
   trend: number | null;
+  change: TrendChange;
   /** Usage this month so far, day by day (the `dates` before the 1st are null). */
   days: (number | null)[];
 }
+
+/** Under this much use of the main meter in the week before (counts, its own unit), Trend 7d shows
+ *  the plain difference, never a %. */
+const TREND_MIN_BASE = 100;
 
 /** A meter's list price: the plan's own, else the paid plan's (a free plan prices nothing). */
 const listPrice = (u: Usage) => u.price || u.m.paid?.[2] || 0;
@@ -517,7 +534,18 @@ export function useModel(): Model {
         now += s.slice(-7).reduce((a, b) => a + b, 0) * p;
         prev += s.slice(-14, -7).reduce((a, b) => a + b, 0) * p;
       }
-      const out = { main, cost, fcost, plan, trend: prev > 0 ? now / prev - 1 : null };
+      // A week before with almost no use of the main meter (3 operations) makes any % meaningless:
+      // the plain difference in that meter's own unit instead.
+      const ms = main && main.u.m.kind !== 'gauge' ? (r.series[main.key] ?? []) : null;
+      const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+      const change = ms
+        ? sum(ms.slice(-14, -7)) <= TREND_MIN_BASE
+          ? trendChange(sum(ms.slice(-7)), sum(ms.slice(-14, -7)), { minBase: TREND_MIN_BASE })
+          : trendChange(now, prev)
+        : trendChange(now, prev);
+      const trend =
+        change.kind === 'pct' || change.kind === 'many' ? (prev > 0 ? now / prev - 1 : null) : null;
+      const out = { main, cost, fcost, plan, trend, change };
       infoCache.set(r.id, out);
       return out;
     };
@@ -576,7 +604,13 @@ export function useModel(): Model {
           }
           return v / all;
         });
-        return { share, watch, trend: prev > 0 ? now / prev - 1 : null, days };
+        return {
+          share,
+          watch,
+          trend: prev > 0 ? now / prev - 1 : null,
+          change: trendChange(now, prev),
+          days,
+        };
       },
       labels: doc,
       labelsOf: (r) => (doc.assign[r.id] ?? []).filter((n) => known.has(n)),

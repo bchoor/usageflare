@@ -8,6 +8,7 @@ import {
   baseOption,
   burnRate,
   ColorDot,
+  cn,
   DetailsTable,
   durationText,
   LumenEChart,
@@ -95,11 +96,27 @@ export function paceBucket(p: Pace | null): string {
 export interface ResourcePace {
   u: Usage;
   pace: MeterPace;
-  /** This resource's share of the account meter's pace (0 to 1). */
+  /** This resource's share of the account meter's pace (0 to 1); of its use this period when the
+   *  window is quiet. */
   part: number;
+  /** It drives the pooled meter (`DRIVER_SHARE` of it or more): only then is the account's time its own. */
+  drives: boolean;
 }
 
-/** A resource's meters with their account pace, the one that hits first on top. */
+/**
+ * A resource shows its account meter's time to the cap only when it is at least this share of the
+ * meter's pace: three operations in a bucket never read "At cap" because another bucket filled it.
+ */
+const DRIVER_SHARE = 0.05;
+
+/** Why a resource's row does or doesn't carry its account's time to the cap. */
+export function shareNote(r: Resource, x: ResourcePace) {
+  return x.drives
+    ? `The allowance is the whole account's: ${r.name} is ${pctText(x.part)} of this pace.`
+    : `That is the whole account's meter. ${r.name} is ${pctText(x.part)} of it, too little to put the account's time on this row.`;
+}
+
+/** A resource's meters with their account pace: those it drives first, the one that hits first on top. */
 export function resourcePaces(m: Model, r: Resource, w: PaceWindow): ResourcePace[] {
   const out: ResourcePace[] = [];
   for (const key of Object.keys(r.series)) {
@@ -110,9 +127,11 @@ export function resourcePaces(m: Model, r: Resource, w: PaceWindow): ResourcePac
     // The account read this meter by the hour: a resource with no hourly rows used none of it.
     const own = windowOf(r.series[key] ?? [], u.hours ? (r.hourly?.[key] ?? []) : null, gauge, w);
     const mine = burnRate(own.samples, { per: own.per, gauge }).rate;
-    out.push({ u, pace, part: pace.rate > 0 ? Math.max(0, Math.min(1, mine / pace.rate)) : 0 });
+    const v = u.parts.find((x) => x.r.id === r.id)?.v ?? 0;
+    const part = Math.max(0, Math.min(1, pace.rate > 0 ? mine / pace.rate : u.used > 0 ? v / u.used : 0));
+    out.push({ u, pace, part, drives: part >= DRIVER_SHARE });
   }
-  return out.sort((p, q) => urgency(p.pace) - urgency(q.pace));
+  return out.sort((p, q) => Number(q.drives) - Number(p.drives) || urgency(p.pace) - urgency(q.pace));
 }
 
 /** A rate per hour with its unit: `4.1k/h`; a size grows per day: `+120 MB/day`. */
@@ -139,9 +158,11 @@ function paceLines(u: Usage, p: MeterPace, w: PaceWindow): string[] {
     `${rateText(u, p)} over the ${basisText(u, p, w)}.`,
     p.eta === 0
       ? `At its cap of ${fmt(u.limit, u.m.unit)}.`
-      : p.hits
-        ? `Hits ${fmt(u.limit, u.m.unit)} in ${durationText(p.eta)}, before the reset at ${reset}.`
-        : `Lands at ${pctText(p.atReset)} of ${fmt(u.limit, u.m.unit)} when it resets at ${reset}.`,
+      : p.thin
+        ? `Too little use in the window to project against ${fmt(u.limit, u.m.unit)}.`
+        : p.hits
+          ? `Hits ${fmt(u.limit, u.m.unit)} in ${durationText(p.eta)}, before the reset at ${reset}.`
+          : `Lands at ${pctText(p.atReset)} of ${fmt(u.limit, u.m.unit)} when it resets at ${reset}.`,
   ];
   if (p.eta > 0 && u.m.kind !== 'gauge') lines.push(`Safe pace: ${fmt(p.safe, u.m.unit)}/h until the reset.`);
   if (p.spikes)
@@ -181,11 +202,16 @@ function ResourcePaceCard({
         <table className="w-full text-sm">
           <tbody>
             {rows.map((x, i) => (
-              <tr key={x.u.m.key} className={i === 0 ? 'bg-muted/60' : undefined}>
+              <tr
+                key={x.u.m.key}
+                className={cn(i === 0 && x.drives && 'bg-muted/60', !x.drives && 'text-muted-foreground')}
+              >
                 <td className="py-1 pr-2 pl-3">
                   <MetricChip m={x.u.m} />
                 </td>
-                <td className="num py-1 pr-2 text-right text-muted-foreground">{rateText(x.u, x.pace)}</td>
+                <td className="num py-1 pr-2 text-right" title="This resource's share of the account's pace">
+                  {pctText(x.part)}
+                </td>
                 <td className="py-1 pr-3">
                   <TimeToCap pace={x.pace} />
                 </td>
@@ -198,9 +224,7 @@ function ResourcePaceCard({
             {paceLines(top.u, top.pace, w).map((l) => (
               <p key={l}>{l}</p>
             ))}
-            <p className="text-muted-foreground">
-              The allowance is the whole account's: {r.name} is {pctText(top.part)} of this pace.
-            </p>
+            <p className="text-muted-foreground">{shareNote(r, top)}</p>
           </div>
         )}
       </HoverCardContent>
@@ -214,6 +238,12 @@ export function ResourcePaceCell({ m, r, w }: { m: Model; r: Resource; w: PaceWi
   const rows = resourcePaces(m, r, w);
   const top = rows[0];
   if (!top) return <span className="text-muted-foreground">—</span>;
+  if (!top.drives)
+    return (
+      <ResourcePaceCard r={r} rows={rows} w={w}>
+        <span className="text-muted-foreground">—</span>
+      </ResourcePaceCard>
+    );
   const same = m.info(r).main?.key === top.u.m.key;
   return (
     <ResourcePaceCard r={r} rows={rows} w={w}>
@@ -437,7 +467,7 @@ export function PaceChart({ u, w, height = 180 }: { u: Usage; w: PaceWindow; hei
 }
 
 /** The drawer's Pace section: the chart and the same words as the hover. */
-export function PaceSection({ u, w }: { u: Usage; w: PaceWindow }) {
+export function PaceSection({ u, w, note }: { u: Usage; w: PaceWindow; note?: string }) {
   const p = paceOf(u, w);
   return (
     <div className="flex flex-col gap-2">
@@ -452,6 +482,7 @@ export function PaceSection({ u, w }: { u: Usage; w: PaceWindow }) {
           {paceLines(u, p, w).map((l) => (
             <p key={l}>{l}</p>
           ))}
+          {note && <p className="text-muted-foreground">{note}</p>}
         </div>
       )}
     </div>
