@@ -3,7 +3,7 @@
  * (used, forecast, cost, status per account and metric), plus labels and prefs. Every page shares
  * these hooks, so one fetch serves them all.
  */
-import { apiJson, type LumenLoad, useLumenLoad } from '@columenlabs/lumen-ui';
+import { apiJson, KIT, type LumenLoad, useLumenLoad } from '@columenlabs/lumen-ui';
 import { type QueryClient, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useSyncExternalStore } from 'react';
 import {
@@ -277,10 +277,22 @@ function inferPlan(d: AccountUsage): Account {
 }
 
 export interface ResourceInfo {
+  /** The meter closest to its own cap ("Watch for"). */
   main: { key: string; u: Usage; v: number; share: number } | null;
   cost: number;
   fcost: number;
+  /** Share of the account's allotment: every meter priced at list rates, summed, over the list
+   *  value of the whole allotment. One formula for every product, so any two rows compare. */
+  plan: number;
+  /** The last 7 days' use against the 7 before, priced the same way (0.12 = +12%). */
+  trend: number | null;
 }
+
+/** A meter's list price: the plan's own, else the paid plan's (a free plan prices nothing). */
+const listPrice = (u: Usage) => u.price || u.m.paid?.[2] || 0;
+/** What a meter's monthly allowance is worth at list price; nothing for pay-as-you-go. */
+const worthOf = (u: Usage) =>
+  u.payg ? 0 : (u.per === 'day' ? u.limit * u.a.monthDays : u.limit) * listPrice(u);
 
 export interface Model {
   /** The pages' loading state for LumenLayout's cards. */
@@ -322,6 +334,9 @@ export function useModel(): Model {
     .join(',');
   const load = useLumenLoad(accounts, ...usages);
   const warn = prefs.data?.warn ?? 75;
+  // "Watch at" is this app's own watch level: every kit meter (bars, tinted numbers) reads it.
+  // Set on KIT directly, not configureLumen, which would re-read preferences mid-render.
+  if (KIT.meterLevels.watch !== warn / 100) KIT.meterLevels = { ...KIT.meterLevels, watch: warn / 100 };
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `stamp` tracks every usage query's data.
   return useMemo(() => {
@@ -344,6 +359,8 @@ export function useModel(): Model {
         if (u) usage.push(u);
       }
     }
+    const worth = new Map<string, number>();
+    for (const u of usage) worth.set(u.a.id, (worth.get(u.a.id) ?? 0) + worthOf(u));
     const infoCache = new Map<string, ResourceInfo>();
     const info = (r: Resource): ResourceInfo => {
       const hit = infoCache.get(r.id);
@@ -351,6 +368,10 @@ export function useModel(): Model {
       let cost = 0;
       let fcost = 0;
       let main: ResourceInfo['main'] = null;
+      let plan = 0;
+      let now = 0;
+      let prev = 0;
+      const all = worth.get(r.acct) || 1;
       for (const key of Object.keys(r.series)) {
         const u = usage.find((x) => x.a.id === r.acct && x.m.key === key);
         const v = u?.parts.find((p) => p.r.id === r.id)?.v;
@@ -360,8 +381,13 @@ export function useModel(): Model {
         fcost += u.fcost * sh;
         const share = shareOf(u, v);
         if (!main || share > main.share) main = { key, u, v, share };
+        const p = listPrice(u);
+        plan += (u.payg ? v * p : share * worthOf(u)) / all;
+        const s = r.series[key] ?? [];
+        now += s.slice(-7).reduce((a, b) => a + b, 0) * p;
+        prev += s.slice(-14, -7).reduce((a, b) => a + b, 0) * p;
       }
-      const out = { main, cost, fcost };
+      const out = { main, cost, fcost, plan, trend: prev > 0 ? now / prev - 1 : null };
       infoCache.set(r.id, out);
       return out;
     };
@@ -439,9 +465,6 @@ export function costNote(u: Usage): string {
   return `(${what} − ${fmt(u.limit, u.m.unit)} included) = ${fmt(over, u.m.unit)} × ${priceText(u)} = ${usd(u.fcost)} for the account`;
 }
 export const perText = (u: Usage) => (u.per === 'day' ? '/day' : u.m.kind === 'gauge' ? '' : '/mo');
-/** A meter's bar: coloured only from Watch up, quiet grey while there is room. */
-export const barColor = (st: Status) =>
-  st === 'ok' ? 'color-mix(in oklab, var(--muted-foreground) 55%, transparent)' : sevColor(st);
 export const sevColor = (st: Status) =>
   st === 'block' || st === 'over'
     ? 'var(--loss)'

@@ -68,7 +68,7 @@ import { CATEGORY_ICON, CategoryIcon, ProductIcon } from './products';
 
 // ---------- Saved page layouts ----------
 
-type PageId = 'overview' | 'account' | 'limits' | 'resources' | `resources-${CategoryId}`;
+type PageId = 'overview' | 'account' | 'limits' | 'resources' | 'resources-all' | `resources-${CategoryId}`;
 
 function useSavedView(page: PageId, fallback: CustomViewConfig) {
   const qc = useQueryClient();
@@ -617,7 +617,7 @@ function LimitRow({ u, m, open, onToggle }: { u: Usage; m: Model; open: boolean;
         </small>
       </span>
       <span className="col-span-2 row-start-2 md:col-span-1 md:row-start-auto">
-        <Meter share={u.pct} status={u.st} wide />
+        <Meter share={u.pct} wide />
       </span>
       <span className="col-start-2 row-start-1 flex items-center gap-2 md:col-start-auto md:row-start-auto">
         <span className="font-mono text-xs">
@@ -741,7 +741,7 @@ export function AccountPage({ acct, cat }: { acct: string; cat?: CategoryId }) {
               </Link>,
               x ? (
                 <span key="s" className="inline-flex items-center gap-2">
-                  <Meter share={x.share} status={x.share >= 1 ? 'over' : x.share >= 0.5 ? 'watch' : 'ok'} />
+                  <Meter share={x.share} />
                   <span className="text-muted-foreground text-xs">{x.u.m.label.toLowerCase()}</span>
                 </span>
               ) : (
@@ -873,12 +873,12 @@ export function AccountName({ a }: { a: AccountView }) {
 
 // ---------- Resources ----------
 
-const RES_COLUMNS = ['name', 'account', 'product', 'label', 'metric', 'used', 'share', 'trend', 'cost'];
+const RES_COLUMNS = ['name', 'account', 'product', 'label', 'usage', 'watch', 'trend7', 'cost'];
 const RESOURCES = view({
   name: 'Resources',
   columns: RES_COLUMNS,
   group: { fields: ['account', 'category', 'product', 'type', 'label'], default: null },
-  sort: { key: 'share', desc: true },
+  sort: { key: 'usage', desc: true },
   width: 'scroll',
 } as Partial<CustomViewConfig> & { name: string });
 
@@ -921,7 +921,7 @@ export function ResourcesPage({
     );
     return { ...RESOURCES, columns: [...RES_COLUMNS.slice(0, 4), ...fams.map((f) => `fam_${f.id}`), 'cost'] };
   }, [tab, m.resources]);
-  const saved = useSavedView(tab === 'all' ? 'resources' : `resources-${tab}`, tabDefault);
+  const saved = useSavedView(tab === 'all' ? 'resources-all' : `resources-${tab}`, tabDefault);
   const openRes = (id: string | undefined) =>
     navigate({ to: '.', search: (s: Record<string, unknown>) => ({ ...s, open: id }), replace: true });
   // biome-ignore lint/correctness/useExhaustiveDependencies: openRes only navigates.
