@@ -8,6 +8,7 @@ import {
   ColorDot,
   DetailsTable,
   DrawerSection,
+  durationText,
   type FilterToken,
   KIT,
   LumenDrawer,
@@ -18,10 +19,14 @@ import {
   meterLevel,
   meterValueTone,
   NoteLine,
+  type PaceWindow,
+  PaceWindowPicker,
   ShareMeter,
   Tile,
   TileRow,
   TileToggleGroup,
+  useIsMobile,
+  usePaceWindow,
   useShell,
 } from '@columenlabs/lumen-ui';
 import { Button } from '@columenlabs/lumen-ui/ui/button';
@@ -37,6 +42,7 @@ import {
   KeyRound,
   Palette,
   Rows3,
+  Timer,
   TriangleAlert,
 } from 'lucide-react';
 import { type ReactNode, useCallback, useMemo, useRef, useState } from 'react';
@@ -75,6 +81,7 @@ import {
   usd,
   useModel,
 } from './model';
+import { hitting, PaceList } from './pace';
 import { CATEGORY_ICON, ProductIcon } from './products';
 
 // ---------- Saved page layouts ----------
@@ -102,6 +109,27 @@ function withNumbers(c: CustomViewConfig, fallback: CustomViewConfig): CustomVie
   return { ...c, tiles: fallback.tiles, cards: [{ ...NUMBERS, id, x: 0, y: 0 }, ...c.cards] };
 }
 
+/**
+ * Pace came after many layouts were saved. A layout from before it (its table has no Hits limit
+ * column, shown or hidden) gets the column after Watch for (or Forecast) and its page's On pace
+ * card, once; saved again, it has the column, so a card the person removes later stays removed.
+ */
+function withPace(c: CustomViewConfig, fallback: CustomViewConfig): CustomViewConfig {
+  const cols = c.columns ?? [];
+  if (!fallback.columns?.includes('pace') || cols.includes('pace') || c.hidden?.includes('pace')) return c;
+  const after = ['watch', 'fpct'].map((k) => cols.indexOf(k)).find((i) => i >= 0);
+  const at = after === undefined ? cols.length : after + 1;
+  const card = fallback.cards?.find((x) => x.id === 'pace');
+  const tile = fallback.tiles?.find((t) => 'key' in t && t.key === 'pace');
+  const hasTile = c.tiles?.some((t) => 'key' in t && t.key === 'pace');
+  return {
+    ...c,
+    columns: [...cols.slice(0, at), 'pace', ...cols.slice(at)],
+    cards: card && c.cards && !c.cards.some((x) => x.id === 'pace') ? [...c.cards, card] : c.cards,
+    tiles: tile && c.tiles?.length && !hasTile ? [...c.tiles, tile] : c.tiles,
+  };
+}
+
 function useSavedView(page: PageId, fallback: CustomViewConfig) {
   const qc = useQueryClient();
   const saved = useQuery({
@@ -122,7 +150,7 @@ function useSavedView(page: PageId, fallback: CustomViewConfig) {
     onSuccess: () => qc.setQueryData(['view', page], { config: null }),
   });
   return {
-    config: saved.data?.config ? withNumbers(saved.data.config, fallback) : fallback,
+    config: saved.data?.config ? withPace(withNumbers(saved.data.config, fallback), fallback) : fallback,
     onConfigChange: (c: CustomViewConfig) => save.mutate(c),
     onReset: saved.data?.config ? () => reset.mutate() : undefined,
   };
@@ -253,7 +281,7 @@ const NUMBERS: ViewCard = { id: 'tiles', kind: 'metric', style: 'row', title: nu
  * Draws a built-in tile over the rows its Row of numbers shows, so a card narrowed to one product
  * or account reads only those. An account's $5 base counts only while every meter of it is shown.
  */
-function usageTile(m: Model) {
+function usageTile(m: Model, w: PaceWindow) {
   return (key: string, rows: Usage[]): ReactNode => {
     const shown = new Set(rows);
     const as = m.accounts.filter((a) => rows.some((u) => u.a.id === a.id));
@@ -360,6 +388,20 @@ function usageTile(m: Model) {
           />
         );
       }
+      case 'pace': {
+        const hits = hitting(rows, w);
+        const first = hits[0];
+        return (
+          <Tile
+            label="Hits a cap soon"
+            value={hits.length}
+            caption={
+              first ? `First in ${durationText(first.p.eta)} · ${first.u.m.label}` : `At the ${w} pace`
+            }
+            valueClassName={hits.length ? 'text-warning' : undefined}
+          />
+        );
+      }
       default:
         return null;
     }
@@ -374,14 +416,15 @@ function usageTile(m: Model) {
 
 const OVERVIEW = view({
   name: 'Overview',
-  columns: ['account', 'product', 'metric', 'used', 'pct', 'fpct', 'cost', 'status'],
-  tiles: domainTiles('bill', 'forecast', 'watch', 'resources'),
+  columns: ['account', 'product', 'metric', 'used', 'pct', 'fpct', 'pace', 'cost', 'status'],
+  tiles: domainTiles('bill', 'forecast', 'watch', 'pace', 'resources'),
   cards: [
     NUMBERS,
     ...pageCardConfig([
       ['accounts', 6],
       ['watch', 3],
-      ['usage', 3],
+      ['pace', 3],
+      ['usage', 6],
       ['top', 6],
     ]),
   ],
@@ -521,8 +564,9 @@ function TopResources({
 
 export function OverviewPage() {
   const m = useModel();
+  const [w] = usePaceWindow();
   const saved = useSavedView('overview-usage', OVERVIEW);
-  const domain = useMemo(() => limitDomain(m), [m]);
+  const domain = useMemo(() => limitDomain(m, w), [m, w]);
   if (!m.accounts.length) return <Waiting m={m} crumbs={[{ label: 'Overview' }]} />;
   const as = m.accounts;
   const xs = m.usage;
@@ -591,6 +635,7 @@ export function OverviewPage() {
         <Link to="/limits">All limits</Link>
       </Button>,
     ),
+    pageCard('pace', 'On pace to hit a cap', Timer, <PaceList us={xs} w={w} limit={6} showAccount />),
     pageCard(
       'usage',
       'Usage this month',
@@ -616,12 +661,13 @@ export function OverviewPage() {
     <LumenLayout
       crumbs={[{ label: 'Overview' }]}
       meta={`Billing period ${monthStart()} – ${monthEnd()} · day ${day} of ${as[0]?.monthDays ?? 30}`}
+      actions={<PaceWindowPicker />}
       intro={<Problems m={m} />}
       domain={domain}
       rows={xs}
       load={m.load}
       cards={cards}
-      tile={usageTile(m)}
+      tile={usageTile(m, w)}
       rowTitle={(u) => `${u.a.name} · ${PRODUCT[u.m.product].label} ${u.m.label}`}
       {...saved}
     />
@@ -641,22 +687,24 @@ function monthStart() {
 
 const LIMITS = view({
   name: 'Every allowance',
-  columns: ['account', 'product', 'metric', 'used', 'allowance', 'pct', 'fpct', 'cost', 'status'],
-  group: { fields: ['account', 'category', 'product', 'family', 'status'], default: 'account' },
+  columns: ['account', 'product', 'metric', 'used', 'allowance', 'pct', 'fpct', 'pace', 'cost', 'status'],
+  group: { fields: ['account', 'category', 'product', 'family', 'status', 'pace'], default: 'account' },
   sort: { key: 'fpct', desc: true },
   width: 'scroll',
 } as Partial<CustomViewConfig> & { name: string });
 
 export function LimitsPage() {
   const m = useModel();
+  const [w] = usePaceWindow();
   const saved = useSavedView('limits', LIMITS);
-  const domain = useMemo(() => limitDomain(m), [m]);
+  const domain = useMemo(() => limitDomain(m, w), [m, w]);
   if (!m.accounts.length) return <Waiting m={m} crumbs={[{ label: 'Limits' }]} />;
   const xs = m.usage;
   return (
     <LumenLayout
       crumbs={[{ label: 'Limits' }]}
       meta="Paid: month to date · Free: today"
+      actions={<PaceWindowPicker />}
       intro={
         <div className="flex flex-col gap-3">
           <Problems m={m} />
@@ -690,7 +738,7 @@ export function LimitsPage() {
       domain={domain}
       rows={xs}
       load={m.load}
-      tile={usageTile(m)}
+      tile={usageTile(m, w)}
       rowTitle={(u) => `${u.a.name} · ${PRODUCT[u.m.product].label} ${u.m.label}`}
       {...saved}
     />
@@ -701,12 +749,13 @@ export function LimitsPage() {
 
 const ACCOUNT = view({
   name: 'Account',
-  columns: ['product', 'metric', 'used', 'allowance', 'pct', 'fpct', 'cost', 'status'],
-  tiles: domainTiles('plan', 'bill', 'forecast', 'usage'),
+  columns: ['product', 'metric', 'used', 'allowance', 'pct', 'fpct', 'pace', 'cost', 'status'],
+  tiles: domainTiles('plan', 'bill', 'forecast', 'usage', 'pace'),
   cards: [
     NUMBERS,
     ...pageCardConfig([
-      ['watch', 6],
+      ['watch', 3],
+      ['pace', 3],
       ['usage', 3],
       ['top', 3],
     ]),
@@ -717,10 +766,11 @@ export function AccountPage({ acct, cat }: { acct: string; cat?: CategoryId }) {
   const m = useModel();
   const navigate = useNavigate();
   const [showAll, setShowAll] = useState(false);
+  const [w] = usePaceWindow();
   const saved = useSavedView('account-usage', ACCOUNT);
   const a = m.account[acct];
   const xs = useMemo(() => m.usage.filter((u) => u.a.id === acct), [m, acct]);
-  const domain = useMemo(() => limitDomain(m), [m]);
+  const domain = useMemo(() => limitDomain(m, w), [m, w]);
   if (!a) return <Waiting m={m} crumbs={[{ label: 'Account' }]} />;
   const tab = cat ?? 'all';
   const inCat = (u: Usage) => tab === 'all' || PRODUCT[u.m.product].cat === tab;
@@ -740,6 +790,7 @@ export function AccountPage({ acct, cat }: { acct: string; cat?: CategoryId }) {
         {showAll ? `Watch for only (${watching})` : `Show all ${inTab.length}`}
       </Button>,
     ),
+    pageCard('pace', 'On pace to hit a cap', Timer, <PaceList us={inTab} w={w} limit={8} />),
     pageCard(
       'usage',
       'Usage this month',
@@ -783,12 +834,15 @@ export function AccountPage({ acct, cat }: { acct: string; cat?: CategoryId }) {
         </>
       }
       actions={
-        <Button size="sm" variant="ghost" asChild>
-          <a href={`https://dash.cloudflare.com/${a.id}`} target="_blank" rel="noreferrer">
-            <ExternalLink className="size-4" />
-            Cloudflare
-          </a>
-        </Button>
+        <>
+          <PaceWindowPicker />
+          <Button size="sm" variant="ghost" asChild>
+            <a href={`https://dash.cloudflare.com/${a.id}`} target="_blank" rel="noreferrer">
+              <ExternalLink className="size-4" />
+              Cloudflare
+            </a>
+          </Button>
+        </>
       }
       intro={
         <div className="flex flex-col gap-3">
@@ -829,7 +883,7 @@ export function AccountPage({ acct, cat }: { acct: string; cat?: CategoryId }) {
       rows={inTab}
       load={m.load}
       cards={cards}
-      tile={usageTile(m)}
+      tile={usageTile(m, w)}
       rowTitle={(u) => `${PRODUCT[u.m.product].label} ${u.m.label}`}
       {...saved}
     />
@@ -856,11 +910,11 @@ export function AccountName({ a }: { a: AccountView }) {
 
 // ---------- Resources ----------
 
-const RES_COLUMNS = ['name', 'account', 'product', 'label', 'usage', 'watch', 'trend7', 'cost'];
+const RES_COLUMNS = ['name', 'account', 'product', 'label', 'usage', 'watch', 'pace', 'trend7', 'cost'];
 const RESOURCES = view({
   name: 'Resources',
   columns: RES_COLUMNS,
-  group: { fields: ['account', 'category', 'product', 'type', 'label'], default: null },
+  group: { fields: ['account', 'category', 'product', 'type', 'label', 'pace'], default: null },
   sort: { key: 'usage', desc: true },
   width: 'scroll',
 } as Partial<CustomViewConfig> & { name: string });
@@ -878,6 +932,7 @@ export function ResourcesPage({
   product?: ProductId;
 }) {
   const m = useModel();
+  const [w] = usePaceWindow();
   const navigate = useNavigate();
   const [tab, setTab] = useState<'all' | CategoryId>(product ? PRODUCT[product].cat : 'all');
   // The table can hold on to an older `selection` between renders, so its keys are one Set kept
@@ -915,7 +970,8 @@ export function ResourcesPage({
   const openRes = (id: string | undefined) =>
     navigate({ to: '.', search: (s: Record<string, unknown>) => ({ ...s, open: id }), replace: true });
   // biome-ignore lint/correctness/useExhaustiveDependencies: openRes only navigates.
-  const domain = useMemo(() => resourceDomain(m, openRes), [m]);
+  const phone = useIsMobile();
+  const domain = useMemo(() => resourceDomain(m, openRes, w, phone), [m, w, phone]);
   const current = open ? m.resource[open] : undefined;
   // The drawer keeps showing the last resource while it slides shut.
   const last = useRef(current);
@@ -1023,18 +1079,21 @@ export function ResourcesPage({
         onOpen={(r) => openRes(r.id)}
         onTokens={onTokens}
         actions={
-          label ? (
-            <LabelForm
-              m={m}
-              edit={label}
-              onDone={(n) => n !== label && navigate({ to: '.', search: { label: n } })}
-            >
-              <Button size="sm" variant="ghost">
-                <Palette className="size-4" />
-                Edit label
-              </Button>
-            </LabelForm>
-          ) : undefined
+          <>
+            <PaceWindowPicker />
+            {label && (
+              <LabelForm
+                m={m}
+                edit={label}
+                onDone={(n) => n !== label && navigate({ to: '.', search: { label: n } })}
+              >
+                <Button size="sm" variant="ghost">
+                  <Palette className="size-4" />
+                  Edit label
+                </Button>
+              </LabelForm>
+            )}
+          </>
         }
       />
       <BulkBar m={m} ids={[...sel]} shown={rows.map((r) => r.id)} onSelect={setSel} />

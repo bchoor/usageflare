@@ -515,6 +515,9 @@ export const METRIC = Object.fromEntries(METRICS.map((m) => [m.key, m])) as Reco
 /** Days of history every series holds, oldest first, ending today (UTC). */
 export const HISTORY_DAYS = 31;
 
+/** Hourly slots every `Resource.hourly` holds: the last 24 whole hours and the current one. */
+export const HOURLY_SLOTS = 25;
+
 export type Plan = 'free' | 'paid';
 
 export interface Account {
@@ -539,6 +542,13 @@ export interface Account {
    * without Billing Read keeps the estimates alone.
    */
   billing?: Billed | 'no-access' | 'not-covered';
+  /**
+   * Start of the first `Resource.hourly` slot (ISO, on the hour, UTC). Absent when the hourly read
+   * failed: pace then falls back to the daily series.
+   */
+  hoursFrom?: string;
+  /** Products whose counted meters were read by the hour; the rest (Builds, a refused dataset) pace by day. */
+  hourly?: ProductId[];
 }
 
 /** One account's billed usage this billing period, per Cloudflare service. */
@@ -577,6 +587,11 @@ export interface Resource {
   lastSeen?: string;
   /** Daily values, `HISTORY_DAYS` long, per metric key. */
   series: Record<string, number[]>;
+  /**
+   * Hourly values for the pace windows, `HOURLY_SLOTS` long from `Account.hoursFrom`, per metric key
+   * (counted metrics only; the last slot is the hour in progress).
+   */
+  hourly?: Record<string, number[]>;
 }
 
 export interface UsageSnapshot {

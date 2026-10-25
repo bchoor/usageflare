@@ -9,6 +9,7 @@ import { useMemo, useSyncExternalStore } from 'react';
 import {
   type Account,
   type Billed,
+  HOURLY_SLOTS,
   type LabelsDoc,
   METRICS,
   type Metric,
@@ -161,6 +162,8 @@ export interface Usage {
   payg: boolean;
   /** Account total per day, 30 days. */
   days: number[];
+  /** Account total per hour, `HOURLY_SLOTS` from `a.hoursFrom` (last one in progress); null without it. */
+  hours: number[] | null;
   /** Each resource's share of `used`, largest first. */
   parts: { r: Resource; v: number }[];
 }
@@ -199,6 +202,12 @@ function judge(a: AccountView, m: Metric, rs: Resource[], warn: number): Usage |
   const last = n - 1;
   const days = Array.from({ length: n }, (_, i) => mine.reduce((s, r) => s + (r.series[m.key]?.[i] ?? 0), 0));
   const monthDays = days.slice(Math.max(0, n - a.day));
+  const hours =
+    a.hoursFrom && m.kind !== 'gauge' && a.hourly?.includes(m.product)
+      ? Array.from({ length: HOURLY_SLOTS }, (_, i) =>
+          mine.reduce((s, r) => s + (r.hourly?.[m.key]?.[i] ?? 0), 0),
+        )
+      : null;
   let used: number;
   let forecast: number;
   let peak: number | null = null;
@@ -271,6 +280,7 @@ function judge(a: AccountView, m: Metric, rs: Resource[], warn: number): Usage |
     hard,
     payg,
     days,
+    hours,
     parts: mine.map((r) => ({ r, v: partOf(r) })).sort((x, y) => y.v - x.v),
   };
 }

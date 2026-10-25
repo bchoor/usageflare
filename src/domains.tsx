@@ -11,6 +11,8 @@ import {
   LumenEChart,
   meterLevel,
   meterValueTone,
+  type PaceWindow,
+  PaceWindowPicker,
   ShareMeter,
   StackedColumns,
   TileSpark,
@@ -36,6 +38,7 @@ import {
   Shield,
   Tag,
   Text,
+  Timer,
   TrendingUp,
   TriangleAlert,
 } from 'lucide-react';
@@ -80,6 +83,15 @@ import {
   type Usage,
   usd,
 } from './model';
+import {
+  hitting,
+  MeterPaceCell,
+  PaceSection,
+  paceBucket,
+  paceOf,
+  ResourcePaceCell,
+  resourcePaces,
+} from './pace';
 import { ProductIcon } from './products';
 
 /** A view config with its defaults filled; the schema leaves the name to the caller. */
@@ -222,9 +234,18 @@ export function DailyColumns({
 /** `Workers · Requests`: a metric as the filter lists it. */
 const metricName = (x: Metric | undefined) => (x ? `${PRODUCT[x.product].label} · ${x.label}` : '');
 
-export function resourceDomain(m: Model, open: (id: string) => void): ViewDomain<Resource> {
+/** Hours to the cap where it hits before the reset (0 at it); sorts soonest first, the rest after. */
+const etaValue = (p: { eta: number; hits: boolean } | null | undefined) => (p?.hits ? p.eta : null);
+
+export function resourceDomain(
+  m: Model,
+  open: (id: string) => void,
+  w: PaceWindow,
+  phone = false,
+): ViewDomain<Resource> {
   const acct = (r: Resource) => m.account[r.acct];
   const main = (r: Resource) => m.info(r).main;
+  const pace = (r: Resource) => resourcePaces(m, r, w)[0];
   return {
     id: 'resources',
     rowKey: (r) => r.id,
@@ -240,7 +261,7 @@ export function resourceDomain(m: Model, open: (id: string) => void): ViewDomain
           <ResourceCard model={m} r={r}>
             <span className="inline-flex min-w-0 items-center gap-2">
               <ProductIcon id={r.product} />
-              <span className="truncate font-medium max-md:max-w-28">{r.name}</span>
+              <span className="truncate font-medium max-md:max-w-20">{r.name}</span>
               {r.type && (
                 <span className="shrink-0 max-md:hidden rounded bg-muted px-1.5 text-muted-foreground text-xs">
                   {r.type}
@@ -378,7 +399,30 @@ export function resourceDomain(m: Model, open: (id: string) => void): ViewDomain
         value: (r) => (main(r) ? (main(r)?.share ?? 0) * 100 : null),
         values: (r) => [shareStatus(main(r)?.share)],
         filterable: true,
-        render: (r) => <WatchFor model={m} r={r} />,
+        // On a phone the share alone, so Hits limit fits beside it.
+        render: (r) => <WatchFor model={m} r={r} phoneBare />,
+      },
+      {
+        // When the meter that hits first reaches its cap at the header's pace window.
+        key: 'pace',
+        // A phone's narrow table: the short header the column needs to fit.
+        label: phone ? 'Hits' : 'Hits limit',
+        icon: Timer,
+        format: 'number',
+        value: (r) => etaValue(pace(r)?.pace),
+        values: (r) => [paceBucket(pace(r)?.pace ?? null)],
+        empty: 'Resets first',
+        filterable: true,
+        groupable: true,
+        aggregate: 'min',
+        rollRender: (rows) => {
+          const first = rows
+            .map((r) => pace(r))
+            .filter((x) => !!x)
+            .sort((p, q) => (etaValue(p.pace) ?? Infinity) - (etaValue(q.pace) ?? Infinity))[0];
+          return first?.pace.hits ? <MeterPaceCell u={first.u} w={w} /> : null;
+        },
+        render: (r) => <ResourcePaceCell m={m} r={r} w={w} />,
       },
       {
         key: 'trend7',
@@ -513,6 +557,23 @@ export function resourceDomain(m: Model, open: (id: string) => void): ViewDomain
         icon: CircleGauge,
         open: true,
         render: (r) => <ResourceUsage m={m} r={r} />,
+      },
+      {
+        id: 'pace',
+        label: 'Pace',
+        icon: Timer,
+        open: true,
+        render: (r) => {
+          const x = pace(r);
+          return x ? (
+            <div className="flex flex-col gap-2">
+              <PaceWindowPicker className="self-start" />
+              <PaceSection u={x.u} w={w} />
+            </div>
+          ) : (
+            <p className="text-muted-foreground text-sm">No meter with a cap.</p>
+          );
+        },
       },
       {
         id: 'binds',
@@ -681,7 +742,7 @@ function ResourceUsage({ m, r }: { m: Model; r: Resource }) {
   );
 }
 
-export function limitDomain(m: Model): ViewDomain<Usage> {
+export function limitDomain(m: Model, w: PaceWindow): ViewDomain<Usage> {
   return {
     id: 'limits',
     rowKey: (u) => `${u.a.id}|${u.m.key}`,
@@ -778,6 +839,23 @@ export function limitDomain(m: Model): ViewDomain<Usage> {
         ),
       },
       {
+        key: 'pace',
+        label: 'Hits limit',
+        icon: Timer,
+        format: 'number',
+        value: (u) => etaValue(paceOf(u, w)),
+        values: (u) => [paceBucket(paceOf(u, w))],
+        empty: 'Resets first',
+        filterable: true,
+        groupable: true,
+        aggregate: 'min',
+        rollRender: (us) => {
+          const first = hitting(us, w)[0];
+          return first ? <MeterPaceCell u={first.u} w={w} /> : null;
+        },
+        render: (u) => <MeterPaceCell u={u} w={w} />,
+      },
+      {
         key: 'cost',
         label: 'Extra cost',
         icon: DollarSign,
@@ -816,6 +894,7 @@ export function limitDomain(m: Model): ViewDomain<Usage> {
       { key: 'resources', label: 'Resources', icon: Server },
       { key: 'plan', label: 'Plan', icon: Shield },
       { key: 'usage', label: 'Usage', icon: Gauge },
+      { key: 'pace', label: 'Hits a cap soon', icon: Timer },
     ],
     details: [
       {
@@ -843,6 +922,18 @@ export function limitDomain(m: Model): ViewDomain<Usage> {
               ],
             }))}
           />
+        ),
+      },
+      {
+        id: 'pace',
+        label: 'Pace',
+        icon: Timer,
+        open: true,
+        render: (u) => (
+          <div className="flex flex-col gap-2">
+            <PaceWindowPicker className="self-start" />
+            <PaceSection u={u} w={w} />
+          </div>
         ),
       },
       {
