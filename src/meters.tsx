@@ -7,7 +7,7 @@ import { METER_LEVEL_COLOR, meterLevel, ShareMeter } from '@columenlabs/lumen-ui
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@columenlabs/lumen-ui/ui/hover-card';
 import type { ReactNode } from 'react';
 import { FAMILY, METRICS, type Metric, PRODUCT, type Resource } from '../shared/catalog';
-import { costNote, fmt, type Model, pctText, shareOf, type Usage, usd } from './model';
+import { fmt, type Model, partNote, partShare, pctText, shareOf, type Usage, usd } from './model';
 import { ProductIcon } from './products';
 
 export interface MeterRow {
@@ -26,7 +26,7 @@ export function metersOf(model: Model, r: Resource): MeterRow[] {
     const u = model.usage.find((x) => x.a.id === r.acct && x.m.key === key);
     const v = u?.parts.find((p) => p.r.id === r.id)?.v;
     if (!u || v === undefined) continue;
-    rows.push({ key, m: u.m, u, v, share: shareOf(u, v), fcost: u.used ? (u.fcost * v) / u.used : 0 });
+    rows.push({ key, m: u.m, u, v, share: shareOf(u, v), fcost: u.fcost * partShare(u, r, v) });
   }
   rows.sort((a, b) => b.share - a.share || b.fcost - a.fcost);
   for (const m of METRICS)
@@ -81,7 +81,7 @@ export function MetersCard({
           {children}
         </span>
       </HoverCardTrigger>
-      <HoverCardContent align="start" className="w-auto min-w-72 max-w-md p-0">
+      <HoverCardContent align="start" className="w-auto min-w-72 max-w-[min(28rem,calc(100vw-1rem))] p-0">
         <div className="flex items-center gap-2 border-b px-3 py-2">
           <ProductIcon id={r.product} />
           <b className="truncate font-medium text-sm">{r.name}</b>
@@ -102,7 +102,7 @@ export function MetersCard({
                 </td>
                 <td
                   className="num py-1 pr-3 text-right text-muted-foreground"
-                  title={x.u && a?.plan === 'paid' ? costNote(x.u) : undefined}
+                  title={x.u && a?.plan === 'paid' ? partNote(x.u, r, x.v) : undefined}
                 >
                   {a?.plan === 'paid' && x.fcost >= 0.005 ? usd(x.fcost) : ''}
                 </td>
@@ -110,6 +110,15 @@ export function MetersCard({
             ))}
           </tbody>
         </table>
+        {a?.plan === 'paid' &&
+          rows
+            .filter((x) => x.u && x.fcost >= 0.005)
+            .map((x) => (
+              <p key={x.key} className="border-t px-3 py-1.5 text-xs tabular-nums">
+                <span className="text-muted-foreground">{x.m.label}: </span>
+                {x.u && partNote(x.u, r, x.v)}
+              </p>
+            ))}
         <p className="border-t px-3 py-1.5 text-muted-foreground text-xs">
           Usage {planText(model.info(r).plan)} of the {a?.name ?? ''} allotment at list prices. Bars: share of
           each meter's allowance
