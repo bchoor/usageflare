@@ -16,6 +16,8 @@
     "ACCESS_TEAM_DOMAIN": "bchoor.cloudflareaccess.com",
     "ACCESS_AUD": "38820bd8ab529917744d23b83818c66fdbd3538d3ac547578ce4286f8811aff2"
   },
+  // Custom domain; the Access app covers it and flareusage.deployapps.workers.dev with one audience.
+  "routes": [{ "pattern": "usageflare.icaruslab.dev", "custom_domain": true }],
   // Previews would serve on hosts the Access app does not cover.
   "preview_urls": false
   // Secret (wrangler secret put): SETTINGS_KEY, 32 random bytes in base64, the AES-GCM key.

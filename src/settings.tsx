@@ -14,13 +14,20 @@ import { api, type SecretInfo, slug } from './api';
 
 const SECRETS = ['secrets'];
 
-/** Read-only permissions the dashboard needs; the dashboard's token template pre-fills them. */
+/**
+ * Read-only permissions the dashboard needs (GraphQL usage, resource lists, plan); the dashboard's
+ * token template pre-fills them. Keys from Cloudflare's token template reference. Workers CI,
+ * Containers, Vectorize, Hyperdrive and Workers AI have no published template key: add those by hand.
+ */
 const TOKEN_PERMISSIONS = [
-  { key: 'account_analytics', type: 'read' },
-  { key: 'analytics', type: 'read' },
-  { key: 'workers_scripts', type: 'read' },
-  { key: 'workers_kv_storage', type: 'read' },
-];
+  'account_analytics',
+  'account_settings',
+  'workers_scripts',
+  'workers_kv_storage',
+  'workers_r2',
+  'd1',
+  'queues',
+].map((key) => ({ key, type: 'read' }));
 const CREATE_TOKEN_URL = `https://dash.cloudflare.com/profile/api-tokens?${new URLSearchParams({
   permissionGroupKeys: JSON.stringify(TOKEN_PERMISSIONS),
   accountId: '*',
