@@ -2,6 +2,7 @@ import './index.css';
 import {
   configureLumen,
   createDeskQueryClient,
+  iconOf,
   type LumenFinderRow,
   LumenSelector,
   LumenShell,
@@ -19,7 +20,7 @@ import { Bell, Building2, Gauge, KeyRound, LayoutDashboard, Plus, Rows3, Tag } f
 import { StrictMode, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { z } from 'zod';
-import { CATEGORIES, type CategoryId, PRODUCTS } from '../shared/catalog';
+import { CATEGORIES, type CategoryId, PRODUCTS, type ProductId } from '../shared/catalog';
 import { api } from './api';
 import { LabelForm, registerLabelSaver } from './labels';
 import {
@@ -85,7 +86,9 @@ function AccountNav({ m }: { m: Model }) {
               id: l.name,
               title: l.name,
               to: `/a/${a.id}/resources?label=${encodeURIComponent(l.name)}`,
+              icon: l.icon ? iconOf(l.icon, Tag) : undefined,
               color: labelColor(m.labels, l.name),
+              badge: rs.filter((r) => m.labelsOf(r).includes(l.name)).length,
             })),
           },
         ];
@@ -207,7 +210,7 @@ function FinderRows({ m }: { m: Model }) {
         label: `${p.label} resources`,
         group: 'Products',
         scope: 'Resources',
-        href: '/resources',
+        href: `/resources?product=${p.id}`,
         icon: PRODUCT_ICON[p.id],
       })),
       ...m.resources
@@ -310,7 +313,11 @@ const root = createRootRoute({ component: Shell });
 const catSearch = z.object({
   cat: z.enum(CATEGORIES.map((c) => c.id) as [CategoryId, ...CategoryId[]]).optional(),
 });
-const resSearch = z.object({ label: z.coerce.string().optional(), open: z.coerce.string().optional() });
+const resSearch = z.object({
+  label: z.coerce.string().optional(),
+  open: z.coerce.string().optional(),
+  product: z.enum(PRODUCTS.map((p) => p.id) as [ProductId, ...ProductId[]]).optional(),
+});
 
 const routes = [
   createRoute({ getParentRoute: () => root, path: '/', component: OverviewPage }),
@@ -321,7 +328,7 @@ const routes = [
     validateSearch: resSearch,
     component: function AllResources() {
       const s = resourcesRoute.useSearch();
-      return <ResourcesPage label={s.label} open={s.open} />;
+      return <ResourcesPage key={s.product ?? ''} label={s.label} open={s.open} product={s.product} />;
     },
   }),
   createRoute({
@@ -341,7 +348,15 @@ const routes = [
     component: function AccountResources() {
       const { acct } = accountResourcesRoute.useParams();
       const s = accountResourcesRoute.useSearch();
-      return <ResourcesPage key={acct} acct={acct} label={s.label} open={s.open} />;
+      return (
+        <ResourcesPage
+          key={`${acct}|${s.product ?? ''}`}
+          acct={acct}
+          label={s.label}
+          open={s.open}
+          product={s.product}
+        />
+      );
     },
   }),
 ] as const;

@@ -7,12 +7,13 @@ import {
   baseOption,
   ColorDot,
   DetailsTable,
+  iconOf,
   LumenEChart,
+  ShareMeter,
   StackedColumns,
   useChartTokens,
   type ViewDomain,
 } from '@columenlabs/lumen-ui';
-import { Progress } from '@columenlabs/lumen-ui/ui/progress';
 import { type CustomViewConfig, customViewConfigSchema } from '@columenlabs/lumen-ui-types/views';
 import {
   Activity,
@@ -31,8 +32,18 @@ import {
   Text,
   TriangleAlert,
 } from 'lucide-react';
-import { CATEGORY, FAMILIES, FAMILY, METRIC, PRODUCT, PRODUCTS, type Resource } from '../shared/catalog';
+import {
+  CATEGORY,
+  FAMILIES,
+  FAMILY,
+  METRIC,
+  type Metric,
+  PRODUCT,
+  PRODUCTS,
+  type Resource,
+} from '../shared/catalog';
 import { LabelPicker, setLabels } from './labels';
+import { MetersCard, MetricChip, metersOf, ResourceCard, ShareBar } from './meters';
 import {
   fmt,
   labelColor,
@@ -42,6 +53,7 @@ import {
   SEVERITY,
   STATUS_LABEL,
   sevColor,
+  shareOf,
   statusText,
   type Usage,
   usd,
@@ -96,19 +108,19 @@ export function ValueShare({
   v,
   unit,
   share,
-  title,
+  payg,
 }: {
   v: number;
   unit: string;
   share: number;
-  title: string;
+  payg?: boolean;
 }) {
   const st = share >= 1 ? 'over' : share >= 0.5 ? 'watch' : 'ok';
   return (
-    <span className="whitespace-nowrap font-mono tabular-nums" title={title}>
+    <span className="num whitespace-nowrap">
       {fmt(v, unit)}{' '}
-      <span style={{ color: st === 'ok' ? 'var(--muted-foreground)' : sevColor(st) }}>
-        [{pctText(share)}]
+      <span style={{ color: st === 'ok' || payg ? 'var(--muted-foreground)' : sevColor(st) }}>
+        [{payg ? 'PAYG' : pctText(share)}]
       </span>
     </span>
   );
@@ -116,16 +128,7 @@ export function ValueShare({
 
 /** Used against the allowance: a bar coloured by status, with the share beside it. */
 export function Meter({ share, status, wide }: { share: number; status: Usage['st']; wide?: boolean }) {
-  return (
-    <span className={`inline-flex items-center gap-2 ${wide ? 'w-full' : ''}`}>
-      <Progress
-        value={Math.min(share, 1) * 100}
-        className={`h-1.5 ${wide ? 'w-full' : 'w-16'} [&>[data-slot=progress-indicator]]:bg-(--progress-color)`}
-        style={{ ['--progress-color' as string]: sevColor(status) }}
-      />
-      <span className="font-mono text-xs tabular-nums">{pctText(share)}</span>
-    </span>
-  );
+  return <ShareMeter value={share} label={pctText(share)} color={sevColor(status)} wide={wide} />;
 }
 
 /** Daily values of one or more series, stacked, with the dates under them. */
@@ -160,6 +163,9 @@ export function DailyColumns({
   );
 }
 
+/** `Workers · Requests`: a metric as the filter lists it. */
+const metricName = (x: Metric | undefined) => (x ? `${PRODUCT[x.product].label} · ${x.label}` : '');
+
 export function resourceDomain(m: Model, open: (id: string) => void): ViewDomain<Resource> {
   const acct = (r: Resource) => m.account[r.acct];
   const main = (r: Resource) => m.info(r).main;
@@ -175,13 +181,17 @@ export function resourceDomain(m: Model, open: (id: string) => void): ViewDomain
         format: 'text',
         value: (r) => r.name,
         render: (r) => (
-          <span className="inline-flex min-w-0 items-center gap-2">
-            <ProductIcon id={r.product} />
-            <span className="truncate font-medium">{r.name}</span>
-            {r.type && (
-              <span className="rounded bg-muted px-1.5 text-muted-foreground text-xs">{r.type}</span>
-            )}
-          </span>
+          <ResourceCard model={m} r={r}>
+            <span className="inline-flex min-w-0 items-center gap-2">
+              <ProductIcon id={r.product} />
+              <span className="truncate font-medium">{r.name}</span>
+              {r.type && (
+                <span className="shrink-0 rounded bg-muted px-1.5 text-muted-foreground text-xs">
+                  {r.type}
+                </span>
+              )}
+            </span>
+          </ResourceCard>
         ),
       },
       {
@@ -224,6 +234,10 @@ export function resourceDomain(m: Model, open: (id: string) => void): ViewDomain
         value: (r) => m.labelsOf(r).join(', ') || null,
         values: (r) => m.labelsOf(r),
         color: (v) => labelColor(m.labels, v),
+        iconOf: (v) => {
+          const icon = m.labels.labels.find((l) => l.name === v)?.icon;
+          return icon ? iconOf(icon, Tag) : undefined;
+        },
         filterable: true,
         groupable: true,
         edit: {
@@ -254,6 +268,29 @@ export function resourceDomain(m: Model, open: (id: string) => void): ViewDomain
         hideOnPhone: true,
       },
       {
+        // The meter closest to its limit, as a chip coloured by its family; +N and the hover card
+        // show the rest.
+        key: 'metric',
+        label: 'Metric',
+        icon: Gauge,
+        format: 'text',
+        value: (r) => (main(r) ? metricName(main(r)?.u.m) : null),
+        values: (r) => metersOf(m, r).map((x) => metricName(x.m)),
+        filterable: true,
+        hideOnPhone: true,
+        render: (r) => {
+          const all = metersOf(m, r);
+          const head = all[0];
+          if (!head) return <span className="text-muted-foreground">—</span>;
+          return (
+            <MetersCard model={m} r={r} hl={head.key}>
+              <MetricChip m={head.m} />
+              {all.length > 1 && <span className="num text-muted-foreground text-xs">+{all.length - 1}</span>}
+            </MetersCard>
+          );
+        },
+      },
+      {
         key: 'used',
         label: 'Used',
         icon: Activity,
@@ -261,13 +298,7 @@ export function resourceDomain(m: Model, open: (id: string) => void): ViewDomain
         value: (r) => main(r)?.v ?? null,
         render: (r) => {
           const x = main(r);
-          return x ? (
-            <span className="whitespace-nowrap font-mono tabular-nums" title={x.u.m.label}>
-              {fmt(x.v, x.u.m.unit)}
-            </span>
-          ) : (
-            '—'
-          );
+          return x ? <span className="num whitespace-nowrap">{fmt(x.v, x.u.m.unit)}</span> : '—';
         },
       },
       {
@@ -282,12 +313,8 @@ export function resourceDomain(m: Model, open: (id: string) => void): ViewDomain
         values: (r) => [shareStatus(main(r)?.share)],
         filterable: true,
         render: (r) => {
-          const x = main(r);
-          return x ? (
-            <Meter share={x.share} status={x.share >= 1 ? 'over' : x.share >= 0.5 ? 'watch' : 'ok'} />
-          ) : (
-            '—'
-          );
+          const x = metersOf(m, r)[0];
+          return x ? <ShareBar row={x} /> : '—';
         },
       },
       {
@@ -317,12 +344,9 @@ export function resourceDomain(m: Model, open: (id: string) => void): ViewDomain
           const x = familyPart(m, r, f.id);
           if (!x) return <span className="text-muted-foreground">—</span>;
           return (
-            <ValueShare
-              v={x.v}
-              unit={x.u.m.unit}
-              share={x.share}
-              title={`${PRODUCT[x.u.m.product].label} ${x.u.m.label.toLowerCase()}: ${pctText(x.share)} of the allowance`}
-            />
+            <MetersCard model={m} r={r} hl={x.u.m.key}>
+              <ValueShare v={x.v} unit={x.u.m.unit} share={x.share} payg={x.u.payg} />
+            </MetersCard>
           );
         },
       })),
@@ -406,7 +430,7 @@ export function familyPart(m: Model, r: Resource, family: string) {
   if (!key) return null;
   const u = m.usage.find((x) => x.a.id === r.acct && x.m.key === key);
   const v = u?.parts.find((p) => p.r.id === r.id)?.v;
-  return u && v !== undefined ? { u, v, share: v / u.limit } : null;
+  return u && v !== undefined ? { u, v, share: shareOf(u, v) } : null;
 }
 
 const usedBy = (m: Model, r: Resource) =>
@@ -459,7 +483,11 @@ function ResourceUsage({ m, r }: { m: Model; r: Resource }) {
           const met = METRIC[k];
           return {
             key: k,
-            cells: [met?.label ?? k, fmt(v, met?.unit), u ? pctText(v / u.limit) : '—'],
+            cells: [
+              met?.label ?? k,
+              fmt(v, met?.unit),
+              u ? (u.payg ? 'Pay as you go' : pctText(shareOf(u, v))) : '—',
+            ],
           };
         })}
       />
@@ -547,8 +575,7 @@ export function limitDomain(m: Model): ViewDomain<Usage> {
         value: (u) => u.limit,
         render: (u) => (
           <span className="font-mono tabular-nums">
-            {fmt(u.limit, u.m.unit)}
-            {perText(u)}
+            {u.payg ? 'Pay as you go' : `${fmt(u.limit, u.m.unit)}${perText(u)}`}
           </span>
         ),
         hideOnPhone: true,
@@ -566,10 +593,10 @@ export function limitDomain(m: Model): ViewDomain<Usage> {
         label: 'Forecast',
         icon: ChartColumn,
         format: 'percent',
-        value: (u) => (u.basis === 'today' ? ((u.peak ?? 0) / u.limit) * 100 : u.fpct * 100),
+        value: (u) => (u.basis === 'today' ? shareOf(u, u.peak ?? 0) * 100 : u.fpct * 100),
         render: (u) => (
           <span className="font-mono text-xs tabular-nums">
-            {u.basis === 'today' ? `peak ${pctText((u.peak ?? 0) / u.limit)}` : pctText(u.fpct)}
+            {u.basis === 'today' ? `peak ${pctText(shareOf(u, u.peak ?? 0))}` : pctText(u.fpct)}
           </span>
         ),
       },
