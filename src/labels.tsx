@@ -207,7 +207,18 @@ type Op = 'add' | 'remove';
  * Bulk labels: ticks are staged, each row says how many of the selected resources have it (or
  * what will change), and nothing is saved until Apply. A toast offers Undo.
  */
-function StagedLabels({ m, ids, onDone }: { m: Model; ids: string[]; onDone: () => void }) {
+function StagedLabels({
+  m,
+  ids,
+  onDone,
+  onApplied,
+}: {
+  m: Model;
+  ids: string[];
+  onDone: () => void;
+  /** After Apply: the bulk bar clears the selection and goes away (Undo restores the labels). */
+  onApplied?: () => void;
+}) {
   const [q, setQ] = useState('');
   const [pend, setPend] = useState<Record<string, Op>>({});
   const have = (name: string) => ids.filter((id) => (m.labels.assign[id] ?? []).includes(name)).length;
@@ -244,6 +255,7 @@ function StagedLabels({ m, ids, onDone }: { m: Model; ids: string[]; onDone: () 
       return;
     }
     onDone();
+    onApplied?.();
     lumenToast.success(`Updated labels on ${changed} resource${changed === 1 ? '' : 's'}`, {
       action: { label: 'Undo', onClick: () => void saver?.(before) },
     });
@@ -391,7 +403,7 @@ export function BulkBar({
           </Button>
         </PopoverTrigger>
         <PopoverContent side="top" className="w-80">
-          <StagedLabels m={m} ids={ids} onDone={() => setOpen(false)} />
+          <StagedLabels m={m} ids={ids} onDone={() => setOpen(false)} onApplied={() => onSelect(new Set())} />
         </PopoverContent>
       </Popover>
     </div>
