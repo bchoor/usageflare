@@ -48,7 +48,7 @@ jobs:
         env:
           DRY_RUN: "1"
           FORCE: "1"
-        run: bunx "@columenlabs/lumen-ship@$(jq -r '.devDependencies["@columenlabs/lumen-ship"]' package.json)" release patch
+        run: bunx "@columenlabs/lumen-ship@$(jq -r '.dependencies["@columenlabs/lumen-ship"]' package.json)" release patch
 
   release:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && vars.RELEASE_ON_MERGE == 'true')
@@ -76,4 +76,4 @@ jobs:
           FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
           RELEASE_EVERY: ${{ vars.RELEASE_EVERY || '10' }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: bunx "@columenlabs/lumen-ship@$(jq -r '.devDependencies["@columenlabs/lumen-ship"]' package.json)" release "$BUMP"
+        run: bunx "@columenlabs/lumen-ship@$(jq -r '.dependencies["@columenlabs/lumen-ship"]' package.json)" release "$BUMP"

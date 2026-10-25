@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "flareusage",
+  "account_id": "87a4f50952b4b2ce00cab6c2680e63ae",
   "main": "worker/index.ts",
   "compatibility_date": "2026-10-01",
   "observability": { "enabled": true },
@@ -9,8 +10,13 @@
     "run_worker_first": ["/api/*"]
   },
   // One namespace for the app: plain settings and encrypted secrets (worker/secrets.ts).
-  "kv_namespaces": [{ "binding": "KV", "id": "KV_NAMESPACE_ID" }],
+  "kv_namespaces": [{ "binding": "KV", "id": "a9e1e84a14b747df95bb156af22ff56c" }],
   // Cloudflare Access in front of the app; the Worker checks its JWT on every /api call.
-  "vars": { "ACCESS_TEAM_DOMAIN": "", "ACCESS_AUD": "" }
+  "vars": {
+    "ACCESS_TEAM_DOMAIN": "bchoor.cloudflareaccess.com",
+    "ACCESS_AUD": "38820bd8ab529917744d23b83818c66fdbd3538d3ac547578ce4286f8811aff2"
+  },
+  // Previews would serve on hosts the Access app does not cover.
+  "preview_urls": false
   // Secret (wrangler secret put): SETTINGS_KEY, 32 random bytes in base64, the AES-GCM key.
 }

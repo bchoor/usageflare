@@ -8,6 +8,7 @@
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,
+    "resolveJsonModule": true,
     "verbatimModuleSyntax": true,
     "noUncheckedIndexedAccess": true,
     "types": ["@cloudflare/workers-types", "vite/client"]

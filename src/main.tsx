@@ -19,6 +19,7 @@ function Shell() {
       appLabel="Flareusage"
       brand={<span className="font-semibold">Flareusage</span>}
       nav={<NavGroup items={[{ title: 'Usage', to: '/', icon: Gauge, exact: true }]} />}
+      releases="/api/releases"
       user={me.data ? { email: me.data.email, name: null } : null}
       settings={[
         {

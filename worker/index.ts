@@ -1,8 +1,10 @@
+import { listReleases, RELEASES_HEADERS, type Release } from '@columenlabs/lumen-ship/releases';
 import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
 import { secureHeaders } from 'hono/secure-headers';
 import { z } from 'zod';
 import { requireAccess, sameOrigin } from './access';
+import changelog from './changelog.json';
 import type { AppEnv } from './env';
 import { deleteSecret, hasSecret, listSecrets, putSecret, testSecret } from './secrets';
 
@@ -16,11 +18,24 @@ const secretBody = z.object({
 const api = new Hono<AppEnv>()
   .use(secureHeaders(), async (c, next) => {
     await next();
-    c.header('Cache-Control', 'no-store');
+    if (!c.res.headers.has('Cache-Control')) c.header('Cache-Control', 'no-store');
   })
   .use(requireAccess, sameOrigin)
   .get('/health', (c) => c.json({ ok: true }))
   .get('/me', (c) => c.json({ email: c.get('email') }))
+  // What's new in the status bar: the Key takeaways lumen-ship commits on each release.
+  .get('/releases', (c) =>
+    c.json(
+      {
+        releases: listReleases(changelog as Release[], {
+          limit: c.req.query('limit'),
+          before: c.req.query('before'),
+        }),
+      },
+      200,
+      RELEASES_HEADERS,
+    ),
+  )
   .get('/secrets', async (c) => c.json({ secrets: await listSecrets(c.env) }))
   .put('/secrets/:name', zValidator('param', name), zValidator('json', secretBody), async (c) => {
     const { name } = c.req.valid('param');
