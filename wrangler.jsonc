@@ -1,26 +1,43 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "usageflare",
-  "account_id": "87a4f50952b4b2ce00cab6c2680e63ae",
   "main": "worker/index.ts",
   "compatibility_date": "2026-10-01",
   "observability": { "enabled": true },
+  // `/` is the public landing page (index.html); the app lives under /app (app/index.html). The Worker
+  // answers /app/* with the app shell and sends the old app paths there.
   "assets": {
-    "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
+    "binding": "ASSETS",
+    "not_found_handling": "none",
+    "run_worker_first": ["/api/*", "/app", "/app/*", "/limits", "/resources", "/a/*"]
   },
-  // One namespace for the app: plain settings and encrypted secrets (worker/secrets.ts).
-  "kv_namespaces": [{ "binding": "KV", "id": "a9e1e84a14b747df95bb156af22ff56c" }],
-  // Cloudflare Access in front of the app; the Worker checks its JWT on every /api call.
+  // One namespace for the app: plain settings and encrypted secrets (worker/secrets.ts). No id here:
+  // a fresh deploy (or the Deploy to Cloudflare button) provisions one.
+  "kv_namespaces": [{ "binding": "KV" }],
+  // Your Cloudflare Access application: put it in front of /app and /api (the landing page at / stays
+  // public). The Worker checks its JWT on every /api call and answers 503 while these are empty.
   "vars": {
-    "ACCESS_TEAM_DOMAIN": "bchoor.cloudflareaccess.com",
-    "ACCESS_AUD": "38820bd8ab529917744d23b83818c66fdbd3538d3ac547578ce4286f8811aff2"
+    "ACCESS_TEAM_DOMAIN": "",
+    "ACCESS_AUD": ""
   },
-  // Custom domain; the Access app covers it and flareusage.deployapps.workers.dev with one audience.
-  "routes": [{ "pattern": "usageflare.icaruslab.dev", "custom_domain": true }],
-  // Also serve usageflare.deployapps.workers.dev (wrangler turns it off once routes are set).
   "workers_dev": true,
   // Previews would serve on hosts the Access app does not cover.
-  "preview_urls": false
+  "preview_urls": false,
   // Secret (wrangler secret put): SETTINGS_KEY, 32 random bytes in base64, the AES-GCM key.
+  "env": {
+    // The maintainers' own instance (usageflare.icaruslab.dev). Workers Builds builds it with
+    // USAGEFLARE_ENV=production (vite.config.ts); everyone else deploys the defaults above.
+    "production": {
+      "name": "usageflare",
+      "account_id": "87a4f50952b4b2ce00cab6c2680e63ae",
+      "kv_namespaces": [{ "binding": "KV", "id": "a9e1e84a14b747df95bb156af22ff56c" }],
+      "vars": {
+        "ACCESS_TEAM_DOMAIN": "bchoor.cloudflareaccess.com",
+        "ACCESS_AUD": "38820bd8ab529917744d23b83818c66fdbd3538d3ac547578ce4286f8811aff2"
+      },
+      "routes": [{ "pattern": "usageflare.icaruslab.dev", "custom_domain": true }],
+      "workers_dev": true,
+      "preview_urls": false
+    }
+  }
 }

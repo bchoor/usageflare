@@ -1,0 +1,37 @@
+WEBVTT
+
+00:00:00.500 --> 00:00:06.362
+If you build on Cloudflare, your usage is spread across products, plans and accounts.
+
+00:00:06.512 --> 00:00:08.600
+usageflare brings it into one place.
+
+00:00:08.700 --> 00:00:15.734
+It connects to each of your Cloudflare accounts, and reads usage for Workers, KV, D1, R2, AI and more.
+
+00:00:15.884 --> 00:00:22.298
+Every number is measured against your plan's allowance, and forecast to the end of the month.
+
+00:00:22.448 --> 00:00:29.483
+So you can see what's blocked, what's already billing, and what's about to run out, before it happens.
+
+00:00:30.400 --> 00:00:34.262
+Cloudflare bills by resource, but you think in projects.
+
+00:00:34.412 --> 00:00:41.102
+Filter for anything without a label, pick resources from any account, and tag them all in one go.
+
+00:00:43.800 --> 00:00:49.662
+Then group by account and product, open the groups you care about, and save the view.
+
+00:00:54.000 --> 00:00:56.069
+And it adapts to how you work.
+
+00:00:56.219 --> 00:01:02.495
+Add a formula column, like each resource's share of the bill, and it's checked as you type.
+
+00:01:05.200 --> 00:01:12.579
+Drag cards around, add charts and widgets, and save the layout, so the dashboard shows what matters to you.
+
+00:01:26.900 --> 00:01:30.348
+usageflare. Every account. Every limit. One gauge.
