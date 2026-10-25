@@ -36,7 +36,15 @@ import {
   TriangleAlert,
 } from 'lucide-react';
 import { type ReactNode, useMemo, useRef, useState } from 'react';
-import { CATEGORIES, type CategoryId, FAMILIES, METRIC, METRICS, PRODUCT } from '../shared/catalog';
+import {
+  CATEGORIES,
+  type CategoryId,
+  FAMILIES,
+  METRIC,
+  METRICS,
+  PRODUCT,
+  permissionsFor,
+} from '../shared/catalog';
 import { DailyColumns, limitDomain, Meter, resourceDomain, view } from './domains';
 import { BulkLabels, LabelForm, LabelMark } from './labels';
 import {
@@ -153,6 +161,7 @@ function Problems({ m, acct }: { m: Model; acct?: string }) {
   const shell = useShell();
   const missing = m.accounts.filter((a) => (!acct || a.id === acct) && a.missing.length);
   if (!m.errors.length && !missing.length) return null;
+  const perms = permissionsFor(missing.flatMap((a) => a.missing));
   return (
     <NoteLine
       icon={TriangleAlert}
@@ -160,6 +169,7 @@ function Problems({ m, acct }: { m: Model; acct?: string }) {
       note={[
         ...m.errors.map((e) => `Token ${e.label}: ${e.error}`),
         ...missing.map((a) => `${a.name}: no access to ${a.missing.join(', ')}`),
+        ...(perms.length ? [`Edit the token in Cloudflare and add ${perms.join(', ')}`] : []),
       ].join(' · ')}
       action={
         <Button size="sm" variant="outline" onClick={() => shell.openSettings('tokens')}>
