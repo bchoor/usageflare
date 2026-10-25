@@ -4,12 +4,21 @@
  * slice of one account meter. Grouped by product; each meter folds its labels under one rolled-up
  * line (the kit's sub-group) that reads the pool again from its rows (`poolShare`).
  */
-import { type PaceWindow, poolShare, ShareMeter, UnitValue, type ViewDomain } from '@columenlabs/lumen-ui';
+import {
+  iconOf,
+  meterValueTone,
+  type PaceWindow,
+  poolShare,
+  ShareMeter,
+  UnitValue,
+  type ViewDomain,
+} from '@columenlabs/lumen-ui';
 import { Box, ChartColumn, DollarSign, Gauge, Server, Tag, Timer, TriangleAlert } from 'lucide-react';
-import { PRODUCT, type Resource } from '../shared/catalog';
+import { PRODUCT, PRODUCTS, type Resource } from '../shared/catalog';
 import { amountParts } from './domains';
 import { labelColor, type Model, pctText, perText, STATUS_LABEL, shareOf, type Usage } from './model';
 import { hitting, MeterPaceCell } from './pace';
+import { PRODUCT_ICON, ProductIcon } from './products';
 
 export const NO_LABEL = 'No label';
 
@@ -63,6 +72,7 @@ export function quotaRows(m: Model, us: Usage[]): QuotaRow[] {
   return out;
 }
 
+const productOf = new Map(PRODUCTS.map((p) => [p.label, p]));
 const poolKey = (q: QuotaRow) => `${q.u.a.id}|${q.u.m.key}`;
 const colorOf = (m: Model, label: string) =>
   label === NO_LABEL
@@ -92,6 +102,10 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
         format: 'text',
         value: (q) => q.label,
         color: (v) => colorOf(m, v),
+        iconOf: (v) => {
+          const icon = m.labels.labels.find((l) => l.name === v)?.icon;
+          return icon ? iconOf(icon, Tag) : undefined;
+        },
         filterable: true,
         groupable: true,
       },
@@ -101,6 +115,11 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
         icon: Box,
         format: 'text',
         value: (q) => PRODUCT[q.u.m.product].label,
+        color: (v) => productOf.get(v)?.color,
+        iconOf: (v) => {
+          const p = productOf.get(v);
+          return p ? PRODUCT_ICON[p.id] : undefined;
+        },
         filterable: true,
         groupable: true,
         hideOnPhone: true,
@@ -165,11 +184,16 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
         aggregate: 'max',
         render: (q) => <QuotaShare share={q.share} payg={q.u.payg} />,
         // A meter: its labels stacked on the quota. A product: its fullest meter.
-        rollRender: (qs) => {
-          const { share, top, pools: ps } = pools(qs);
+        rollRender: (qs, level) => {
+          const { share, top } = pools(qs);
           if (!top) return null;
           if (top.cap <= 0) return <QuotaShare share={0} payg />;
-          if (ps.length > 1) return <QuotaShare share={share} />;
+          // A product or label (and the Total): its fullest meter's %, no bar; bars are per meter.
+          if (level !== 'fold') {
+            const t = meterValueTone(share);
+            const tone = t === 'loss' ? 'text-loss' : t === 'warning' ? 'text-warning' : '';
+            return <span className={`num text-xs ${tone}`}>{pctText(share)}</span>;
+          }
           const segs = [...top.rows]
             .sort((a, b) => b.used - a.used)
             .map((q) => ({ value: q.share, color: colorOf(m, q.label), label: q.label }));
@@ -250,9 +274,11 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
         label: 'Meter',
         icon: Gauge,
         under: (q) => meterName(q.u),
-        name: (q) => q.label,
         always: true,
         open: true,
+        mark: (_k, qs) =>
+          qs[0] ? <ProductIcon id={qs[0].u.m.product} className="size-3.5 shrink-0" /> : null,
+        flat: ['label'],
       },
     ],
   };
