@@ -51,9 +51,19 @@ import {
 } from '../shared/catalog';
 import { limitDomain, resourceDomain, UsageLines, view } from './domains';
 import { BulkBar, LabelForm, LabelMark } from './labels';
-import { AccountMetersCard, PlanMeter, planText, Trend7, UsageCell, WatchChip, WatchFor } from './meters';
+import {
+  AccountMetersCard,
+  BilledCell,
+  PlanMeter,
+  planText,
+  Trend7,
+  UsageCell,
+  WatchChip,
+  WatchFor,
+} from './meters';
 import {
   type AccountView,
+  billCheck,
   fmt,
   type Model,
   monthEnd,
@@ -254,16 +264,26 @@ function usageTile(m: Model) {
       case 'bill': {
         const mtd =
           based.reduce((s, a) => s + (5 * a.day) / a.monthDays, 0) + rows.reduce((s, u) => s + u.cost, 0);
+        // What Cloudflare billed for the same products, where a token has Billing Read.
+        const products = new Set(rows.map((u) => u.m.product));
+        const checks = as.flatMap((a) => {
+          const c = billCheck(m.usage, a, (p) => (p ? products.has(p) : whole(a)));
+          return c ? [c] : [];
+        });
+        const billed = checks.reduce((s, c) => s + c.billed, 0);
+        const est = checks.every((c) => c.est !== null) ? checks.reduce((s, c) => s + (c.est ?? 0), 0) : null;
         return (
           <Tile
             label="Bill so far"
             value={usd(mtd)}
             caption={
-              !one
-                ? `${as.length} accounts · ${monthStart()} – today`
-                : one.plan === 'paid'
-                  ? `${monthStart()} – today, est.`
-                  : 'No charges'
+              checks.length
+                ? `Usage billed ${usd(billed)}${est === null ? '' : ` · est. ${usd(est)}`}`
+                : !one
+                  ? `${as.length} accounts · ${monthStart()} – today`
+                  : one.plan === 'paid'
+                    ? `${monthStart()} – today, est.`
+                    : 'No charges'
             }
           />
         );
@@ -520,6 +540,7 @@ export function OverviewPage() {
           { label: 'Watch for' },
           { label: 'Trend 7d', right: true, hideOnPhone: true },
           { label: 'Forecast bill', right: true, hideOnPhone: true },
+          { label: 'Billed', right: true, hideOnPhone: true },
         ]}
         rows={as.map((a) => {
           const p = m.plan(a);
@@ -554,6 +575,7 @@ export function OverviewPage() {
               <span key="b" className="num">
                 {usd(accountBill(m, a).fc)}
               </span>,
+              <BilledCell key="bd" model={m} a={a} />,
             ],
           };
         })}

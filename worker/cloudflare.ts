@@ -3,7 +3,14 @@
  * daily usage per resource (GraphQL Analytics). Anything the token can't read is skipped and named
  * in `missing`, so one absent scope never blanks the whole account.
  */
-import { type Account, HISTORY_DAYS, type Plan, type ProductId, type Resource } from '../shared/catalog';
+import {
+  type Account,
+  type Billed,
+  HISTORY_DAYS,
+  type Plan,
+  type ProductId,
+  type Resource,
+} from '../shared/catalog';
 
 const API = 'https://api.cloudflare.com/client/v4';
 
@@ -11,6 +18,7 @@ class CfError extends Error {
   constructor(
     message: string,
     readonly code?: number,
+    readonly status?: number,
   ) {
     super(message);
   }
@@ -27,7 +35,11 @@ async function rest<T>(token: string, path: string): Promise<T> {
     errors?: { message: string; code?: number }[];
   } | null;
   if (!res.ok || !body?.success)
-    throw new CfError(body?.errors?.[0]?.message ?? `HTTP ${res.status}`, body?.errors?.[0]?.code);
+    throw new CfError(
+      body?.errors?.[0]?.message ?? `HTTP ${res.status}`,
+      body?.errors?.[0]?.code,
+      res.status,
+    );
   return body.result as T;
 }
 
@@ -523,6 +535,93 @@ async function detectPlan(token: string, acct: string): Promise<Plan | null> {
   }
 }
 
+// ---------- Billed usage ----------
+
+/** Cloudflare's service names (`Workers Standard`, `R2 Storage Class A Operations`) to products. */
+const SERVICE_PRODUCT: [RegExp, ProductId][] = [
+  [/durable object/i, 'do'],
+  [/workers ai|neuron/i, 'ai'],
+  [/workers kv|\bkv\b/i, 'kv'],
+  [/\bd1\b/i, 'd1'],
+  [/data catalog|pipelines|r2 sql/i, 'basin'],
+  [/\br2\b/i, 'r2'],
+  [/vectorize/i, 'vectorize'],
+  [/queue/i, 'queues'],
+  [/hyperdrive/i, 'hyperdrive'],
+  [/container/i, 'containers'],
+  [/workflow/i, 'workflows'],
+  [/build/i, 'builds'],
+  [/workers/i, 'workers'],
+];
+
+type BillRow = {
+  ServiceName?: string;
+  ServiceFamilyName?: string;
+  ChargeDescription?: string | null;
+  ChargePeriodEnd?: string;
+  BilledCost?: number;
+  ContractedCost?: number;
+  BillingCurrency?: string;
+};
+
+const isoDay = (t: number) => new Date(t).toISOString().slice(0, 10);
+
+/**
+ * This billing period's usage charges from the Billable Usage API (needs Billing Read). The period
+ * starts on the subscription's anchor day, which the query range must include.
+ */
+async function readBilling(token: string, acct: string, now = new Date()): Promise<Account['billing']> {
+  let info: {
+    covered?: boolean;
+    subscriptions?: { billing_cycle_anchor_timestamp?: string; end_timestamp?: string }[];
+  };
+  try {
+    info = await rest(token, `/accounts/${acct}/billable-usage/info`);
+  } catch (e) {
+    return e instanceof CfError && (e.status === 401 || e.status === 403) ? 'no-access' : undefined;
+  }
+  if (!info.covered) return 'not-covered';
+  const anchor = info.subscriptions?.find((s) => !s.end_timestamp)?.billing_cycle_anchor_timestamp;
+  const anchorDay = anchor ? new Date(anchor).getUTCDate() : 1;
+  // The anchor day in a given month, or that month's last day when it's shorter.
+  const start = (y: number, mo: number) =>
+    Date.UTC(y, mo, Math.min(anchorDay, new Date(Date.UTC(y, mo + 1, 0)).getUTCDate()));
+  const y = now.getUTCFullYear();
+  const mo = now.getUTCMonth();
+  const from = now.getTime() >= start(y, mo) ? start(y, mo) : start(y, mo - 1);
+  try {
+    const rows = await rest<BillRow[]>(
+      token,
+      `/accounts/${acct}/billable-usage?from=${isoDay(from)}&to=${isoDay(now.getTime())}`,
+    );
+    const lines = new Map<string, Billed['lines'][number]>();
+    let end = 0;
+    let currency = 'USD';
+    for (const r of rows ?? []) {
+      const service = r.ServiceName || r.ServiceFamilyName || 'Other';
+      const name = `${service} ${r.ServiceFamilyName ?? ''} ${r.ChargeDescription ?? ''}`;
+      const line = lines.get(service) ?? {
+        service,
+        product: SERVICE_PRODUCT.find(([re]) => re.test(name))?.[1] ?? null,
+        cost: 0,
+      };
+      line.cost += r.BilledCost ?? r.ContractedCost ?? 0;
+      lines.set(service, line);
+      if (r.ChargePeriodEnd) end = Math.max(end, Date.parse(r.ChargePeriodEnd));
+      if (r.BillingCurrency) currency = r.BillingCurrency;
+    }
+    return {
+      from: isoDay(from),
+      // A charge period ends at 00:00 the next day: the last billed day is the one before.
+      through: end ? isoDay(end - 1) : null,
+      currency,
+      lines: [...lines.values()].sort((p, q) => q.cost - p.cost),
+    };
+  } catch (e) {
+    return e instanceof CfError && (e.status === 401 || e.status === 403) ? 'no-access' : undefined;
+  }
+}
+
 // ---------- One account ----------
 
 export async function readAccount(
@@ -531,10 +630,11 @@ export async function readAccount(
   dates: string[],
 ): Promise<{ account: Account; resources: Resource[]; rateLimited: boolean }> {
   const missing: string[] = [];
-  const [inv, detected, { rows, rateLimited }] = await Promise.all([
+  const [inv, detected, { rows, rateLimited }, billing] = await Promise.all([
     inventory(token, meta.id, missing),
     meta.planOverride ? Promise.resolve(null) : detectPlan(token, meta.id),
     fetchDatasets(token, meta.id, dates, missing),
+    readBilling(token, meta.id),
   ]);
   const dayIndex = new Map(dates.map((d, i) => [d, i]));
 
@@ -600,6 +700,7 @@ export async function readAccount(
       tokenLabel: meta.tokenLabel,
       syncedAt: new Date().toISOString(),
       missing,
+      billing,
     },
     resources: [...inv.resources.values()].sort((x, y) => x.name.localeCompare(y.name)),
     /** Cloudflare's analytics budget ran out mid-read: the caller keeps its last good copy. */

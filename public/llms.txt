@@ -61,11 +61,11 @@ Open https://deploy.workers.cloudflare.com/?url=https://github.com/bchoor/usagef
    bun run build && bunx wrangler deploy
    ```
 
-6. Create a read-only API token for each Cloudflare account to watch. This pre-filled link sets the permissions (Account Analytics, Account Settings, Workers Scripts, Workers KV Storage, Workers R2 Storage, D1, Queues, all Read):
+6. Create a read-only API token for each Cloudflare account to watch. This pre-filled link sets the permissions (Account Analytics, Account Settings, Workers Scripts, Workers KV Storage, Workers R2 Storage, D1, Queues, Billing, all Read):
 
-   https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=%5B%7B%22key%22%3A%22account_analytics%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22account_settings%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22workers_scripts%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22workers_kv_storage%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22workers_r2%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22d1%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22queues%22%2C%22type%22%3A%22read%22%7D%5D&accountId=*&zoneId=all&name=usageflare+%28read-only%29
+   https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=%5B%7B%22key%22%3A%22account_analytics%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22account_settings%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22workers_scripts%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22workers_kv_storage%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22workers_r2%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22d1%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22queues%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22billing%22%2C%22type%22%3A%22read%22%7D%5D&accountId=*&zoneId=all&name=usageflare+%28read-only%29
 
-   For Containers, Vectorize, Hyperdrive and Workers AI, add their Read permissions by hand. Add Billing Read to get the plan detected; without it the plan is assumed Free.
+   For Containers, Vectorize, Hyperdrive and Workers AI, add their Read permissions by hand. Billing Read is optional: it detects the plan and shows what Cloudflare actually billed (its Billable Usage API) beside the estimates. Without it the plan is assumed Free and only estimates show.
 
 7. Hand over to the person: they open `https://<host>/app`, sign in through Access, and paste each token in Settings, Cloudflare API tokens. The token is entered by the person in the browser, never through a command or a file: the API is write-only and only shows the last four characters.
 

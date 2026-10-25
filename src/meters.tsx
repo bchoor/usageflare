@@ -3,11 +3,24 @@
  * listing every meter with its value, share of the allowance and forecast cost. Rows stay one
  * line; the detail lives in the card.
  */
-import { METER_LEVEL_COLOR, meterLevel, ShareMeter } from '@columenlabs/lumen-ui';
+import { ColorDot, METER_LEVEL_COLOR, meterLevel, ShareMeter } from '@columenlabs/lumen-ui';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@columenlabs/lumen-ui/ui/hover-card';
 import type { ReactNode } from 'react';
 import { FAMILY, METRICS, type Metric, PRODUCT, type Resource } from '../shared/catalog';
-import { fmt, type Model, partNote, partShare, pctText, shareOf, type Usage, usd } from './model';
+import {
+  type AccountView,
+  billCheck,
+  dayLabel,
+  fmt,
+  lineGap,
+  type Model,
+  partNote,
+  partShare,
+  pctText,
+  shareOf,
+  type Usage,
+  usd,
+} from './model';
 import { ProductIcon } from './products';
 
 export interface MeterRow {
@@ -269,6 +282,90 @@ export function AccountMetersCard({
             ))}
           </tbody>
         </table>
+      </HoverCardContent>
+    </HoverCard>
+  );
+}
+
+/**
+ * What Cloudflare billed an account this period, from its Billable Usage API: one number, an amber
+ * dot when it's more than 10% off our estimate for the same days, and per product in the hover.
+ */
+export function BilledCell({ model, a }: { model: Model; a: AccountView }) {
+  const c = billCheck(model.usage, a);
+  if (!c)
+    return (
+      <span
+        className="text-muted-foreground"
+        title={
+          a.billing === 'no-access'
+            ? 'Add Billing Read to this account’s token to see what Cloudflare billed'
+            : a.billing === 'not-covered'
+              ? 'Cloudflare doesn’t report billed usage for this account'
+              : 'Not read yet'
+        }
+      >
+        —
+      </span>
+    );
+  return (
+    <HoverCard openDelay={150} closeDelay={80}>
+      <HoverCardTrigger asChild>
+        {/* biome-ignore lint/a11y/noNoninteractiveTabindex: focus opens the billed card for keyboards. */}
+        <span tabIndex={0} className="inline-flex items-center gap-1.5 outline-none">
+          {c.gap && <ColorDot color="var(--warning)" className="size-1.5" />}
+          <span className="num">{usd(c.billed)}</span>
+        </span>
+      </HoverCardTrigger>
+      <HoverCardContent align="end" className="max-h-96 w-auto min-w-72 max-w-md overflow-y-auto p-0">
+        <div className="flex items-center gap-2 border-b px-3 py-2">
+          <b className="truncate font-medium text-sm">Billed by Cloudflare</b>
+          <span className="ml-auto whitespace-nowrap text-muted-foreground text-xs">
+            {c.through ? `${dayLabel(c.from)} – ${dayLabel(c.through)}` : `From ${dayLabel(c.from)}`}
+          </span>
+        </div>
+        <table className="w-full text-sm">
+          <thead className="text-muted-foreground text-xs">
+            <tr>
+              <th className="py-1 pr-2 pl-3 text-left font-normal">Product</th>
+              <th className="py-1 pr-2 text-right font-normal">Billed</th>
+              <th className="py-1 pr-3 text-right font-normal">Estimate</th>
+            </tr>
+          </thead>
+          <tbody>
+            {c.lines.map((l) => (
+              <tr key={l.key}>
+                <td className="py-1 pr-2 pl-3 whitespace-nowrap">
+                  <span className="inline-flex items-center gap-1.5">
+                    {l.product && <ProductIcon id={l.product} />}
+                    {l.label}
+                  </span>
+                </td>
+                <td className="num py-1 pr-2 text-right">
+                  <span className="inline-flex items-center gap-1.5">
+                    {lineGap(l) && <ColorDot color="var(--warning)" className="size-1.5" />}
+                    {usd(l.billed)}
+                  </span>
+                </td>
+                <td className="num py-1 pr-3 text-right text-muted-foreground">
+                  {l.est === null ? '—' : usd(l.est)}
+                </td>
+              </tr>
+            ))}
+            <tr className="border-t font-medium">
+              <td className="py-1 pr-2 pl-3">Total</td>
+              <td className="num py-1 pr-2 text-right">{usd(c.billed)}</td>
+              <td className="num py-1 pr-3 text-right text-muted-foreground">
+                {c.est === null ? '—' : usd(c.est)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p className="border-t px-3 py-2 text-muted-foreground text-xs">
+          {c.est === null
+            ? 'This billing period doesn’t start on the 1st, so there’s no estimate to compare.'
+            : 'Usage charges only, without the plan’s base fee. The estimate covers the same days.'}
+        </p>
       </HoverCardContent>
     </HoverCard>
   );
