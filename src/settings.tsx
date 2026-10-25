@@ -14,6 +14,20 @@ import { api, type SecretInfo, slug } from './api';
 
 const SECRETS = ['secrets'];
 
+/** Read-only permissions the dashboard needs; the dashboard's token template pre-fills them. */
+const TOKEN_PERMISSIONS = [
+  { key: 'account_analytics', type: 'read' },
+  { key: 'analytics', type: 'read' },
+  { key: 'workers_scripts', type: 'read' },
+  { key: 'workers_kv_storage', type: 'read' },
+];
+const CREATE_TOKEN_URL = `https://dash.cloudflare.com/profile/api-tokens?${new URLSearchParams({
+  permissionGroupKeys: JSON.stringify(TOKEN_PERMISSIONS),
+  accountId: '*',
+  zoneId: 'all',
+  name: 'Flareusage (read-only)',
+})}`;
+
 /** Settings ▸ Cloudflare API tokens: write-only, the API shows only the last four characters. */
 export function TokensSettings() {
   const q = useQuery({ queryKey: SECRETS, queryFn: api.secrets });
@@ -112,7 +126,14 @@ function AddToken({ taken }: { taken: string[] }) {
         add.mutate();
       }}
     >
-      <h3 className="font-medium text-sm">Add a token</h3>
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="font-medium text-sm">Add a token</h3>
+        <Button variant="link" size="sm" asChild>
+          <a href={CREATE_TOKEN_URL} target="_blank" rel="noreferrer">
+            Create a read-only token in Cloudflare ↗
+          </a>
+        </Button>
+      </div>
       <div className="flex flex-wrap gap-2">
         <Input
           placeholder="Label (e.g. Personal account)"
