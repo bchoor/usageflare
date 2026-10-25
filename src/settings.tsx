@@ -25,7 +25,7 @@ const CREATE_TOKEN_URL = `https://dash.cloudflare.com/profile/api-tokens?${new U
   permissionGroupKeys: JSON.stringify(TOKEN_PERMISSIONS),
   accountId: '*',
   zoneId: 'all',
-  name: 'Flareusage (read-only)',
+  name: 'usageflare (read-only)',
 })}`;
 
 /** Settings ▸ Cloudflare API tokens: write-only, the API shows only the last four characters. */

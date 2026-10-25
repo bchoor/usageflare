@@ -1,4 +1,4 @@
-# flareusage
+# usageflare
 
 - Bun only (`bun`, `bunx`). Checks: `bun run lint && bun run type-check && bun run build`.
 - No unit tests (Bikram, 2026-10-24): CI is lint, typecheck, build; e2e only when appropriate. The thread that builds a change owns its review.

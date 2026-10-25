@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "flareusage",
+  "name": "usageflare",
   "account_id": "87a4f50952b4b2ce00cab6c2680e63ae",
   "main": "worker/index.ts",
   "compatibility_date": "2026-10-01",
