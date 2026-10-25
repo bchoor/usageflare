@@ -11,8 +11,10 @@ import {
   LumenEChart,
   ShareMeter,
   StackedColumns,
+  UnitValue,
   useChartTokens,
   type ViewDomain,
+  type ViewField,
 } from '@columenlabs/lumen-ui';
 import { type CustomViewConfig, customViewConfigSchema } from '@columenlabs/lumen-ui-types/views';
 import {
@@ -45,6 +47,7 @@ import {
 import { LabelPicker, setLabels } from './labels';
 import { MetersCard, MetricChip, metersOf, ResourceCard, ShareBar } from './meters';
 import {
+  costNote,
   fmt,
   labelColor,
   type Model,
@@ -104,26 +107,50 @@ export function Spark({ values, color }: { values: number[]; color: string }) {
 }
 
 /** One line: the value, then its share of the allowance in brackets, coloured by how close it is. */
-export function ValueShare({
-  v,
-  unit,
-  share,
-  payg,
-}: {
-  v: number;
-  unit: string;
-  share: number;
-  payg?: boolean;
-}) {
-  const st = share >= 1 ? 'over' : share >= 0.5 ? 'watch' : 'ok';
-  return (
-    <span className="num whitespace-nowrap">
-      {fmt(v, unit)}{' '}
-      <span style={{ color: st === 'ok' || payg ? 'var(--muted-foreground)' : sevColor(st) }}>
-        [{payg ? 'PAYG' : pctText(share)}]
-      </span>
-    </span>
-  );
+const UNIT_SHORT: Record<string, string> = { 'vCPU-min': 'vCPU-m' };
+/** A meter's amount as number and unit, for `UnitValue`. */
+export const amountParts = (v: number, unit: string): [string, string] =>
+  unit === 'GB' ? [fmt(v, 'GB').replace(' GB', ''), 'GB'] : [fmt(v), UNIT_SHORT[unit] ?? unit];
+const toneOf = (share: number, payg?: boolean) =>
+  payg ? undefined : share >= 1 ? ('loss' as const) : share >= 0.5 ? ('warning' as const) : undefined;
+
+/** Sizes (storage, memory-time) read as amounts by default; counts against a cap as a share. */
+const AMOUNT_FIRST = new Set<string>(['stor', 'mem']);
+
+/** One family cell: the amount or its share of the allowance, one number with its unit slot. */
+function FamilyCell({ v, u, share, as }: { v: number; u: Usage; share: number; as: 'amount' | 'share' }) {
+  const tone = toneOf(share, u.payg);
+  if (as === 'share') {
+    if (u.payg) return <UnitValue value={<span className="text-muted-foreground">PAYG</span>} />;
+    return <UnitValue value={pctText(share).slice(0, -1)} unit="%" tone={tone} />;
+  }
+  const [n, unit] = amountParts(v, u.m.unit);
+  return <UnitValue value={n} unit={unit} tone={tone} />;
+}
+
+/** A family column's group or Total cell: amounts summed with their unit; a share worked out
+ *  again as the rows' total over their accounts' allowance. Mixed units or meters stay blank. */
+function familyRoll(m: Model, family: string, as: 'amount' | 'share') {
+  return (rows: Resource[]) => {
+    const parts = rows.map((r) => familyPart(m, r, family)).filter((x) => !!x);
+    if (!parts.length) return null;
+    const keys = new Set(parts.map((x) => x.u.m.key));
+    const units = new Set(parts.map((x) => x.u.m.unit));
+    const total = parts.reduce((t, x) => t + x.v, 0);
+    if (as === 'amount') {
+      if (units.size > 1) return null;
+      const [n, unit] = amountParts(total, parts[0]?.u.m.unit ?? '');
+      return <UnitValue value={n} unit={unit} />;
+    }
+    if (keys.size > 1) return null;
+    const allowance = [...new Map(parts.map((x) => [x.u.a.id, x.u.limit])).values()].reduce(
+      (a, b) => a + b,
+      0,
+    );
+    if (!allowance) return null;
+    const share = total / allowance;
+    return <UnitValue value={pctText(share).slice(0, -1)} unit="%" tone={toneOf(share)} />;
+  };
 }
 
 /** Used against the allowance: a bar coloured by status, with the share beside it. */
@@ -330,26 +357,48 @@ export function resourceDomain(m: Model, open: (id: string) => void): ViewDomain
           return s ? <Spark values={s} color={acct(r)?.color ?? 'var(--primary)'} /> : null;
         },
       },
-      // One column per metric family: shown on a category tab, filled where a product has it.
-      ...FAMILIES.map((f) => ({
-        key: `fam_${f.id}`,
-        label: f.label,
-        icon: Activity,
-        format: 'percent' as const,
-        value: (r: Resource) => {
-          const x = familyPart(m, r, f.id);
-          return x ? x.share * 100 : null;
-        },
-        render: (r: Resource) => {
+      // One column per metric family: shown on a category tab, filled where a product has it. Each
+      // reads as an amount or a share of the allowance (Edit table: Show as), the other in its card.
+      ...FAMILIES.map((f) => {
+        const amountFirst = AMOUNT_FIRST.has(f.id);
+        const amount = {
+          format: 'number' as const,
+          value: (r: Resource) => familyPart(m, r, f.id)?.v ?? null,
+          render: (r: Resource) => familyRender(r, 'amount'),
+          aggregate: 'sum' as const,
+          rollRender: familyRoll(m, f.id, 'amount'),
+        };
+        const share = {
+          format: 'percent' as const,
+          value: (r: Resource) => {
+            const x = familyPart(m, r, f.id);
+            return x ? x.share * 100 : null;
+          },
+          render: (r: Resource) => familyRender(r, 'share'),
+          aggregate: 'sum' as const,
+          rollRender: familyRoll(m, f.id, 'share'),
+        };
+        const familyRender = (r: Resource, as: 'amount' | 'share') => {
           const x = familyPart(m, r, f.id);
           if (!x) return <span className="text-muted-foreground">—</span>;
           return (
             <MetersCard model={m} r={r} hl={x.u.m.key}>
-              <ValueShare v={x.v} unit={x.u.m.unit} share={x.share} payg={x.u.payg} />
+              <FamilyCell v={x.v} u={x.u} share={x.share} as={as} />
             </MetersCard>
           );
-        },
-      })),
+        };
+        const opts = [
+          { id: 'amount', label: 'Amount', field: amount },
+          { id: 'share', label: '% of allowance', field: share },
+        ];
+        return {
+          key: `fam_${f.id}`,
+          label: f.label,
+          icon: Activity,
+          ...(amountFirst ? amount : share),
+          showAs: amountFirst ? opts : [opts[1], opts[0]],
+        } as ViewField<Resource>;
+      }),
       {
         key: 'cost',
         label: 'Forecast cost',
@@ -358,6 +407,22 @@ export function resourceDomain(m: Model, open: (id: string) => void): ViewDomain
         value: (r) => (acct(r)?.plan === 'paid' ? m.info(r).fcost : null),
         empty: 'Free',
         aggregate: 'sum',
+        render: (r) => {
+          if (acct(r)?.plan !== 'paid') return <span className="text-muted-foreground">Free</span>;
+          // Each meter's account cost, split by this resource's share of the use.
+          const note = metersOf(m, r)
+            .filter((x) => x.u && x.fcost >= 0.005)
+            .map(
+              (x) =>
+                `${x.m.label}: ${Math.round((x.v / (x.u?.used || 1)) * 100)}% of ${x.u ? costNote(x.u) : ''}`,
+            )
+            .join('\n');
+          return (
+            <span className="num" title={note || undefined}>
+              {usd(m.info(r).fcost)}
+            </span>
+          );
+        },
       },
     ],
     details: [

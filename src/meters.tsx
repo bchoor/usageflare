@@ -7,7 +7,7 @@ import { ShareMeter } from '@columenlabs/lumen-ui';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@columenlabs/lumen-ui/ui/hover-card';
 import type { ReactNode } from 'react';
 import { FAMILY, METRICS, type Metric, PRODUCT, type Resource } from '../shared/catalog';
-import { fmt, type Model, pctText, sevColor, shareOf, type Usage, usd } from './model';
+import { costNote, fmt, type Model, pctText, sevColor, shareOf, type Usage, usd } from './model';
 import { ProductIcon } from './products';
 
 export interface MeterRow {
@@ -102,7 +102,10 @@ export function MetersCard({
                 <td className="py-1 pr-2 whitespace-nowrap">
                   <ShareBar row={x} />
                 </td>
-                <td className="num py-1 pr-3 text-right text-muted-foreground">
+                <td
+                  className="num py-1 pr-3 text-right text-muted-foreground"
+                  title={x.u && a?.plan === 'paid' ? costNote(x.u) : undefined}
+                >
                   {a?.plan === 'paid' && x.fcost >= 0.005 ? usd(x.fcost) : ''}
                 </td>
               </tr>

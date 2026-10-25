@@ -151,9 +151,11 @@ function judge(a: AccountView, m: Metric, rs: Resource[], warn: number): Usage |
   let peakDay: string | null = null;
   let basis: Usage['basis'];
   if (m.kind === 'gauge') {
+    // Billed as GB-months: the month's average size. So far the days this month; the rest of the
+    // month assumed at today's size.
     used = days[last] ?? 0;
-    const weekAgo = days[Math.max(0, last - 7)] ?? 0;
-    forecast = Math.max(used, used + ((used - weekAgo) / 7) * (a.monthDays - a.day));
+    const sofar = monthDays.reduce((x, y) => x + y, 0);
+    forecast = (sofar + used * Math.max(0, a.monthDays - monthDays.length)) / a.monthDays;
     basis = 'now';
   } else if (per === 'day') {
     used = days[last] ?? 0;
@@ -173,7 +175,11 @@ function judge(a: AccountView, m: Metric, rs: Resource[], warn: number): Usage |
   const over = (x: number) => Math.max(0, x - limit);
   let cost = hard ? 0 : over(used) * price;
   let fcost = hard ? 0 : over(forecast) * price;
-  if (!hard && per === 'day') {
+  if (!hard && m.kind === 'gauge') {
+    // Accrued so far: the GB-months stored to date less the allowance accrued to date.
+    const sofar = monthDays.reduce((x, y) => x + y, 0) / a.monthDays;
+    cost = Math.max(0, sofar - (limit * monthDays.length) / a.monthDays) * price;
+  } else if (!hard && per === 'day') {
     cost = monthDays.reduce((s, v) => s + over(v), 0) * price;
     fcost = (cost / a.day) * a.monthDays;
   }
@@ -371,6 +377,21 @@ export function fmt(v: number, unit = ''): string {
 export const shareOf = (u: Usage, v: number) => (u.limit > 0 ? v / u.limit : 0);
 export const pctText = (p: number) => `${p >= 10 ? '>999' : Math.round(p * 100)}%`;
 export const usd = (v: number) => `$${v.toFixed(2)}`;
+const priceText = (u: Usage) =>
+  u.price < 0.001
+    ? `$${(u.price * 1e6).toFixed(2)}/M`
+    : `$${u.price}/${u.m.unit || 'unit'}${u.m.kind === 'gauge' ? '-month' : ''}`;
+/** How a meter's forecast cost is worked out, for its tooltip. */
+export function costNote(u: Usage): string {
+  if (u.hard) return 'Free plan: a hard limit, never billed';
+  const over = Math.max(0, u.forecast - u.limit);
+  if (u.per === 'day') return `Each day's use past ${fmt(u.limit, u.m.unit)} × ${priceText(u)}, to month end`;
+  const what =
+    u.m.kind === 'gauge'
+      ? `average ${fmt(u.forecast, u.m.unit)} this month`
+      : `${fmt(u.forecast, u.m.unit)} by month end`;
+  return `(${what} − ${fmt(u.limit, u.m.unit)} included) = ${fmt(over, u.m.unit)} × ${priceText(u)} = ${usd(u.fcost)} for the account`;
+}
 export const perText = (u: Usage) => (u.per === 'day' ? '/day' : u.m.kind === 'gauge' ? '' : '/mo');
 export const sevColor = (st: Status) =>
   st === 'block' || st === 'over'
