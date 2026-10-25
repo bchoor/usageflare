@@ -14,7 +14,9 @@ import {
   useLumenFinderRows,
 } from '@columenlabs/lumen-ui';
 import { Slider } from '@columenlabs/lumen-ui/ui/slider';
-import { QueryClientProvider, useQuery } from '@tanstack/react-query';
+import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister';
+import { useQuery } from '@tanstack/react-query';
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { createRootRoute, createRoute, createRouter, Outlet, RouterProvider } from '@tanstack/react-router';
 import { Bell, Building2, Gauge, KeyRound, LayoutDashboard, Plus, Rows3, Tag } from 'lucide-react';
 import { StrictMode, useEffect, useMemo, useState } from 'react';
@@ -30,6 +32,7 @@ import {
   SEVERITY,
   skipCacheOnce,
   useModel,
+  useRefreshing,
   useSaveLabels,
   useSavePrefs,
 } from './model';
@@ -39,6 +42,45 @@ import { TokensSettings } from './settings';
 
 configureLumen({ prefsCookie: 'usageflare_prefs' });
 const queryClient = createDeskQueryClient();
+
+// The last data this browser saw is kept in localStorage, so a page opened again draws it at once
+// and reads the Worker behind it (stale while revalidate). Only the very first visit waits.
+const DAY = 86_400_000;
+const KEPT = ['accounts', 'usage', 'prefs', 'labels'];
+for (const k of KEPT) queryClient.setQueryDefaults([k], { gcTime: DAY });
+const storage = (() => {
+  try {
+    return window.localStorage;
+  } catch {
+    return undefined;
+  }
+})();
+const persister = createSyncStoragePersister({ storage, key: 'usageflare:cache' });
+const persistOptions = {
+  persister,
+  maxAge: DAY,
+  // Bump when the usage reply changes shape, so an old copy is dropped instead of drawn.
+  buster: 'v1',
+  dehydrateOptions: {
+    shouldDehydrateQuery: (q: { queryKey: readonly unknown[]; state: { status: string } }) =>
+      q.state.status === 'success' && KEPT.includes(String(q.queryKey[0])),
+  },
+};
+
+/** `just now`, `4 min ago`, `2 h ago`: how old the numbers on screen are, ticking each 30 s. */
+function useAgo(iso: string | undefined) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  if (!iso) return null;
+  const min = Math.floor((now - new Date(iso).getTime()) / 60_000);
+  if (min < 1) return 'just now';
+  if (min < 60) return `${min} min ago`;
+  const h = Math.floor(min / 60);
+  return h < 24 ? `${h} h ago` : `${Math.floor(h / 24)} d ago`;
+}
 
 /** The brand: "usage" in the foreground, "flare" in the app accent. */
 function Brand({ n }: { n: number }) {
@@ -238,6 +280,8 @@ function Shell() {
   registerLabelSaver((doc) => saveLabels.mutateAsync(doc));
   const atRisk = m.usage.filter((u) => SEVERITY[u.st] >= 2).length;
   const synced = m.accounts.map((a) => a.syncedAt).sort()[0];
+  const ago = useAgo(synced);
+  const refreshing = useRefreshing();
   const missing = m.accounts.filter((a) => a.missing.length);
   return (
     <LumenShell
@@ -267,12 +311,7 @@ function Shell() {
           {missing.length > 0 && (
             <StatusItem label="Scopes missing" value={missing.map((a) => a.name).join(', ')} ok={false} />
           )}
-          {synced && (
-            <StatusItem
-              label="Synced"
-              value={new Date(synced).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            />
-          )}
+          {synced && <StatusItem label="Synced" value={refreshing ? `${ago} · refreshing…` : ago} />}
         </>
       }
       releases="/api/releases"
@@ -374,9 +413,9 @@ const el = document.getElementById('root');
 if (el) {
   createRoot(el).render(
     <StrictMode>
-      <QueryClientProvider client={queryClient}>
+      <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
         <RouterProvider router={router} />
-      </QueryClientProvider>
+      </PersistQueryClientProvider>
     </StrictMode>,
   );
 }
