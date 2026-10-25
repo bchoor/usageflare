@@ -3,7 +3,15 @@
  * renders without a Cloudflare token. On only when `FIXTURES=1` (in `.dev.vars`) and the request
  * is to localhost; a deployed Worker never serves it.
  */
-import type { Account, Billed, LabelsDoc, ProductId, Resource } from '../shared/catalog';
+import {
+  type Account,
+  type Billed,
+  HOURLY_SLOTS,
+  type LabelsDoc,
+  type ProductId,
+  type Resource,
+} from '../shared/catalog';
+import { hoursFrom } from './cloudflare';
 import type { Env } from './env';
 
 const ACCOUNTS = [
@@ -132,6 +140,44 @@ function fixtureBilling(id: string, dates: string[]): Account['billing'] {
   };
 }
 
+/**
+ * Hourly shapes that make pace worth looking at: Dev's staging Worker surging since the morning
+ * (it hits the daily cap), and one lone hour of KV reads on Personal (damped, not projected).
+ */
+const SURGE: Record<string, (slot: number) => number> = {
+  'a2000000000000000000000000000002:workers:p2e-staging|workers.req': (h) => (h >= 17 ? 3.2 : 1),
+  'a1000000000000000000000000000001:kv:SESSIONS|kv.read': (h) => (h === 20 ? 9 : 1),
+  'a3000000000000000000000000000003:d1:p2e-prod|d1.read': (h) => (h >= 12 ? 1.8 : 1),
+};
+
+/** The last day by the hour, from yesterday's total, with a daytime rise; today's day matches it. */
+function withHourly(r: Resource, from: number, dates: string[]) {
+  let s = r.id.length * 97;
+  const rnd = () => {
+    s = (s * 9301 + 49297) % 233280;
+    return s / 233280;
+  };
+  const today = dates.length - 1;
+  r.hourly = {};
+  for (const [k, daily] of Object.entries(r.series)) {
+    if (GAUGES.has(k)) continue;
+    const perHour = (daily[today - 1] ?? 0) / 24;
+    const surge = SURGE[`${r.id}|${k}`];
+    const hours = Array.from({ length: HOURLY_SLOTS }, (_, h) => {
+      const utc = new Date(from + h * 3_600_000).getUTCHours();
+      const day = 0.7 + 0.6 * Math.max(0, Math.sin(((utc - 6) / 24) * 2 * Math.PI));
+      return Math.round(perHour * day * (0.85 + 0.3 * rnd()) * (surge?.(h) ?? 1) * 100) / 100;
+    });
+    r.hourly[k] = hours;
+    // Today so far is the hourly slots that fall on today's date.
+    daily[today] = hours.reduce(
+      (sum, v, h) =>
+        new Date(from + h * 3_600_000).toISOString().startsWith(dates[today] ?? '') ? sum + v : sum,
+      0,
+    );
+  }
+}
+
 const GAUGES = new Set(['kv.stor', 'd1.stor', 'r2.stor', 'r2.ia.stor', 'do.stor', 'vec.stor']);
 
 export function fixtureRefs() {
@@ -154,6 +200,20 @@ export function fixtureUsage(accountId: string, dates: string[]) {
     syncedAt: new Date().toISOString(),
     missing: a.plan === 'free' ? ['R2 buckets'] : [],
     billing: fixtureBilling(a.id, dates),
+    hoursFrom: new Date(hoursFrom()).toISOString(),
+    hourly: [
+      'workers',
+      'kv',
+      'd1',
+      'r2',
+      'do',
+      'workflows',
+      'containers',
+      'hyperdrive',
+      'ai',
+      'vectorize',
+      'queues',
+    ],
   };
   const resources: Resource[] = (SPECS[a.id] ?? []).map(([product, name, base, extra, ago], i) => {
     // A deleted resource's days after it was last seen are empty; past the window, all of them.
@@ -173,6 +233,7 @@ export function fixtureUsage(accountId: string, dates: string[]) {
       ),
     };
   });
+  for (const r of resources) if (!r.lastSeen && r.state !== 'deleted') withHourly(r, hoursFrom(), dates);
   return { dates, account, resources, rateLimited: false };
 }
 

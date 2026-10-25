@@ -232,7 +232,18 @@ export function PlanMeter({ share }: { share: number }) {
 }
 
 /** A meter's name and share of its own cap, tinted by the kit's meter levels (grey, amber, red). */
-export function WatchChip({ label, share, payg }: { label: ReactNode; share: number; payg?: boolean }) {
+export function WatchChip({
+  label,
+  share,
+  payg,
+  phoneBare,
+}: {
+  label: ReactNode;
+  share: number;
+  payg?: boolean;
+  /** A phone shows the share alone (the name is in the hover), so a narrow table keeps its columns. */
+  phoneBare?: boolean;
+}) {
   const level = payg ? 'ok' : meterLevel(share);
   const c = METER_LEVEL_COLOR[level];
   return (
@@ -247,7 +258,7 @@ export function WatchChip({ label, share, payg }: { label: ReactNode; share: num
             }
       }
     >
-      <span className="truncate max-md:max-w-16">{label}</span>
+      <span className={phoneBare ? 'truncate max-md:hidden' : 'truncate max-md:max-w-16'}>{label}</span>
       <span className="num">{payg ? 'pay as you go' : pctText(share)}</span>
     </span>
   );
@@ -263,12 +274,12 @@ export function UsageCell({ model, r }: { model: Model; r: Resource }) {
 }
 
 /** Watch for: the resource's meter closest to its own cap. */
-export function WatchFor({ model, r }: { model: Model; r: Resource }) {
+export function WatchFor({ model, r, phoneBare }: { model: Model; r: Resource; phoneBare?: boolean }) {
   const x = model.info(r).main;
   if (!x) return <span className="text-muted-foreground">—</span>;
   return (
     <MetersCard model={model} r={r} hl={x.key}>
-      <WatchChip label={x.u.m.label} share={x.share} payg={x.u.payg} />
+      <WatchChip label={x.u.m.label} share={x.share} payg={x.u.payg} phoneBare={phoneBare} />
     </MetersCard>
   );
 }

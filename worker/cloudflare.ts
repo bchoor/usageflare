@@ -7,6 +7,7 @@ import {
   type Account,
   type Billed,
   HISTORY_DAYS,
+  HOURLY_SLOTS,
   type Plan,
   type ProductId,
   type Resource,
@@ -90,6 +91,8 @@ interface Dataset {
   gauge?: boolean;
   /** Most accounts don't use it: a field the token can't read isn't reported as missing. */
   optional?: boolean;
+  /** Left out of the hourly read (pace): Cloudflare reports it by day only. */
+  daily?: boolean;
 }
 
 const GB = 1e9;
@@ -301,6 +304,7 @@ const DATASETS: Dataset[] = [
     dims: ['warehouseName'],
     product: 'basin',
     optional: true,
+    daily: true,
     key: (r) => r.dimensions.warehouseName || null,
     values: (r) => ({ 'basin.ops': r.count ?? 0 }),
   },
@@ -310,6 +314,7 @@ const DATASETS: Dataset[] = [
     select: 'sum { buildMinutes }',
     dims: [],
     product: 'builds',
+    daily: true,
     key: () => '*',
     values: (r) => ({ 'builds.min': r.sum?.buildMinutes ?? 0 }),
   },
@@ -370,6 +375,50 @@ async function fetchDatasets(token: string, accountId: string, dates: string[], 
     }),
   );
   return { rows: out, rateLimited };
+}
+
+/** The datasets read by the hour for pace: counted ones, not sizes. */
+const HOURLY = DATASETS.flatMap((d, i) => (d.gauge || d.daily ? [] : [i]));
+
+/** The start of the first hourly slot: `HOURLY_SLOTS - 1` whole hours before the current one. */
+export function hoursFrom(now = new Date()): number {
+  const hour = Math.floor(now.getTime() / 3_600_000) * 3_600_000;
+  return hour - (HOURLY_SLOTS - 1) * 3_600_000;
+}
+
+/**
+ * The last day by the hour (`datetimeHour`), for pace: one more query of the account's analytics
+ * budget per sync. Nothing is retried: without it pace reads the daily series instead.
+ */
+async function fetchHourly(token: string, accountId: string, from: number) {
+  const fields = HOURLY.map((i) => {
+    const d = DATASETS[i] as Dataset;
+    return `d${i}: ${d.field}(limit: 10000, filter: { datetimeHour_geq: $from }) { ${d.select} dimensions { datetimeHour ${d.dims.join(' ')} } }`;
+  }).join('\n');
+  const query = `query($a: string!, $from: Time!) { viewer { accounts(filter: { accountTag: $a }) { ${fields} } } }`;
+  try {
+    const res = await fetch(`${API}/graphql`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, variables: { a: accountId, from: new Date(from).toISOString() } }),
+    });
+    const body = (await res.json().catch(() => null)) as {
+      data?: { viewer?: { accounts?: Record<string, Row[] | null>[] } } | null;
+      errors?: { path?: (string | number)[] }[] | null;
+    } | null;
+    const acct = body?.data?.viewer?.accounts?.[0];
+    if (!res.ok || !acct) return null;
+    // A field that errored (no access, or not offered by the hour) is left out: its product paces by day.
+    const failed = new Set((body?.errors ?? []).map((e) => String(e.path?.at(-1) ?? '')));
+    const rows = new Map<number, Row[]>();
+    for (const i of HOURLY) {
+      const list = acct[`d${i}`];
+      if (list && !failed.has(`d${i}`)) rows.set(i, list);
+    }
+    return rows;
+  } catch {
+    return null;
+  }
 }
 
 // ---------- Resource lists ----------
@@ -672,12 +721,14 @@ export async function readAccount(
   memory: { seen: Seen; labelled: string[] } = { seen: {}, labelled: [] },
 ): Promise<{ account: Account; resources: Resource[]; rateLimited: boolean; seen: Seen }> {
   const missing: string[] = [];
-  const [inv, detected, { rows, rateLimited }, billing] = await Promise.all([
+  const from = hoursFrom();
+  const [inv, detected, { rows, rateLimited }, billing, hourly] = await Promise.all([
     inventory(token, meta.id, missing),
     meta.planOverride ? Promise.resolve(null) : detectPlan(token, meta.id),
     fetchDatasets(token, meta.id, dates, missing),
     // Optional extra: whatever goes wrong there, the usage still loads.
     readBilling(token, meta.id).catch(() => undefined),
+    fetchHourly(token, meta.id, from),
   ]);
   const dayIndex = new Map(dates.map((d, i) => [d, i]));
   const today = dates.at(-1) ?? '';
@@ -697,40 +748,44 @@ export async function readAccount(
     add(inv, meta.id, product, nameOf(id), s.k, { state: 'deleted', lastSeen: s.d });
   }
 
+  const resourceFor = (d: Dataset, key: string) => {
+    let id = inv.byKey.get(`${d.product}|${key}`);
+    if (!id && key && key !== '*' && key !== '__unknown__' && inv.listed.has(d.product)) {
+      // Usage for a resource its list no longer has: deleted.
+      id = add(inv, meta.id, d.product, key, [key], { state: 'deleted' });
+    }
+    if (!id) {
+      // Usage for something the lists don't show (a deleted resource, an AI model, or a metric
+      // Cloudflare only reports account-wide): keep it, so totals still add up.
+      const total = key === '*' || key === '__unknown__';
+      const name = key === '*' ? 'Whole account' : key === '__unknown__' ? 'Unattributed' : key;
+      id = add(
+        inv,
+        meta.id,
+        d.product,
+        name,
+        [key],
+        total
+          ? { total: true }
+          : {
+              detail:
+                d.product === 'ai'
+                  ? key
+                  : d.product === 'basin'
+                    ? 'Data Catalog warehouse'
+                    : 'Not in the account’s list: deleted, or the token can’t list it',
+            },
+      );
+    }
+    return inv.resources.get(id);
+  };
+
   DATASETS.forEach((d, i) => {
     for (const row of rows[i] ?? []) {
       const day = dayIndex.get(row.dimensions.date ?? '');
       const key = d.key(row);
       if (day === undefined || key === null) continue;
-      let id = inv.byKey.get(`${d.product}|${key}`);
-      if (!id && key && key !== '*' && key !== '__unknown__' && inv.listed.has(d.product)) {
-        // Usage for a resource its list no longer has: deleted.
-        id = add(inv, meta.id, d.product, key, [key], { state: 'deleted' });
-      }
-      if (!id) {
-        // Usage for something the lists don't show (a deleted resource, an AI model, or a metric
-        // Cloudflare only reports account-wide): keep it, so totals still add up.
-        const total = key === '*' || key === '__unknown__';
-        const name = key === '*' ? 'Whole account' : key === '__unknown__' ? 'Unattributed' : key;
-        id = add(
-          inv,
-          meta.id,
-          d.product,
-          name,
-          [key],
-          total
-            ? { total: true }
-            : {
-                detail:
-                  d.product === 'ai'
-                    ? key
-                    : d.product === 'basin'
-                      ? 'Data Catalog warehouse'
-                      : 'Not in the account’s list: deleted, or the token can’t list it',
-              },
-        );
-      }
-      const res = inv.resources.get(id);
+      const res = resourceFor(d, key);
       if (!res) continue;
       for (const [metric, v] of Object.entries(d.values(row))) {
         const s = res.series[metric] ?? new Array<number>(dates.length).fill(0);
@@ -739,6 +794,23 @@ export async function readAccount(
       }
     }
   });
+
+  for (const [i, list] of hourly ?? []) {
+    const d = DATASETS[i] as Dataset;
+    for (const row of list) {
+      const slot = Math.floor((Date.parse(row.dimensions.datetimeHour ?? '') - from) / 3_600_000);
+      const key = d.key(row);
+      if (!(slot >= 0 && slot < HOURLY_SLOTS) || key === null) continue;
+      const res = resourceFor(d, key);
+      if (!res) continue;
+      res.hourly ??= {};
+      for (const [metric, v] of Object.entries(d.values(row))) {
+        const s = res.hourly[metric] ?? new Array<number>(HOURLY_SLOTS).fill(0);
+        s[slot] = (s[slot] ?? 0) + v;
+        res.hourly[metric] = s;
+      }
+    }
+  }
 
   // Labels on resources that are gone and left nothing else behind still show, as deleted.
   for (const id of memory.labelled) {
@@ -763,11 +835,14 @@ export async function readAccount(
   // don't split by storage class, so the bucket's default class decides.
   for (const r of inv.resources.values()) {
     if (r.product !== 'r2' || r.type !== 'Infrequent Access') continue;
-    for (const k of ['stor', 'a', 'b']) {
-      const s = r.series[`r2.${k}`];
-      if (!s) continue;
-      r.series[`r2.ia.${k}`] = s;
-      delete r.series[`r2.${k}`];
+    for (const by of [r.series, r.hourly]) {
+      if (!by) continue;
+      for (const k of ['stor', 'a', 'b']) {
+        const s = by[`r2.${k}`];
+        if (!s) continue;
+        by[`r2.ia.${k}`] = s;
+        delete by[`r2.${k}`];
+      }
     }
   }
 
@@ -783,6 +858,12 @@ export async function readAccount(
       syncedAt: new Date().toISOString(),
       missing,
       billing,
+      hoursFrom: hourly ? new Date(from).toISOString() : undefined,
+      hourly: hourly
+        ? [...new Set(HOURLY.map((i) => (DATASETS[i] as Dataset).product))].filter((p) =>
+            HOURLY.every((i) => (DATASETS[i] as Dataset).product !== p || hourly.has(i)),
+          )
+        : undefined,
     },
     resources: [...inv.resources.values()].sort((x, y) => x.name.localeCompare(y.name)),
     /** Cloudflare's analytics budget ran out mid-read: the caller keeps its last good copy. */
