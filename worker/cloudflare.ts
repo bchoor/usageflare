@@ -36,22 +36,6 @@ export async function listAccounts(token: string): Promise<{ id: string; name: s
   return restList<{ id: string; name: string }>(token, '/accounts', 50);
 }
 
-async function gql<T>(token: string, query: string, variables: Record<string, unknown>): Promise<T> {
-  const res = await fetch(`${API}/graphql`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, variables }),
-  });
-  const body = (await res.json().catch(() => null)) as {
-    data?: { viewer?: { accounts?: T[] } };
-    errors?: { message: string }[] | null;
-  } | null;
-  if (body?.errors?.length) throw new CfError(body.errors[0]?.message ?? 'GraphQL error');
-  const acct = body?.data?.viewer?.accounts?.[0];
-  if (!acct) throw new CfError(`GraphQL HTTP ${res.status}`);
-  return acct;
-}
-
 /** The last `HISTORY_DAYS` UTC dates, oldest first. */
 export function historyDates(now = new Date()): string[] {
   const end = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
@@ -296,12 +280,60 @@ const DATASETS: Dataset[] = [
   },
 ];
 
-async function fetchDataset(token: string, accountId: string, d: Dataset, dates: string[]) {
-  const query = `query($a: string!, $from: Date!, $to: Date!) { viewer { accounts(filter: { accountTag: $a }) {
-    rows: ${d.field}(limit: 10000, filter: { date_geq: $from, date_leq: $to }) { ${d.select} dimensions { date ${d.dims.join(' ')} } }
-  } } }`;
-  const res = await gql<{ rows: Row[] }>(token, query, { a: accountId, from: dates[0], to: dates.at(-1) });
-  return res.rows ?? [];
+const RATE_LIMITED = /rate limit/i;
+
+/**
+ * Every dataset in one GraphQL request (aliases d0, d1...), so a sync spends one query of the
+ * account's analytics budget, not one per dataset. A field the token can't read comes back as an
+ * error on its own path while the rest still answer; if the whole request fails, each dataset is
+ * asked alone so one missing scope doesn't blank the others.
+ */
+async function fetchDatasets(token: string, accountId: string, dates: string[], missing: string[]) {
+  const field = (d: Dataset, i: number) =>
+    `d${i}: ${d.field}(limit: 10000, filter: { date_geq: $from, date_leq: $to }) { ${d.select} dimensions { date ${d.dims.join(' ')} } }`;
+  const ask = (fields: string) =>
+    `query($a: string!, $from: Date!, $to: Date!) { viewer { accounts(filter: { accountTag: $a }) { ${fields} } } }`;
+  const vars = { a: accountId, from: dates[0], to: dates.at(-1) };
+  const run = async (query: string) => {
+    const res = await fetch(`${API}/graphql`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, variables: vars }),
+    });
+    return (await res.json().catch(() => null)) as {
+      data?: { viewer?: { accounts?: Record<string, Row[] | null>[] } } | null;
+      errors?: { message: string; path?: (string | number)[] }[] | null;
+    } | null;
+  };
+  let rateLimited = false;
+  const out: Row[][] = DATASETS.map(() => []);
+  const body = await run(ask(DATASETS.map(field).join('\n')));
+  const acct = body?.data?.viewer?.accounts?.[0];
+  if (acct) {
+    const failed = new Set((body?.errors ?? []).map((e) => String(e.path?.at(-1) ?? '')));
+    DATASETS.forEach((d, i) => {
+      if (failed.has(`d${i}`) || !acct[`d${i}`]) missing.push(d.name);
+      else out[i] = acct[`d${i}`] ?? [];
+    });
+    rateLimited = (body?.errors ?? []).some((e) => RATE_LIMITED.test(e.message));
+    return { rows: out, rateLimited };
+  }
+  if ((body?.errors ?? []).some((e) => RATE_LIMITED.test(e.message))) {
+    for (const d of DATASETS) missing.push(d.name);
+    return { rows: out, rateLimited: true };
+  }
+  await Promise.all(
+    DATASETS.map(async (d, i) => {
+      const one = await run(ask(field(d, i)));
+      const rows = one?.data?.viewer?.accounts?.[0]?.[`d${i}`];
+      if (rows) out[i] = rows;
+      else {
+        missing.push(d.name);
+        if ((one?.errors ?? []).some((e) => RATE_LIMITED.test(e.message))) rateLimited = true;
+      }
+    }),
+  );
+  return { rows: out, rateLimited };
 }
 
 // ---------- Resource lists ----------
@@ -472,19 +504,12 @@ export async function readAccount(
   token: string,
   meta: { id: string; name: string; token: string; tokenLabel: string; planOverride?: Plan },
   dates: string[],
-): Promise<{ account: Account; resources: Resource[] }> {
+): Promise<{ account: Account; resources: Resource[]; rateLimited: boolean }> {
   const missing: string[] = [];
-  const [inv, detected, rows] = await Promise.all([
+  const [inv, detected, { rows, rateLimited }] = await Promise.all([
     inventory(token, meta.id, missing),
     meta.planOverride ? Promise.resolve(null) : detectPlan(token, meta.id),
-    Promise.all(
-      DATASETS.map((d) =>
-        fetchDataset(token, meta.id, d, dates).catch(() => {
-          missing.push(d.name);
-          return [] as Row[];
-        }),
-      ),
-    ),
+    fetchDatasets(token, meta.id, dates, missing),
   ]);
   const dayIndex = new Map(dates.map((d, i) => [d, i]));
 
@@ -536,5 +561,7 @@ export async function readAccount(
       missing,
     },
     resources: [...inv.resources.values()].sort((x, y) => x.name.localeCompare(y.name)),
+    /** Cloudflare's analytics budget ran out mid-read: the caller keeps its last good copy. */
+    rateLimited,
   };
 }

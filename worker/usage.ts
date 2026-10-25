@@ -76,11 +76,16 @@ export async function accountUsage(env: Env, accountId: string, fresh: boolean) 
   ) {
     return { dates: historyDates(new Date(hit.at)), ...publicUsage(hit.value) };
   }
-  return cached(env, key, true, async () => {
-    const token = await revealSecret(env, ref.token);
-    if (!token) throw new Error('Token missing');
-    return readAccount(token, { ...ref, planOverride: want }, historyDates());
-  }).then((v) => ({ dates: historyDates(), ...publicUsage(v) }));
+  const token = await revealSecret(env, ref.token);
+  if (!token) throw new Error('Token missing');
+  const read = await readAccount(token, { ...ref, planOverride: want }, historyDates());
+  // Out of analytics budget: a stale but whole copy beats a fresh one full of gaps.
+  const prev = hit ?? (await env.KV.get<Cached<Awaited<ReturnType<typeof readAccount>>>>(key, 'json'));
+  if (read.rateLimited && prev) return { dates: historyDates(new Date(prev.at)), ...publicUsage(prev.value) };
+  await env.KV.put(key, JSON.stringify({ at: Date.now(), value: read } satisfies Cached<typeof read>), {
+    expirationTtl: 86_400,
+  });
+  return { dates: historyDates(), ...publicUsage(read) };
 }
 
 /** The token's KV name stays in the Worker; the UI only shows its label. */
