@@ -172,6 +172,22 @@ export const ACCOUNT_COLORS = [
   'var(--chart-4)',
 ];
 
+/** A stored size billed as GB-months: the days this month so far, the rest at today's size. */
+function monthAvg(days: number[], a: AccountView): number {
+  const sofar = days.slice(Math.max(0, days.length - a.day));
+  const today = days[days.length - 1] ?? 0;
+  return (sofar.reduce((x, y) => x + y, 0) + today * Math.max(0, a.monthDays - sofar.length)) / a.monthDays;
+}
+
+/**
+ * A resource's part of a meter's bill. Stored sizes split by the resource's own GB-months, so a
+ * bucket filled last week pays for last week, not the whole month; the rest by this period's use.
+ */
+export function partShare(u: Usage, r: Resource, v: number): number {
+  if (u.m.kind !== 'gauge') return u.used ? v / u.used : 0;
+  return u.forecast ? monthAvg(r.series[u.m.key] ?? [], u.a) / u.forecast : 0;
+}
+
 function judge(a: AccountView, m: Metric, rs: Resource[], warn: number): Usage | null {
   const plan = a.plan === 'paid' ? m.paid : m.free;
   const mine = rs.filter((r) => r.series[m.key]);
@@ -190,8 +206,7 @@ function judge(a: AccountView, m: Metric, rs: Resource[], warn: number): Usage |
     // Billed as GB-months: the month's average size. So far the days this month; the rest of the
     // month assumed at today's size.
     used = days[last] ?? 0;
-    const sofar = monthDays.reduce((x, y) => x + y, 0);
-    forecast = (sofar + used * Math.max(0, a.monthDays - monthDays.length)) / a.monthDays;
+    forecast = monthAvg(days, a);
     basis = 'now';
   } else if (per === 'day') {
     used = days[last] ?? 0;
@@ -389,7 +404,7 @@ export function useModel(): Model {
         const u = usage.find((x) => x.a.id === r.acct && x.m.key === key);
         const v = u?.parts.find((p) => p.r.id === r.id)?.v;
         if (!u || v === undefined) continue;
-        const sh = u.used ? v / u.used : 0;
+        const sh = partShare(u, r, v);
         cost += u.cost * sh;
         fcost += u.fcost * sh;
         const share = shareOf(u, v);
@@ -494,7 +509,8 @@ export function fmt(v: number, unit = ''): string {
 }
 /** `v` as a share of `u`'s allowance; 0 where there is none (pay as you go). */
 export const shareOf = (u: Usage, v: number) => (u.limit > 0 ? v / u.limit : 0);
-export const pctText = (p: number) => `${p >= 10 ? '>999' : Math.round(p * 100)}%`;
+/** A share; ten times the allowance and up reads as a multiple (18×), not a four-digit %. */
+export const pctText = (p: number) => (p >= 10 ? `${Math.round(p)}×` : `${Math.round(p * 100)}%`);
 export const usd = (v: number) => `$${v.toFixed(2)}`;
 const priceText = (u: Usage) =>
   u.price < 0.001
@@ -510,6 +526,19 @@ export function costNote(u: Usage): string {
       ? `average ${fmt(u.forecast, u.m.unit)} this month`
       : `${fmt(u.forecast, u.m.unit)} by month end`;
   return `(${what} − ${fmt(u.limit, u.m.unit)} included) = ${fmt(over, u.m.unit)} × ${priceText(u)} = ${usd(u.fcost)} for the account`;
+}
+/** How one resource's part of a meter's forecast cost is worked out, e.g.
+ *  "avg 53 GB-mo × $0.015 − 1.3 GB-mo free share = $0.77 (now 184 GB)". */
+export function partNote(u: Usage, r: Resource, v: number): string {
+  if (u.hard) return 'Free plan: a hard limit, never billed';
+  const sh = partShare(u, r, v);
+  const cost = usd(u.fcost * sh);
+  if (u.per === 'day') return `${Math.round(sh * 100)}% of the account's ${costNote(u)}`;
+  const own = u.forecast * sh;
+  const free = `${fmt(u.limit * sh, u.m.unit)}${u.m.kind === 'gauge' ? '-mo' : ''} free share`;
+  return u.m.kind === 'gauge'
+    ? `avg ${fmt(own, u.m.unit)}-mo × ${priceText(u)} − ${free} = ${cost} (now ${fmt(v, u.m.unit)})`
+    : `${fmt(own, u.m.unit)} by month end × ${priceText(u)} − ${free} = ${cost}`;
 }
 export const perText = (u: Usage) => (u.per === 'day' ? '/day' : u.m.kind === 'gauge' ? '' : '/mo');
 export const sevColor = (st: Status) =>

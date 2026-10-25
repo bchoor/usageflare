@@ -61,11 +61,11 @@ import {
   WatchFor,
 } from './meters';
 import {
-  costNote,
   fmt,
   gbUnit,
   labelColor,
   type Model,
+  partNote,
   pctText,
   perText,
   SEVERITY,
@@ -469,13 +469,10 @@ export function resourceDomain(m: Model, open: (id: string) => void): ViewDomain
         aggregate: 'sum',
         render: (r) => {
           if (acct(r)?.plan !== 'paid') return <span className="text-muted-foreground">Free</span>;
-          // Each meter's account cost, split by this resource's share of the use.
+          // Each meter's cost for this resource, with the sum that makes it.
           const note = metersOf(m, r)
             .filter((x) => x.u && x.fcost >= 0.005)
-            .map(
-              (x) =>
-                `${x.m.label}: ${Math.round((x.v / (x.u?.used || 1)) * 100)}% of ${x.u ? costNote(x.u) : ''}`,
-            )
+            .map((x) => `${x.m.label}: ${x.u ? partNote(x.u, r, x.v) : ''}`)
             .join('\n');
           return (
             <span className="num" title={note || undefined}>
