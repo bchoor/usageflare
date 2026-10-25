@@ -7,13 +7,16 @@
  *
  * KV: `accounts:v1` → AccountRef[] (10 min), `usage:v2:<account>` → { account, resources } (10 min),
  * `prefs:v1`, `labels:v1`, `view:v1:<page>` → the person's settings, labels and saved page layouts.
+ * `seen:v1:<account>` → each listed resource's last day in its list (no expiry), to tell deleted ones.
  */
 import type { LabelsDoc, Prefs } from '../shared/catalog';
-import { historyDates, listAccounts, readAccount } from './cloudflare';
+import { historyDates, listAccounts, readAccount, type Seen } from './cloudflare';
 import type { Env } from './env';
 import { listSecrets, revealSecret } from './secrets';
 
 const TTL_MS = 10 * 60_000;
+/** A remembered resource gone this long is forgotten, unless a label still points at it. */
+const SEEN_DAYS = 90;
 
 export interface AccountRef {
   id: string;
@@ -21,6 +24,9 @@ export interface AccountRef {
   token: string;
   tokenLabel: string;
 }
+
+/** One account's read as cached: the memory of seen resources stays in its own key. */
+type Read = Omit<Awaited<ReturnType<typeof readAccount>>, 'seen'>;
 
 interface Cached<T> {
   at: number;
@@ -90,7 +96,7 @@ export async function accountUsage(env: Env, accountId: string, fresh: boolean, 
   const prefs = await getPrefs(env);
   const key = `usage:v2:${accountId}`;
   // A plan change in Settings must show at once, so it's part of what the cache is checked against.
-  const hit = fresh ? null : await env.KV.get<Cached<Awaited<ReturnType<typeof readAccount>>>>(key, 'json');
+  const hit = fresh ? null : await env.KV.get<Cached<Read>>(key, 'json');
   const want = prefs.plans[accountId];
   // An older copy is served as it is, marked stale; only a plan change in Settings waits for a read.
   if (hit && (want ? hit.value.account.plan === want : hit.value.account.planSource !== 'set')) {
@@ -100,9 +106,23 @@ export async function accountUsage(env: Env, accountId: string, fresh: boolean, 
   }
   const token = await revealSecret(env, ref.token);
   if (!token) throw new Error('Token missing');
-  const read = await readAccount(token, { ...ref, planOverride: want }, historyDates());
+  const seenKey = `seen:v1:${accountId}`;
+  const [seen, labels] = await Promise.all([env.KV.get<Seen>(seenKey, 'json'), getLabels(env)]);
+  const labelled = Object.keys(labels.assign).filter((id) => labels.assign[id]?.length);
+  const { seen: next, ...read } = await readAccount(token, { ...ref, planOverride: want }, historyDates(), {
+    seen: seen ?? {},
+    labelled,
+  });
+  const cutoff = new Date(Date.now() - SEEN_DAYS * 86_400_000).toISOString().slice(0, 10);
+  const keep = new Set(labelled);
+  await env.KV.put(
+    seenKey,
+    JSON.stringify(
+      Object.fromEntries(Object.entries(next).filter(([id, x]) => x.d >= cutoff || keep.has(id))),
+    ),
+  );
   // Out of analytics budget: a stale but whole copy beats a fresh one full of gaps.
-  const prev = hit ?? (await env.KV.get<Cached<Awaited<ReturnType<typeof readAccount>>>>(key, 'json'));
+  const prev = hit ?? (await env.KV.get<Cached<Read>>(key, 'json'));
   if (read.rateLimited && prev) {
     return { dates: historyDates(new Date(prev.at)), stale: false, ...publicUsage(prev.value) };
   }
@@ -113,7 +133,7 @@ export async function accountUsage(env: Env, accountId: string, fresh: boolean, 
 }
 
 /** The token's KV name stays in the Worker; the UI only shows its label. */
-const publicUsage = (v: Awaited<ReturnType<typeof readAccount>>) => ({
+const publicUsage = (v: Read) => ({
   ...v,
   account: { ...v.account, token: '' },
 });

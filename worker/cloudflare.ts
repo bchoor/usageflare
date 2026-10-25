@@ -378,7 +378,18 @@ interface Inventory {
   resources: Map<string, Resource>;
   /** Analytics key (id without dashes, or name) → resource id, per product. */
   byKey: Map<string, string>;
+  /** Products whose list loaded, so a resource missing from it is really gone. */
+  listed: Set<ProductId>;
 }
+
+/**
+ * What the Worker remembers of each listed resource (KV `seen:v1:<account>`): the last day it was
+ * in its list and its analytics keys, so a deleted D1 database keeps its name and a date.
+ */
+export type Seen = Record<string, { d: string; k: string[] }>;
+
+/** Products nothing runs without a binding to: listed but unbound reads as unused. */
+const BINDABLE = new Set<ProductId>(['kv', 'd1', 'r2', 'queues', 'hyperdrive', 'vectorize']);
 
 const rid = (acct: string, product: ProductId, name: string) => `${acct}:${product}:${name}`;
 
@@ -409,26 +420,33 @@ type ScriptBinding = {
 };
 
 async function inventory(token: string, acct: string, missing: string[]): Promise<Inventory> {
-  const inv: Inventory = { resources: new Map(), byKey: new Map() };
+  const inv: Inventory = { resources: new Map(), byKey: new Map(), listed: new Set() };
   const a = `/accounts/${acct}`;
-  const tryList = async <T>(label: string, fn: () => Promise<T[]>): Promise<T[]> => {
+  const tryList = async <T>(label: string, fn: () => Promise<T[]>, product?: ProductId): Promise<T[]> => {
     try {
-      return await fn();
+      const xs = await fn();
+      if (product) inv.listed.add(product);
+      return xs;
     } catch (e) {
-      if (e instanceof CfError && e.code !== undefined && NOT_ENABLED.has(e.code)) return [];
+      if (e instanceof CfError && e.code !== undefined && NOT_ENABLED.has(e.code)) {
+        if (product) inv.listed.add(product);
+        return [];
+      }
       missing.push(label);
       return [];
     }
   };
   const [allScripts, domains, kvs, d1s, r2, dos, queues, workflows, hyper, vec] = await Promise.all([
-    tryList('Workers scripts', () => restList<{ id: string }>(token, `${a}/workers/scripts`)),
+    tryList('Workers scripts', () => restList<{ id: string }>(token, `${a}/workers/scripts`), 'workers'),
     tryList('Workers custom domains', () =>
       restList<{ hostname: string; service: string }>(token, `${a}/workers/domains`),
     ),
-    tryList('KV namespaces', () =>
-      restList<{ id: string; title: string }>(token, `${a}/storage/kv/namespaces`),
+    tryList(
+      'KV namespaces',
+      () => restList<{ id: string; title: string }>(token, `${a}/storage/kv/namespaces`),
+      'kv',
     ),
-    tryList('D1 databases', () => restList<{ uuid: string; name: string }>(token, `${a}/d1/database`)),
+    tryList('D1 databases', () => restList<{ uuid: string; name: string }>(token, `${a}/d1/database`), 'd1'),
     tryList(
       'R2 buckets',
       async () =>
@@ -438,20 +456,32 @@ async function inventory(token: string, acct: string, missing: string[]): Promis
             `${a}/r2/buckets?per_page=1000`,
           )
         ).buckets ?? [],
+      'r2',
     ),
-    tryList('Durable Objects namespaces', () =>
-      restList<{ id: string; name: string; class: string; script: string; use_sqlite?: boolean }>(
-        token,
-        `${a}/workers/durable_objects/namespaces`,
-      ),
+    tryList(
+      'Durable Objects namespaces',
+      () =>
+        restList<{ id: string; name: string; class: string; script: string; use_sqlite?: boolean }>(
+          token,
+          `${a}/workers/durable_objects/namespaces`,
+        ),
+      'do',
     ),
-    tryList('Queues', () => restList<{ queue_id: string; queue_name: string }>(token, `${a}/queues`)),
-    tryList('Workflows', () => restList<{ id: string; name: string }>(token, `${a}/workflows`)),
-    tryList('Hyperdrive configs', () =>
-      restList<{ id: string; name: string }>(token, `${a}/hyperdrive/configs`),
+    tryList(
+      'Queues',
+      () => restList<{ queue_id: string; queue_name: string }>(token, `${a}/queues`),
+      'queues',
     ),
-    tryList('Vectorize indexes', () =>
-      rest<{ name: string; config?: { dimensions?: number } }[]>(token, `${a}/vectorize/v2/indexes`),
+    tryList('Workflows', () => restList<{ id: string; name: string }>(token, `${a}/workflows`), 'workflows'),
+    tryList(
+      'Hyperdrive configs',
+      () => restList<{ id: string; name: string }>(token, `${a}/hyperdrive/configs`),
+      'hyperdrive',
+    ),
+    tryList(
+      'Vectorize indexes',
+      () => rest<{ name: string; config?: { dimensions?: number } }[]>(token, `${a}/vectorize/v2/indexes`),
+      'vectorize',
     ),
   ]);
 
@@ -484,6 +514,8 @@ async function inventory(token: string, acct: string, missing: string[]): Promis
   // Bindings: one settings read per Worker (capped so a large account stays inside subrequest limits).
   const routes = new Map<string, string[]>();
   for (const d of domains) routes.set(d.service, [...(routes.get(d.service) ?? []), d.hostname]);
+  // Unbound is only said when every Worker's bindings were read.
+  let bindsKnown = inv.listed.has('workers') && scripts.length <= 60;
   await Promise.all(
     scripts.slice(0, 60).map(async (s) => {
       let binds: string[] = [];
@@ -510,11 +542,19 @@ async function inventory(token: string, acct: string, missing: string[]): Promis
         });
       } catch {
         // Bindings are a nicety; the Worker still shows without them.
+        bindsKnown = false;
       }
       add(inv, acct, 'workers', s.id, [s.id], { routes: routes.get(s.id), binds: [...new Set(binds)] });
     }),
   );
   if (scripts.length > 60) missing.push(`Bindings for ${scripts.length - 60} more Workers`);
+  // Past the cap a Worker still counts as listed, just without its bindings.
+  for (const s of scripts.slice(60)) add(inv, acct, 'workers', s.id, [s.id], { routes: routes.get(s.id) });
+  if (bindsKnown) {
+    const bound = new Set([...inv.resources.values()].flatMap((r) => r.binds ?? []));
+    for (const r of inv.resources.values())
+      if (BINDABLE.has(r.product) && !bound.has(r.id)) r.state = 'unbound';
+  }
   return inv;
 }
 
@@ -628,7 +668,9 @@ export async function readAccount(
   token: string,
   meta: { id: string; name: string; token: string; tokenLabel: string; planOverride?: Plan },
   dates: string[],
-): Promise<{ account: Account; resources: Resource[]; rateLimited: boolean }> {
+  /** What the Worker remembers from earlier reads, and the resource ids labels point at. */
+  memory: { seen: Seen; labelled: string[] } = { seen: {}, labelled: [] },
+): Promise<{ account: Account; resources: Resource[]; rateLimited: boolean; seen: Seen }> {
   const missing: string[] = [];
   const [inv, detected, { rows, rateLimited }, billing] = await Promise.all([
     inventory(token, meta.id, missing),
@@ -637,6 +679,22 @@ export async function readAccount(
     readBilling(token, meta.id),
   ]);
   const dayIndex = new Map(dates.map((d, i) => [d, i]));
+  const today = dates.at(-1) ?? '';
+
+  // Remember every listed resource as seen today, with the keys its analytics use.
+  const seen: Seen = { ...memory.seen };
+  const keysOf = new Map<string, string[]>();
+  for (const [k, id] of inv.byKey) keysOf.set(id, [...(keysOf.get(id) ?? []), k.slice(k.indexOf('|') + 1)]);
+  for (const r of inv.resources.values()) seen[r.id] = { d: today, k: keysOf.get(r.id) ?? [] };
+  const gone = (id: string, product: ProductId) =>
+    id.startsWith(`${meta.id}:`) && inv.listed.has(product) && !inv.resources.has(id);
+  const nameOf = (id: string) => id.split(':').slice(2).join(':');
+  for (const [id, s] of Object.entries(memory.seen)) {
+    const product = id.split(':')[1] as ProductId;
+    // A key a listed resource still answers to means it was renamed, not deleted.
+    if (!gone(id, product) || s.k.some((k) => inv.byKey.has(`${product}|${k}`))) continue;
+    add(inv, meta.id, product, nameOf(id), s.k, { state: 'deleted', lastSeen: s.d });
+  }
 
   DATASETS.forEach((d, i) => {
     for (const row of rows[i] ?? []) {
@@ -644,6 +702,10 @@ export async function readAccount(
       const key = d.key(row);
       if (day === undefined || key === null) continue;
       let id = inv.byKey.get(`${d.product}|${key}`);
+      if (!id && key && key !== '*' && key !== '__unknown__' && inv.listed.has(d.product)) {
+        // Usage for a resource its list no longer has: deleted.
+        id = add(inv, meta.id, d.product, key, [key], { state: 'deleted' });
+      }
       if (!id) {
         // Usage for something the lists don't show (a deleted resource, an AI model, or a metric
         // Cloudflare only reports account-wide): keep it, so totals still add up.
@@ -677,6 +739,25 @@ export async function readAccount(
     }
   });
 
+  // Labels on resources that are gone and left nothing else behind still show, as deleted.
+  for (const id of memory.labelled) {
+    const product = id.split(':')[1] as ProductId;
+    const renamed = memory.seen[id]?.k.some((k) => inv.byKey.has(`${product}|${k}`));
+    if (gone(id, product) && !renamed) add(inv, meta.id, product, nameOf(id), [], { state: 'deleted' });
+  }
+  // A deleted resource never remembered was last seen on its last day with usage.
+  for (const r of inv.resources.values()) {
+    if (r.state !== 'deleted' || r.lastSeen) continue;
+    let last = -1;
+    for (const s of Object.values(r.series))
+      for (let i = s.length - 1; i > last; i--)
+        if ((s[i] ?? 0) > 0) {
+          last = i;
+          break;
+        }
+    if (last >= 0) r.lastSeen = dates[last];
+  }
+
   // An Infrequent Access bucket's numbers count against the IA allowance and prices. R2's analytics
   // don't split by storage class, so the bucket's default class decides.
   for (const r of inv.resources.values()) {
@@ -705,5 +786,6 @@ export async function readAccount(
     resources: [...inv.resources.values()].sort((x, y) => x.name.localeCompare(y.name)),
     /** Cloudflare's analytics budget ran out mid-read: the caller keeps its last good copy. */
     rateLimited,
+    seen,
   };
 }

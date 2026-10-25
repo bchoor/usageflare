@@ -26,6 +26,7 @@ import {
   Building2,
   ChartColumn,
   CircleGauge,
+  CircleSlash,
   DollarSign,
   Folder,
   Gauge,
@@ -56,6 +57,9 @@ import {
   metersOf,
   ResourceCard,
   ShareBar,
+  StateChip,
+  stateLabel,
+  stateNote,
   Trend7,
   UsageCell,
   WatchFor,
@@ -242,6 +246,7 @@ export function resourceDomain(m: Model, open: (id: string) => void): ViewDomain
                   {r.type}
                 </span>
               )}
+              <StateChip r={r} />
             </span>
           </ResourceCard>
         ),
@@ -300,6 +305,17 @@ export function resourceDomain(m: Model, open: (id: string) => void): ViewDomain
           options: () => ({ inUse: m.labels.labels.map((l) => l.name), unused: [] }),
           note: () => 'Labels group resources into projects across accounts.',
         },
+      },
+      {
+        // Deleted (gone from its list) or Unbound (nothing binds it); a chip after the name shows it.
+        key: 'status',
+        label: 'Status',
+        icon: CircleSlash,
+        format: 'text',
+        value: (r) => stateLabel(r),
+        filterable: true,
+        groupable: true,
+        hideOnPhone: true,
       },
       {
         key: 'type',
@@ -534,6 +550,7 @@ export function resourceDomain(m: Model, open: (id: string) => void): ViewDomain
               },
               { key: 'route', cells: ['Routes', r.routes?.join(', ') || '—'] },
               { key: 'detail', cells: ['Detail', r.detail ?? '—'] },
+              { key: 'status', cells: ['Status', [stateLabel(r), stateNote(r)].filter(Boolean).join(': ')] },
               {
                 key: 'synced',
                 cells: ['Synced', acct(r) ? new Date(acct(r)?.syncedAt ?? '').toLocaleTimeString() : '—'],

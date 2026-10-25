@@ -8,6 +8,7 @@ import {
   ColorDot,
   DetailsTable,
   DrawerSection,
+  type FilterToken,
   KIT,
   LumenDrawer,
   LumenLayout,
@@ -38,7 +39,7 @@ import {
   Rows3,
   TriangleAlert,
 } from 'lucide-react';
-import { type ReactNode, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useMemo, useRef, useState } from 'react';
 import {
   CATEGORIES,
   type CategoryId,
@@ -320,7 +321,7 @@ function usageTile(m: Model) {
       case 'resources': {
         const products = new Set(rows.map((u) => u.m.product));
         const n = m.resources.filter(
-          (r) => !r.total && products.has(r.product) && as.some((a) => a.id === r.acct),
+          (r) => !r.total && !m.archived(r) && products.has(r.product) && as.some((a) => a.id === r.acct),
         ).length;
         return <Tile label="Resources" value={n} caption={`${m.labels.labels.length} labels`} />;
       }
@@ -526,7 +527,7 @@ export function OverviewPage() {
   const as = m.accounts;
   const xs = m.usage;
   const day = as[0]?.day ?? 1;
-  const resources = m.resources.filter((r) => !r.total);
+  const resources = m.resources.filter((r) => !r.total && !m.archived(r));
   const cards: LumenLayoutCard[] = [
     pageCard(
       'accounts',
@@ -904,6 +905,13 @@ export function ResourcesPage({
     return { ...RESOURCES, columns: [...RES_COLUMNS.slice(0, 4), ...fams.map((f) => `fam_${f.id}`), 'cost'] };
   }, [tab, m.resources]);
   const saved = useSavedView(tab === 'all' ? 'resources-all' : `resources-${tab}`, tabDefault);
+  // Deleted resources with nothing this billing period stay out until the filter asks for them.
+  const [showDeleted, setShowDeleted] = useState(false);
+  const onTokens = useCallback(
+    (ts: FilterToken[]) =>
+      setShowDeleted(ts.some((t) => t.key === 'status' && !t.not && /deleted/i.test(t.value))),
+    [],
+  );
   const openRes = (id: string | undefined) =>
     navigate({ to: '.', search: (s: Record<string, unknown>) => ({ ...s, open: id }), replace: true });
   // biome-ignore lint/correctness/useExhaustiveDependencies: openRes only navigates.
@@ -915,7 +923,11 @@ export function ResourcesPage({
   const drawer = last.current;
   const a = acct ? m.account[acct] : undefined;
   const scoped = m.resources.filter(
-    (r) => !r.total && (!acct || r.acct === acct) && (!label || m.labelsOf(r).includes(label)),
+    (r) =>
+      !r.total &&
+      (showDeleted || !m.archived(r)) &&
+      (!acct || r.acct === acct) &&
+      (!label || m.labelsOf(r).includes(label)),
   );
   const rows = scoped.filter((r) => tab === 'all' || PRODUCT[r.product].cat === tab);
   if (!m.accounts.length) return <Waiting m={m} crumbs={[{ label: 'Resources' }]} />;
@@ -1009,6 +1021,7 @@ export function ResourcesPage({
         selection={selection}
         rowTitle={(r) => r.name}
         onOpen={(r) => openRes(r.id)}
+        onTokens={onTokens}
         actions={
           label ? (
             <LabelForm
