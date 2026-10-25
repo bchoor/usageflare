@@ -8,13 +8,16 @@ import {
   ColorDot,
   DetailsTable,
   DrawerSection,
+  KIT,
   LumenDrawer,
   LumenLayout,
   type LumenLayoutCard,
-  LumenSelector,
   LumenTabs,
   LumenWidget,
+  meterLevel,
+  meterValueTone,
   NoteLine,
+  ShareMeter,
   Tile,
   TileRow,
   TileToggleGroup,
@@ -41,34 +44,39 @@ import {
   type CategoryId,
   FAMILIES,
   METRIC,
-  METRICS,
   PRODUCT,
   type ProductId,
   permissionsFor,
+  type Resource,
 } from '../shared/catalog';
-import { DailyColumns, limitDomain, Meter, resourceDomain, view } from './domains';
+import { limitDomain, resourceDomain, UsageLines, view } from './domains';
 import { BulkBar, LabelForm, LabelMark } from './labels';
+import { AccountMetersCard, PlanMeter, planText, Trend7, UsageCell, WatchChip, WatchFor } from './meters';
 import {
-  ACCOUNT_COLORS,
   type AccountView,
-  dayLabel,
   fmt,
   type Model,
   monthEnd,
   pctText,
-  perText,
-  SEVERITY,
   sevColor,
   statusText,
   type Usage,
   usd,
   useModel,
 } from './model';
-import { CATEGORY_ICON, CategoryIcon, ProductIcon } from './products';
+import { CATEGORY_ICON, ProductIcon } from './products';
 
 // ---------- Saved page layouts ----------
 
-type PageId = 'overview' | 'account' | 'limits' | 'resources' | 'resources-all' | `resources-${CategoryId}`;
+type PageId =
+  | 'overview'
+  | 'overview-usage'
+  | 'account'
+  | 'account-usage'
+  | 'limits'
+  | 'resources'
+  | 'resources-all'
+  | `resources-${CategoryId}`;
 
 function useSavedView(page: PageId, fallback: CustomViewConfig) {
   const qc = useQueryClient();
@@ -98,26 +106,10 @@ function useSavedView(page: PageId, fallback: CustomViewConfig) {
 
 // ---------- Shared bits ----------
 
-const sevClass = (st: Usage['st']) =>
-  SEVERITY[st] >= 3 ? 'text-loss' : SEVERITY[st] >= 1 ? 'text-warning' : 'text-gain';
-
 /** One day's use as a share of that day's allowance (a month's split evenly; a size against the
  *  whole allowance); 0 where nothing is included. */
-const dayShare = (u: Usage, v: number) =>
+const _dayShare = (u: Usage, v: number) =>
   u.payg || !u.limit ? 0 : v / (u.m.kind === 'gauge' || u.per === 'day' ? u.limit : u.limit / 30);
-
-/** Per day: the closest meter's share of its daily allowance. */
-const worstByDay = (us: Usage[]) =>
-  Array.from({ length: Math.max(0, ...us.map((u) => u.days.length)) }, (_, i) =>
-    Math.max(0, ...us.map((u) => dayShare(u, u.days[i] ?? 0))),
-  );
-
-/** Per day: how many meters ran at or past their daily allowance. */
-const atRiskByDay = (us: Usage[]) =>
-  Array.from(
-    { length: Math.max(0, ...us.map((u) => u.days.length)) },
-    (_, i) => us.filter((u) => dayShare(u, u.days[i] ?? 0) >= 1).length,
-  );
 
 export function StatusPill({ u, dates }: { u: Usage; dates: string[] }) {
   return (
@@ -140,8 +132,6 @@ const accountBill = (m: Model, a: AccountView) => {
     base,
   };
 };
-
-const worst = (us: Usage[]) => [...us].sort((p, q) => SEVERITY[q.st] - SEVERITY[p.st] || q.fpct - p.fpct)[0];
 
 /** What a page shows while data loads, or before any token exists. */
 function Waiting({ m, crumbs }: { m: Model; crumbs: { label: ReactNode }[] }) {
@@ -234,89 +224,7 @@ const pageCardConfig = (ids: [string, number][]) =>
 
 // ---------- Needs attention ----------
 
-function Attention({ m, us, limit = 8 }: { m: Model; us: Usage[]; limit?: number }) {
-  const navigate = useNavigate();
-  const rows = us
-    .filter((u) => SEVERITY[u.st] >= 1)
-    .sort((p, q) => SEVERITY[q.st] - SEVERITY[p.st] || q.fpct - p.fpct)
-    .slice(0, limit);
-  if (!rows.length) return <p className="p-3 text-muted-foreground text-sm">Nothing near a limit.</p>;
-  return (
-    <div className="flex flex-col">
-      {rows.map((u) => {
-        const why =
-          u.st === 'block'
-            ? u.pct >= 1
-              ? 'Failing until reset'
-              : `Hit ${fmt(u.limit, u.m.unit)}/day on ${dayLabel(m.dates[Number(u.peakDay)] ?? '')}`
-            : u.st === 'over'
-              ? `Billed ${usd(u.cost)} so far`
-              : u.st === 'soon'
-                ? u.hard
-                  ? `Hard limit by ${monthEnd()}`
-                  : `About ${usd(u.fcost)} extra by ${monthEnd()}`
-                : `${pctText(u.pct)} used`;
-        return (
-          <button
-            key={`${u.a.id}|${u.m.key}`}
-            type="button"
-            onClick={() => navigate({ to: '/a/$acct', params: { acct: u.a.id } })}
-            className="flex w-full items-center gap-3 border-b border-l-3 px-3 py-2 text-left last:border-b-0 hover:bg-muted/50"
-            style={{ borderLeftColor: SEVERITY[u.st] >= 3 ? 'var(--loss)' : 'var(--warning)' }}
-          >
-            <ColorDot color={u.a.color} />
-            <span className="flex min-w-0 flex-1 flex-col">
-              <b className="truncate font-semibold text-[13px]">
-                {PRODUCT[u.m.product].label} · {u.m.label}
-              </b>
-              <span className="truncate text-muted-foreground text-xs">
-                {u.a.name} · {why}
-              </span>
-            </span>
-            <StatusPill u={u} dates={m.dates} />
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 // ---------- Usage chart (metric picker, bars) ----------
-
-const CHART_METRICS = METRICS.filter((x) => x.kind === 'sum').map((x) => ({
-  value: x.key,
-  label: `${PRODUCT[x.product].label} · ${x.label}`,
-}));
-
-function UsageChart({
-  m,
-  series,
-  metric,
-}: {
-  m: Model;
-  series: { name: string; color: string; values: number[] }[];
-  metric: string;
-}) {
-  const met = METRIC[metric];
-  if (!series.length || !met)
-    return (
-      <p className="p-3 text-muted-foreground text-sm">No {met?.label.toLowerCase() ?? 'usage'} here yet.</p>
-    );
-  return (
-    <div className="p-3">
-      <DailyColumns
-        dates={m.dates}
-        series={series}
-        unit={met.unit}
-        label={`${PRODUCT[met.product].label} ${met.label}, daily`}
-      />
-    </div>
-  );
-}
-
-function MetricPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  return <LumenSelector options={CHART_METRICS} value={value} onChange={onChange} size="sm" align="end" />;
-}
 
 // ---------- Overview ----------
 
@@ -324,18 +232,148 @@ const OVERVIEW = view({
   name: 'Overview',
   columns: ['account', 'product', 'metric', 'used', 'pct', 'fpct', 'cost', 'status'],
   cards: pageCardConfig([
-    ['attention', 3],
-    ['chart', 3],
-    ['heat', 3],
-    ['accounts', 3],
+    ['accounts', 6],
+    ['watch', 3],
+    ['usage', 3],
+    ['top', 6],
   ]),
 } as Partial<CustomViewConfig> & { name: string });
 
+/** A share's text colour on the kit's meter levels: none while there is room. */
+const toneText = (share: number) => {
+  const t = meterValueTone(share);
+  return t === 'loss' ? 'text-loss' : t === 'warning' ? 'text-warning' : '';
+};
+
+/** Meters at or past the kit's watch level, closest to their cap first: one line each. */
+function WatchList({
+  m,
+  us,
+  limit,
+  showAccount,
+  all,
+}: {
+  m: Model;
+  us: Usage[];
+  limit: number;
+  showAccount?: boolean;
+  /** Every meter, not only those at the watch level. */
+  all?: boolean;
+}) {
+  const rows = us
+    .filter((u) => all || (!u.payg && meterLevel(u.pct) !== 'ok'))
+    .sort((p, q) => Number(p.payg) - Number(q.payg) || q.pct - p.pct)
+    .slice(0, limit);
+  if (!rows.length)
+    return (
+      <p className="p-3 text-muted-foreground text-sm">Every meter is under {m.prefs.warn}% of its cap.</p>
+    );
+  return (
+    <DetailsTable
+      head={[
+        { label: 'Meter', grow: true },
+        { label: 'Used', right: true, hideOnPhone: true },
+        { label: 'Of cap' },
+        // Half-width on Overview: the status moves into the name's tooltip.
+        ...(showAccount ? [] : [{ label: 'Status', hideOnPhone: true }]),
+      ]}
+      rows={rows.map((u) => ({
+        key: `${u.a.id}:${u.m.key}`,
+        cells: [
+          <span
+            key="n"
+            className="inline-flex min-w-0 items-center gap-2"
+            title={`${u.a.name} · ${PRODUCT[u.m.product].label} ${u.m.label} · ${statusText(u, m.dates)}`}
+          >
+            {showAccount && <ColorDot color={u.a.color} />}
+            <ProductIcon id={u.m.product} />
+            <span className="truncate max-md:max-w-52">
+              {PRODUCT[u.m.product].label} {u.m.label}
+            </span>
+          </span>,
+          <span key="v" className="num whitespace-nowrap">
+            {fmt(u.used, u.m.unit)}
+          </span>,
+          u.payg ? (
+            <span key="s" className="text-muted-foreground text-xs">
+              Pay as you go
+            </span>
+          ) : (
+            <span key="s">
+              <ShareMeter className="max-md:hidden" value={u.pct} label={pctText(u.pct)} />
+              <span className={`num md:hidden ${toneText(u.pct)}`}>{pctText(u.pct)}</span>
+            </span>
+          ),
+          ...(showAccount ? [] : [<StatusPill key="p" u={u} dates={m.dates} />]),
+        ],
+      }))}
+    />
+  );
+}
+
+/** The resources using the most of their allotment: Usage, Watch for and Trend 7d, one line each. */
+function TopResources({
+  m,
+  rs,
+  limit,
+  showAccount,
+}: {
+  m: Model;
+  rs: Resource[];
+  limit: number;
+  showAccount?: boolean;
+}) {
+  const top = rs
+    .filter((r) => !r.total && m.info(r).main)
+    .sort((p, q) => m.info(q).plan - m.info(p).plan)
+    .slice(0, limit);
+  return (
+    <DetailsTable
+      head={[
+        { label: 'Name', grow: true },
+        { label: showAccount ? 'Account' : 'Product', hideOnPhone: true },
+        { label: 'Usage' },
+        { label: 'Watch for' },
+        { label: 'Trend 7d', right: true, hideOnPhone: true },
+      ]}
+      rows={top.map((r) => {
+        const a = m.account[r.acct];
+        return {
+          key: r.id,
+          cells: [
+            <Link
+              key="n"
+              to="/a/$acct/resources"
+              params={{ acct: r.acct }}
+              search={{ open: r.id }}
+              className="inline-flex min-w-0 items-center gap-2 font-medium hover:underline"
+            >
+              <ProductIcon id={r.product} />
+              <span className="truncate max-md:max-w-28">{r.name}</span>
+            </Link>,
+            showAccount ? (
+              <span key="a" className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                <ColorDot color={a?.color ?? 'var(--muted-foreground)'} />
+                {a?.name}
+              </span>
+            ) : (
+              <span key="p" className="whitespace-nowrap">
+                {PRODUCT[r.product].label}
+              </span>
+            ),
+            <UsageCell key="u" model={m} r={r} />,
+            <WatchFor key="w" model={m} r={r} />,
+            <Trend7 key="t" t={m.info(r).trend} />,
+          ],
+        };
+      })}
+    />
+  );
+}
+
 export function OverviewPage() {
   const m = useModel();
-  const navigate = useNavigate();
-  const [metric, setMetric] = useState('workers.req');
-  const saved = useSavedView('overview', OVERVIEW);
+  const saved = useSavedView('overview-usage', OVERVIEW);
   const domain = useMemo(() => limitDomain(m), [m]);
   if (!m.accounts.length) return <Waiting m={m} crumbs={[{ label: 'Overview' }]} />;
   const as = m.accounts;
@@ -345,91 +383,10 @@ export function OverviewPage() {
   const fc = as.reduce((s, a) => s + accountBill(m, a).fc, 0);
   const base = paid.length * 5;
   const day = as[0]?.day ?? 1;
+  const watching = xs.filter((u) => !u.payg && meterLevel(u.pct) !== 'ok');
+  const alerts = watching.filter((u) => meterLevel(u.pct) === 'alert');
+  const resources = m.resources.filter((r) => !r.total);
   const cards: LumenLayoutCard[] = [
-    pageCard(
-      'attention',
-      'Needs attention',
-      TriangleAlert,
-      <Attention m={m} us={xs} limit={6} />,
-      <Button size="sm" variant="ghost" asChild>
-        <Link to="/limits">All limits</Link>
-      </Button>,
-    ),
-    pageCard(
-      'chart',
-      `${METRIC[metric]?.label ?? ''} by account`,
-      ChartColumn,
-      <UsageChart
-        m={m}
-        metric={metric}
-        series={as.flatMap((a) => {
-          const u = xs.find((y) => y.a.id === a.id && y.m.key === metric);
-          return u ? [{ name: a.name, color: a.color, values: u.days }] : [];
-        })}
-      />,
-      <MetricPicker value={metric} onChange={setMetric} />,
-    ),
-    pageCard(
-      'heat',
-      'Limit forecast',
-      Gauge,
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-muted-foreground text-xs">
-              <th className="px-3 py-1.5 text-left font-semibold">Category</th>
-              {as.map((a) => (
-                <th key={a.id} className="px-1 py-1.5 font-semibold">
-                  <span className="inline-flex items-center gap-1.5">
-                    <ColorDot color={a.color} />
-                    {a.name}
-                  </span>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {CATEGORIES.map((c) => (
-              <tr key={c.id}>
-                <td className="px-3 py-1">
-                  <span className="inline-flex items-center gap-2 font-medium">
-                    <CategoryIcon id={c.id} />
-                    {c.label}
-                  </span>
-                </td>
-                {as.map((a) => {
-                  const w = worst(xs.filter((u) => u.a.id === a.id && PRODUCT[u.m.product].cat === c.id));
-                  if (!w)
-                    return (
-                      <td key={a.id} className="px-1 py-1 text-center text-muted-foreground">
-                        —
-                      </td>
-                    );
-                  const amt = SEVERITY[w.st] >= 1 ? 22 + Math.min(w.fpct, 1.5) * 14 : 6 + w.fpct * 14;
-                  return (
-                    <td key={a.id} className="p-0.5">
-                      <button
-                        type="button"
-                        title={`${a.name} · ${PRODUCT[w.m.product].label}: ${w.m.label}, forecast ${pctText(w.fpct)}`}
-                        onClick={() =>
-                          navigate({ to: '/a/$acct', params: { acct: a.id }, search: { cat: c.id } })
-                        }
-                        className="h-7 w-full min-w-16 rounded-md font-mono font-semibold text-xs"
-                        style={{
-                          background: `color-mix(in oklab, ${sevColor(w.st)} ${amt.toFixed(0)}%, var(--card))`,
-                        }}
-                      >
-                        {pctText(w.fpct)}
-                      </button>
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>,
-    ),
     pageCard(
       'accounts',
       'Accounts',
@@ -437,12 +394,15 @@ export function OverviewPage() {
       <DetailsTable
         head={[
           { label: 'Account', grow: true },
-          { label: 'Plan' },
-          { label: 'Closest to limit' },
-          { label: 'Forecast bill', right: true },
+          { label: 'Plan', hideOnPhone: true },
+          { label: 'Usage' },
+          { label: 'Watch for' },
+          { label: 'Trend 7d', right: true, hideOnPhone: true },
+          { label: 'Forecast bill', right: true, hideOnPhone: true },
         ]}
         rows={as.map((a) => {
-          const w = worst(xs.filter((u) => u.a.id === a.id));
+          const p = m.plan(a);
+          const us = xs.filter((u) => u.a.id === a.id);
           return {
             key: a.id,
             cells: [
@@ -450,27 +410,62 @@ export function OverviewPage() {
                 key="n"
                 to="/a/$acct"
                 params={{ acct: a.id }}
-                className="inline-flex items-center gap-2 font-medium hover:underline"
+                className="inline-flex min-w-0 items-center gap-2 font-medium hover:underline"
               >
                 <ColorDot color={a.color} />
-                {a.name}
+                <span className="truncate max-md:max-w-32">{a.name}</span>
               </Link>,
               a.plan === 'paid' ? 'Paid' : 'Free',
-              w ? (
-                <span key="w" className="inline-flex items-center gap-2">
-                  <StatusPill u={w} dates={m.dates} />
-                  <span className="text-muted-foreground text-xs">
-                    {PRODUCT[w.m.product].label} {w.m.label.toLowerCase()}
-                  </span>
-                </span>
+              <AccountMetersCard key="u" title={a.name} us={us}>
+                <PlanMeter share={p.share} />
+              </AccountMetersCard>,
+              p.watch ? (
+                <AccountMetersCard key="w" title={a.name} us={us} hl={p.watch.m.key}>
+                  <WatchChip
+                    label={`${PRODUCT[p.watch.m.product].label} ${p.watch.m.label}`}
+                    share={p.watch.pct}
+                  />
+                </AccountMetersCard>
               ) : (
                 '—'
               ),
-              usd(accountBill(m, a).fc),
+              <Trend7 key="t" t={p.trend} />,
+              <span key="b" className="num">
+                {usd(accountBill(m, a).fc)}
+              </span>,
             ],
           };
         })}
       />,
+    ),
+    pageCard(
+      'watch',
+      'Watch for',
+      TriangleAlert,
+      <WatchList m={m} us={xs} limit={6} showAccount />,
+      <Button size="sm" variant="ghost" asChild>
+        <Link to="/limits">All limits</Link>
+      </Button>,
+    ),
+    pageCard(
+      'usage',
+      'Usage this month',
+      ChartColumn,
+      <div className="p-3">
+        <UsageLines
+          dates={m.dates}
+          series={as.map((a) => ({ name: a.name, color: a.color, values: m.plan(a).days }))}
+        />
+      </div>,
+    ),
+    pageCard(
+      'top',
+      'Top resources',
+      Rows3,
+      <TopResources m={m} rs={resources} limit={8} showAccount />,
+      <Button size="sm" variant="ghost" asChild>
+        <Link to="/resources">All {resources.length}</Link>
+      </Button>,
     ),
   ];
   return (
@@ -480,7 +475,7 @@ export function OverviewPage() {
       intro={
         <div className="flex flex-col gap-3">
           <Problems m={m} />
-          <TileRow aria-label="Totals">
+          <TileRow fill aria-label="Totals">
             <Tile
               label="Bill so far"
               value={usd(mtd)}
@@ -493,16 +488,12 @@ export function OverviewPage() {
               valueClassName={fc > base + 0.5 ? 'text-warning' : undefined}
             />
             <Tile
-              label="Limits at risk"
-              value={xs.filter((u) => SEVERITY[u.st] >= 2).length}
-              caption={`${xs.filter((u) => u.st === 'block').length} blocked · ${xs.filter((u) => u.st === 'over').length} billed`}
-              valueClassName={xs.some((u) => SEVERITY[u.st] >= 3) ? 'text-loss' : undefined}
+              label="Watch for"
+              value={watching.length}
+              caption={`${alerts.length} at ${Math.round(KIT.meterLevels.alert * 100)}% or more`}
+              valueClassName={alerts.length ? 'text-loss' : watching.length ? 'text-warning' : undefined}
             />
-            <Tile
-              label="Resources"
-              value={m.resources.filter((r) => !r.total).length}
-              caption={`${m.labels.labels.length} labels`}
-            />
+            <Tile label="Resources" value={resources.length} caption={`${m.labels.labels.length} labels`} />
           </TileRow>
         </div>
       }
@@ -590,167 +581,60 @@ const ACCOUNT = view({
   name: 'Account',
   columns: ['product', 'metric', 'used', 'allowance', 'pct', 'fpct', 'cost', 'status'],
   cards: pageCardConfig([
-    ['plan', 6],
-    ['chart', 3],
+    ['watch', 6],
+    ['usage', 3],
     ['top', 3],
   ]),
 } as Partial<CustomViewConfig> & { name: string });
 
-/** One usage row against its allowance: the meter split by resource, forecast and limit. */
-function LimitRow({ u, m, open, onToggle }: { u: Usage; m: Model; open: boolean; onToggle: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-expanded={open}
-      className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3.5 gap-y-1.5 border-b px-3 py-2.5 text-left last:border-b-0 hover:bg-muted/40 md:grid-cols-[minmax(7rem,11rem)_minmax(0,1fr)_auto]"
-    >
-      <span className="flex flex-col">
-        <span className="inline-flex items-center gap-1.5 font-semibold text-[13px]">
-          <ProductIcon id={u.m.product} className="size-3.5" />
-          {PRODUCT[u.m.product].label} · {u.m.label}
-        </span>
-        <small className="text-[11px] text-muted-foreground">
-          {u.payg
-            ? 'Pay as you go'
-            : `${u.hard ? 'Hard limit' : 'Included'} ${fmt(u.limit, u.m.unit)}${perText(u)}`}
-        </small>
-      </span>
-      <span className="col-span-2 row-start-2 md:col-span-1 md:row-start-auto">
-        <Meter share={u.pct} wide />
-      </span>
-      <span className="col-start-2 row-start-1 flex items-center gap-2 md:col-start-auto md:row-start-auto">
-        <span className="font-mono text-xs">
-          <b>{fmt(u.used, u.m.unit)}</b>
-        </span>
-        <StatusPill u={u} dates={m.dates} />
-      </span>
-      {open && (
-        <span className="col-span-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground md:col-start-2">
-          {u.parts.slice(0, 6).map((p, i) => (
-            <span key={p.r.id} className="inline-flex items-center gap-1.5">
-              <ColorDot color={ACCOUNT_COLORS[i % ACCOUNT_COLORS.length] as string} />
-              {p.r.name} <span className="font-mono">{fmt(p.v, u.m.unit)}</span>
-            </span>
-          ))}
-          {u.parts.length > 6 && <span>+{u.parts.length - 6} more</span>}
-          <span className="font-mono">
-            {u.basis === 'today'
-              ? `30-day peak ${fmt(u.peak ?? 0, u.m.unit)}`
-              : `Forecast ${fmt(u.forecast, u.m.unit)}`}
-          </span>
-        </span>
-      )}
-    </button>
-  );
-}
-
 export function AccountPage({ acct, cat }: { acct: string; cat?: CategoryId }) {
   const m = useModel();
   const navigate = useNavigate();
-  const [metric, setMetric] = useState('workers.req');
   const [showAll, setShowAll] = useState(false);
-  const [open, setOpen] = useState<Set<string>>(new Set());
-  const saved = useSavedView('account', ACCOUNT);
+  const saved = useSavedView('account-usage', ACCOUNT);
   const a = m.account[acct];
   const xs = useMemo(() => m.usage.filter((u) => u.a.id === acct), [m, acct]);
   const domain = useMemo(() => limitDomain(m), [m]);
   if (!a) return <Waiting m={m} crumbs={[{ label: 'Account' }]} />;
   const tab = cat ?? 'all';
-  const inTab = xs
-    .filter((u) => tab === 'all' || PRODUCT[u.m.product].cat === tab)
-    .sort((p, q) => SEVERITY[q.st] - SEVERITY[p.st] || q.fpct - p.fpct);
-  const shown = showAll ? inTab : inTab.filter((u) => SEVERITY[u.st] >= 1);
-  const rs = m.resources.filter((r) => r.acct === acct);
+  const inCat = (u: Usage) => tab === 'all' || PRODUCT[u.m.product].cat === tab;
+  const inTab = xs.filter(inCat);
+  const rs = m.resources.filter((r) => r.acct === acct && (tab === 'all' || PRODUCT[r.product].cat === tab));
   const b = accountBill(m, a);
+  const p = m.plan(a);
   const cats = CATEGORIES.filter((c) => xs.some((u) => PRODUCT[u.m.product].cat === c.id));
-  const toggle = (k: string) =>
-    setOpen((s) => {
-      const n = new Set(s);
-      n.has(k) ? n.delete(k) : n.add(k);
-      return n;
-    });
-
-  const ranked = rs
-    .filter((r) => r.series[metric])
-    .map((r) => ({ r, v: xs.find((u) => u.m.key === metric)?.parts.find((p) => p.r.id === r.id)?.v ?? 0 }))
-    .sort((p, q) => q.v - p.v);
-  const top5 = ranked.slice(0, 5).map((p, i) => ({
-    name: p.r.name,
-    color: ACCOUNT_COLORS[i % ACCOUNT_COLORS.length] as string,
-    values: p.r.series[metric] ?? [],
-  }));
-  if (ranked.length > 5)
-    top5.push({
-      name: `${ranked.length - 5} more`,
-      color: 'var(--chart-8)',
-      values: m.dates.map((_, i) => ranked.slice(5).reduce((s, p) => s + (p.r.series[metric]?.[i] ?? 0), 0)),
-    });
-  const top = rs
-    .filter((r) => !r.total && m.info(r).main)
-    .sort((p, q) => (m.info(q).main?.share ?? 0) - (m.info(p).main?.share ?? 0))
-    .slice(0, 6);
+  const watching = inTab.filter((u) => !u.payg && meterLevel(u.pct) !== 'ok').length;
 
   const cards: LumenLayoutCard[] = [
     pageCard(
-      'plan',
-      'Usage vs plan',
+      'watch',
+      showAll ? 'Every meter' : 'Watch for',
       Gauge,
-      shown.length ? (
-        <div className="flex flex-col">
-          {shown.map((u) => (
-            <LimitRow key={u.m.key} u={u} m={m} open={open.has(u.m.key)} onToggle={() => toggle(u.m.key)} />
-          ))}
-        </div>
-      ) : (
-        <p className="p-3 text-muted-foreground text-sm">
-          Everything here is under {m.prefs.warn}% of its allowance.
-        </p>
-      ),
+      <WatchList m={m} us={inTab} limit={showAll ? inTab.length : 12} all={showAll} />,
       <Button size="sm" variant="ghost" onClick={() => setShowAll((v) => !v)}>
-        {showAll ? 'At risk only' : `Show all ${inTab.length}`}
+        {showAll ? `Watch for only (${watching})` : `Show all ${inTab.length}`}
       </Button>,
     ),
     pageCard(
-      'chart',
-      `${METRIC[metric]?.label ?? ''} by resource`,
+      'usage',
+      'Usage this month',
       ChartColumn,
-      <UsageChart m={m} series={top5} metric={metric} />,
-      <MetricPicker value={metric} onChange={setMetric} />,
+      <div className="p-3">
+        <UsageLines
+          dates={m.dates}
+          series={(tab === 'all' ? cats : cats.filter((c) => c.id === tab)).map((c) => ({
+            name: c.label,
+            color: c.color,
+            values: m.plan(a, (u) => PRODUCT[u.m.product].cat === c.id).days,
+          }))}
+        />
+      </div>,
     ),
     pageCard(
       'top',
       'Top resources',
       Rows3,
-      <DetailsTable
-        head={[{ label: 'Name', grow: true }, { label: 'Share of allowance' }]}
-        rows={top.map((r) => {
-          const x = m.info(r).main;
-          return {
-            key: r.id,
-            cells: [
-              <Link
-                key="n"
-                to="/a/$acct/resources"
-                params={{ acct }}
-                search={{ open: r.id }}
-                className="inline-flex items-center gap-2 font-medium hover:underline"
-              >
-                <ProductIcon id={r.product} />
-                {r.name}
-              </Link>,
-              x ? (
-                <span key="s" className="inline-flex items-center gap-2">
-                  <Meter share={x.share} />
-                  <span className="text-muted-foreground text-xs">{x.u.m.label.toLowerCase()}</span>
-                </span>
-              ) : (
-                '—'
-              ),
-            ],
-          };
-        })}
-      />,
+      <TopResources m={m} rs={rs} limit={8} />,
       <Button size="sm" variant="ghost" asChild>
         <Link to="/a/$acct/resources" params={{ acct }}>
           All {rs.length}
@@ -802,12 +686,14 @@ export function AccountPage({ acct, cat }: { acct: string; cat?: CategoryId }) {
               valueClassName={b.fc > 5.5 ? 'text-warning' : undefined}
             />
             <Tile
-              label="Limits at risk"
-              value={xs.filter((u) => SEVERITY[u.st] >= 2).length}
-              caption={`of ${xs.length} tracked`}
-              valueClassName={xs.some((u) => SEVERITY[u.st] >= 3) ? 'text-loss' : undefined}
-              spark={atRiskByDay(xs)}
-              sparkColor="var(--warning)"
+              label="Usage"
+              value={planText(p.share)}
+              caption={
+                p.watch
+                  ? `Watch for ${PRODUCT[p.watch.m.product].label} ${p.watch.m.label}`
+                  : 'of the allotment'
+              }
+              spark={p.days.filter((v): v is number => v !== null)}
             />
           </TileRow>
           <TileToggleGroup
@@ -825,18 +711,17 @@ export function AccountPage({ acct, cat }: { acct: string; cat?: CategoryId }) {
               {
                 id: 'all',
                 label: 'All products',
-                value: `${xs.filter((u) => SEVERITY[u.st] >= 2).length} at risk`,
-                spark: worstByDay(xs),
+                value: planText(p.share),
+                spark: p.days.filter((v): v is number => v !== null),
               },
               ...cats.map((c) => {
-                const us = xs.filter((u) => PRODUCT[u.m.product].cat === c.id);
-                const w = worst(us);
+                const cp = m.plan(a, (u) => PRODUCT[u.m.product].cat === c.id);
                 return {
                   id: c.id,
                   label: c.label,
-                  value: <span className={w ? sevClass(w.st) : ''}>{w ? pctText(w.fpct) : '—'}</span>,
-                  spark: worstByDay(us),
-                  sparkColor: w ? sevColor(w.st) : undefined,
+                  value: planText(cp.share),
+                  spark: cp.days.filter((v): v is number => v !== null),
+                  sparkColor: c.color,
                 };
               }),
             ]}
@@ -844,7 +729,7 @@ export function AccountPage({ acct, cat }: { acct: string; cat?: CategoryId }) {
         </div>
       }
       domain={domain}
-      rows={xs}
+      rows={inTab}
       load={m.load}
       cards={cards}
       rowTitle={(u) => `${PRODUCT[u.m.product].label} ${u.m.label}`}

@@ -855,3 +855,60 @@ export function limitDomain(m: Model): ViewDomain<Usage> {
     ],
   };
 }
+
+/** Usage this month so far, one line per series, with a 100% line: on pace to use the whole allotment. */
+export function UsageLines({
+  dates,
+  series,
+  height = 220,
+}: {
+  dates: string[];
+  series: { name: string; color: string; values: (number | null)[] }[];
+  height?: number;
+}) {
+  const t = useChartTokens();
+  const first = dates.findIndex((d) => d.endsWith('-01'));
+  const from = Math.max(first, 0);
+  const max = Math.max(1, ...series.flatMap((s) => s.values.map((v) => v ?? 0)));
+  return (
+    <LumenEChart
+      label="Usage this month, share of each account's allotment"
+      height={height}
+      option={{
+        ...baseOption(t),
+        grid: { left: 44, right: 12, top: 12, bottom: 44 },
+        legend: { bottom: 0, icon: 'circle', itemWidth: 8, textStyle: { color: t.muted } },
+        tooltip: {
+          trigger: 'axis',
+          valueFormatter: (v: unknown) => (typeof v === 'number' ? pctText(v) : '—'),
+        },
+        xAxis: { type: 'category', data: dates.slice(from).map((d) => d.slice(5)), boundaryGap: false },
+        yAxis: {
+          type: 'value',
+          min: 0,
+          max: Math.ceil(max * 10) / 10,
+          axisLabel: { formatter: (v: number) => `${Math.round(v * 100)}%` },
+        },
+        series: series.map((s, i) => ({
+          name: s.name,
+          type: 'line',
+          data: s.values.slice(from),
+          symbol: 'none',
+          lineStyle: { width: 2, color: s.color },
+          itemStyle: { color: s.color },
+          ...(i === 0
+            ? {
+                markLine: {
+                  silent: true,
+                  symbol: 'none',
+                  label: { show: false },
+                  lineStyle: { type: 'dashed', color: t.muted, width: 1 },
+                  data: [{ yAxis: 1 }],
+                },
+              }
+            : {}),
+        })),
+      }}
+    />
+  );
+}

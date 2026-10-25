@@ -54,6 +54,9 @@ const viewPage = z.object({
   page: z.enum([
     'overview',
     'account',
+    // The Overview pages since Usage + Watch for: fresh defaults, older saved layouts left behind.
+    'overview-usage',
+    'account-usage',
     'limits',
     'resources',
     // The All tab since Usage + Watch for (v17): a fresh default, older saved columns left behind.
