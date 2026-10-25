@@ -1,0 +1,87 @@
+# usageflare
+
+> Self-hosted dashboard for Cloudflare usage and limits across many accounts. One Worker and one KV namespace in your own Cloudflare account. MIT licensed. Source: https://github.com/bchoor/usageflare
+
+This file is a deploy guide for AI agents. Follow the steps in order. Every step can be done from a terminal with `wrangler`, except creating the API token and the Access application, which you can also do through the Cloudflare API.
+
+## What gets created
+
+- One Worker (default name `usageflare`), serving a public landing page at `/`, the app at `/app` and its API at `/api`.
+- One KV namespace bound as `KV` (settings, labels, saved views, encrypted API tokens). `wrangler deploy` creates it on first deploy.
+- One secret, `SETTINGS_KEY`: 32 random bytes in base64, the AES-GCM key for tokens stored in KV.
+- Two vars, `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD`: the Cloudflare Access application that protects `/app` and `/api`. Until both are set, `/api` answers 503 (except on localhost).
+
+## Requirements
+
+- A Cloudflare account (Free plan works) and a Zero Trust team (free for up to 50 users).
+- `git`, `bun` (https://bun.sh), and a shell with `openssl`.
+
+## Option A: one click (for a person)
+
+Open https://deploy.workers.cloudflare.com/?url=https://github.com/bchoor/usageflare. It copies the repo into the person's GitHub, creates the KV namespace and deploys with Workers Builds. When it asks for `SETTINGS_KEY`, use the output of `openssl rand -base64 32`. Leave `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` empty for now, then continue at step 4 below. Set the two vars in the copied repo's `wrangler.jsonc` and push: Workers Builds redeploys, and a value set only in the dashboard is replaced on the next push.
+
+## Option B: terminal (for an agent)
+
+1. Get the code and sign in:
+
+   ```bash
+   git clone https://github.com/bchoor/usageflare && cd usageflare
+   bun install
+   bunx wrangler login        # or export CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID
+   ```
+
+2. Deploy once. This creates the Worker and the KV namespace and prints the Worker's URL (`https://usageflare.<subdomain>.workers.dev`):
+
+   ```bash
+   bun run build && bunx wrangler deploy
+   ```
+
+   Do not set `USAGEFLARE_ENV` or `CLOUDFLARE_ENV`: `env.production` in `wrangler.jsonc` is the maintainers' own instance.
+
+3. Set the encryption key:
+
+   ```bash
+   openssl rand -base64 32 | bunx wrangler secret put SETTINGS_KEY
+   ```
+
+4. Protect the app with Cloudflare Access. In Zero Trust, go to Access, Applications, Add an application, Self-hosted, and add two public hostnames for the Worker's host: path `app` and path `api`. Add an Allow policy for the people who may use it (for example their emails). Do not cover `/`: it is the public landing page. Copy the application's **Application Audience (AUD) tag**, and the team domain (`<team>.cloudflareaccess.com`, under Settings, Custom pages or Team name).
+
+   With the API instead: `POST /accounts/{account_id}/access/apps` with `{"type":"self_hosted","name":"usageflare","domain":"<host>/app","destinations":[{"type":"public","uri":"<host>/app"},{"type":"public","uri":"<host>/api"}],"policies":[{"name":"allow","decision":"allow","include":[{"email":{"email":"<email>"}}]}]}`; the response's `aud` is the AUD tag.
+
+5. Put both values in the top-level `vars` of `wrangler.jsonc` and deploy again:
+
+   ```jsonc
+   "vars": {
+     "ACCESS_TEAM_DOMAIN": "<team>.cloudflareaccess.com",
+     "ACCESS_AUD": "<aud tag>"
+   }
+   ```
+
+   ```bash
+   bun run build && bunx wrangler deploy
+   ```
+
+6. Create a read-only API token for each Cloudflare account to watch. This pre-filled link sets the permissions (Account Analytics, Account Settings, Workers Scripts, Workers KV Storage, Workers R2 Storage, D1, Queues, all Read):
+
+   https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=%5B%7B%22key%22%3A%22account_analytics%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22account_settings%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22workers_scripts%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22workers_kv_storage%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22workers_r2%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22d1%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22queues%22%2C%22type%22%3A%22read%22%7D%5D&accountId=*&zoneId=all&name=usageflare+%28read-only%29
+
+   For Containers, Vectorize, Hyperdrive and Workers AI, add their Read permissions by hand. Add Billing Read to get the plan detected; without it the plan is assumed Free.
+
+7. Hand over to the person: they open `https://<host>/app`, sign in through Access, and paste each token in Settings, Cloudflare API tokens. The token is entered by the person in the browser, never through a command or a file: the API is write-only and only shows the last four characters.
+
+## Check it worked
+
+- `curl -sI https://<host>/` returns 200 (landing page).
+- `curl -sI https://<host>/app/` returns 302 to `<team>.cloudflareaccess.com` (Access is in front).
+- `/api/*` returning 503 means `ACCESS_TEAM_DOMAIN` or `ACCESS_AUD` is still empty.
+
+## Rules
+
+- Never commit `SETTINGS_KEY` or an API token. Never put either in `vars`.
+- Keep `preview_urls: false`: preview hosts are not covered by the Access application.
+- Use a custom domain by adding `"routes": [{ "pattern": "usage.example.com", "custom_domain": true }]` to the top level of `wrangler.jsonc`, then point the Access application at that host.
+
+## More
+
+- README: https://github.com/bchoor/usageflare#readme
+- Config: https://github.com/bchoor/usageflare/blob/main/wrangler.jsonc

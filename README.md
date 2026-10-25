@@ -4,7 +4,34 @@
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/bchoor/usageflare)
 
+Using an AI agent? Point it at **https://usageflare.icaruslab.dev/llms.txt** and it can deploy this for you.
+
 ![usageflare overview across three Cloudflare accounts](public/landing/overview.jpg)
+
+## Deploy in five steps
+
+It runs as one Worker and one KV namespace in your own Cloudflare account, and only reads the accounts it watches.
+
+1. **Deploy.** Click **Deploy to Cloudflare** above. It copies this repo to your GitHub, creates the KV namespace and deploys.
+2. **Set the key.** When it asks for `SETTINGS_KEY`, paste the output of `openssl rand -base64 32`. Leave the two Access values empty for now.
+3. **Lock the app.** In Zero Trust, go to Access, then Applications, and add a **Self-hosted** app for your Worker's host with two paths: `/app` and `/api`. Allow only your own email. The landing page at `/` stays public.
+4. **Connect Access.** In your copy of the repo, set `ACCESS_TEAM_DOMAIN` (`<team>.cloudflareaccess.com`) and `ACCESS_AUD` (the app's audience tag) under `vars` in `wrangler.jsonc`, then commit. It redeploys on its own. Until both are set, the API answers 503.
+5. **Add accounts.** [Create a read-only token](https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=%5B%7B%22key%22%3A%22account_analytics%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22account_settings%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22workers_scripts%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22workers_kv_storage%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22workers_r2%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22d1%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22queues%22%2C%22type%22%3A%22read%22%7D%5D&accountId=*&zoneId=all&name=usageflare+%28read-only%29) with the permissions already filled in, one per account. Open `/app`, go to Settings, then Cloudflare API tokens, and paste it.
+
+<details>
+<summary>From a terminal instead</summary>
+
+```bash
+git clone https://github.com/bchoor/usageflare && cd usageflare
+bun install
+bunx wrangler login
+bun run build && bunx wrangler deploy                      # creates the Worker and its KV namespace
+openssl rand -base64 32 | bunx wrangler secret put SETTINGS_KEY
+# add the Access app (step 3), put its two values in wrangler.jsonc vars, then:
+bun run build && bunx wrangler deploy
+```
+
+</details>
 
 ## What it does
 
@@ -47,17 +74,6 @@ printf 'FIXTURES=1\nACCESS_TEAM_DOMAIN=\nACCESS_AUD=\n' >> .dev.vars
 bun run dev   # landing page at /, app at /app
 bun run lint && bun run type-check && bun run build
 ```
-
-## Deploy your own
-
-It runs as one Worker and one KV namespace in your own Cloudflare account and only reads the accounts it watches.
-
-1. Click **Deploy to Cloudflare** above. It copies this repo to your GitHub, provisions the KV namespace and deploys with Workers Builds. When asked for `SETTINGS_KEY`, paste the output of `openssl rand -base64 32`.
-2. In Cloudflare Zero Trust, add a self-hosted **Access application** for your Worker's host with two paths, `/app` and `/api`, and a policy for the people who may use it. The landing page at `/` stays public.
-3. Set the Worker variables `ACCESS_TEAM_DOMAIN` (e.g. `myteam.cloudflareaccess.com`) and `ACCESS_AUD` (the application's audience tag). Until both are set the API answers 503.
-4. Open `/app`, go to Settings, Cloudflare API tokens, and add a read-only token for each account. The **Create token** link there pre-fills the permissions it needs.
-
-To deploy by hand instead: `bun install`, `bunx wrangler secret put SETTINGS_KEY`, set the two Access variables in `wrangler.jsonc`, then `bun run deploy`.
 
 ## Deploy (this repo's instance)
 
