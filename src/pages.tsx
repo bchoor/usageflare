@@ -969,8 +969,8 @@ export function ResourcesPage({
   );
   const openRes = (id: string | undefined) =>
     navigate({ to: '.', search: (s: Record<string, unknown>) => ({ ...s, open: id }), replace: true });
-  // biome-ignore lint/correctness/useExhaustiveDependencies: openRes only navigates.
   const phone = useIsMobile();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: openRes only navigates.
   const domain = useMemo(() => resourceDomain(m, openRes, w, phone), [m, w, phone]);
   const current = open ? m.resource[open] : undefined;
   // The drawer keeps showing the last resource while it slides shut.
