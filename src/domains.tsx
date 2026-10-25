@@ -91,6 +91,7 @@ import {
   paceOf,
   ResourcePaceCell,
   resourcePaces,
+  shareNote,
 } from './pace';
 import { ProductIcon } from './products';
 
@@ -245,7 +246,8 @@ export function resourceDomain(
 ): ViewDomain<Resource> {
   const acct = (r: Resource) => m.account[r.acct];
   const main = (r: Resource) => m.info(r).main;
-  const pace = (r: Resource) => resourcePaces(m, r, w)[0];
+  // The meter this resource drives that hits first; none when it is a small part of every pool.
+  const pace = (r: Resource) => resourcePaces(m, r, w).find((x) => x.drives);
   return {
     id: 'resources',
     rowKey: (r) => r.id,
@@ -410,7 +412,10 @@ export function resourceDomain(
         icon: Timer,
         format: 'number',
         value: (r) => etaValue(pace(r)?.pace),
-        values: (r) => [paceBucket(pace(r)?.pace ?? null)],
+        values: (r) => {
+          const x = pace(r);
+          return [x ? paceBucket(x.pace) : resourcePaces(m, r, w).length ? 'Small share' : 'No cap'];
+        },
         empty: 'Resets first',
         filterable: true,
         groupable: true,
@@ -434,7 +439,7 @@ export function resourceDomain(
           return t === null ? null : t * 100;
         },
         hideOnPhone: true,
-        render: (r) => <Trend7 t={m.info(r).trend} />,
+        render: (r) => <Trend7 change={m.info(r).change} unit={main(r)?.u.m.unit} />,
       },
       {
         key: 'used',
@@ -564,11 +569,11 @@ export function resourceDomain(
         icon: Timer,
         open: true,
         render: (r) => {
-          const x = pace(r);
+          const x = pace(r) ?? resourcePaces(m, r, w)[0];
           return x ? (
             <div className="flex flex-col gap-2">
               <PaceWindowPicker className="self-start" />
-              <PaceSection u={x.u} w={w} />
+              <PaceSection u={x.u} w={w} note={shareNote(r, x)} />
             </div>
           ) : (
             <p className="text-muted-foreground text-sm">No meter with a cap.</p>
