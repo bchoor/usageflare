@@ -3,7 +3,8 @@
  * The key name is the additional data, so a ciphertext can't be moved to another name.
  * Plaintext never leaves the Worker: the API lists names, last four characters and test results.
  *
- * KV layout: `secret:<name>` → StoredSecret (JSON).
+ * KV layout: `secret:<name>` → StoredSecret (JSON); `test:<name>` → KeyTest, kept apart so a slow
+ * test can never write an old ciphertext back over a replace or a delete.
  */
 import type { Env } from './env';
 
@@ -23,17 +24,15 @@ interface StoredSecret {
   last4: string;
   updatedAt: string;
   updatedBy: string;
-  test: KeyTest | null;
 }
 
-export type SecretInfo = Pick<
-  StoredSecret,
-  'kind' | 'label' | 'last4' | 'updatedAt' | 'updatedBy' | 'test'
-> & {
+export type SecretInfo = Pick<StoredSecret, 'kind' | 'label' | 'last4' | 'updatedAt' | 'updatedBy'> & {
   name: string;
+  test: KeyTest | null;
 };
 
 const PREFIX = 'secret:';
+const TEST = 'test:';
 const enc = new TextEncoder();
 const b64 = (bytes: ArrayBuffer | Uint8Array) =>
   btoa(String.fromCharCode(...new Uint8Array(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes))));
@@ -45,14 +44,14 @@ async function key(env: Env): Promise<CryptoKey> {
   return crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt']);
 }
 
-const info = (name: string, s: StoredSecret): SecretInfo => ({
+const info = (name: string, s: StoredSecret, test: KeyTest | null): SecretInfo => ({
   name,
   kind: s.kind,
   label: s.label,
   last4: s.last4,
   updatedAt: s.updatedAt,
   updatedBy: s.updatedBy,
-  test: s.test,
+  test,
 });
 
 async function read(env: Env, name: string) {
@@ -63,8 +62,12 @@ export async function listSecrets(env: Env): Promise<SecretInfo[]> {
   const { keys } = await env.KV.list({ prefix: PREFIX });
   const rows = await Promise.all(
     keys.map(async (k) => {
-      const s = await env.KV.get<StoredSecret>(k.name, 'json');
-      return s ? info(k.name.slice(PREFIX.length), s) : null;
+      const name = k.name.slice(PREFIX.length);
+      const [s, test] = await Promise.all([
+        env.KV.get<StoredSecret>(k.name, 'json'),
+        env.KV.get<KeyTest>(TEST + name, 'json'),
+      ]);
+      return s ? info(name, s, test) : null;
     }),
   );
   return rows.filter((r) => r !== null).sort((a, b) => a.label.localeCompare(b.label));
@@ -91,14 +94,18 @@ export async function putSecret(
     last4: input.value.slice(-4),
     updatedAt: new Date().toISOString(),
     updatedBy: by,
-    test: null,
   };
   await env.KV.put(PREFIX + name, JSON.stringify(stored));
-  return info(name, stored);
+  await env.KV.delete(TEST + name);
+  return info(name, stored, null);
 }
 
 export async function deleteSecret(env: Env, name: string) {
-  await env.KV.delete(PREFIX + name);
+  await Promise.all([env.KV.delete(PREFIX + name), env.KV.delete(TEST + name)]);
+}
+
+export async function hasSecret(env: Env, name: string) {
+  return (await read(env, name)) !== null;
 }
 
 /** The plaintext, for the Worker's own calls only (never returned by the API). */
@@ -134,7 +141,6 @@ export async function testSecret(env: Env, name: string): Promise<SecretInfo | n
   } catch (e) {
     test = { at: new Date().toISOString(), ok: false, error: e instanceof Error ? e.message : 'Test failed' };
   }
-  const next = { ...s, test };
-  await env.KV.put(PREFIX + name, JSON.stringify(next));
-  return info(name, next);
+  await env.KV.put(TEST + name, JSON.stringify(test));
+  return info(name, s, test);
 }

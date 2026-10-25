@@ -20,8 +20,16 @@ const json = (method: string, body?: unknown): RequestInit => ({
 export const api = {
   me: () => apiJson<{ email: string }>('/api/me', undefined, 'me'),
   secrets: () => apiJson<{ secrets: SecretInfo[] }>('/api/secrets', undefined, 'secrets.list'),
-  putSecret: (name: string, body: { kind: SecretInfo['kind']; label: string; value: string }) =>
-    apiJson<{ secret: SecretInfo }>(`/api/secrets/${name}`, json('PUT', body), 'secrets.put'),
+  putSecret: (
+    name: string,
+    body: { kind: SecretInfo['kind']; label: string; value: string },
+    opts: { create?: boolean } = {},
+  ) =>
+    apiJson<{ secret: SecretInfo }>(
+      `/api/secrets/${name}${opts.create ? '?create' : ''}`,
+      json('PUT', body),
+      'secrets.put',
+    ),
   testSecret: (name: string) =>
     apiJson<{ secret: SecretInfo }>(`/api/secrets/${name}/test`, json('POST'), 'secrets.test'),
   deleteSecret: (name: string) =>

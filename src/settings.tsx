@@ -28,7 +28,7 @@ export function TokensSettings() {
         <TokenRow key={s.name} secret={s} />
       ))}
       {q.data && q.data.secrets.length === 0 && <p className="text-sm">No tokens yet.</p>}
-      <AddToken />
+      <AddToken taken={q.data?.secrets.map((s) => s.name) ?? []} />
     </div>
   );
 }
@@ -87,13 +87,15 @@ function TokenRow({ secret }: { secret: SecretInfo }) {
   );
 }
 
-function AddToken() {
+function AddToken({ taken }: { taken: string[] }) {
   const qc = useQueryClient();
   const [label, setLabel] = useState('');
   const [value, setValue] = useState('');
   const name = slug(label);
+  const exists = taken.includes(name);
   const add = useMutation({
-    mutationFn: () => api.putSecret(name, { kind: 'cf_api_token', label: label.trim(), value }),
+    mutationFn: () =>
+      api.putSecret(name, { kind: 'cf_api_token', label: label.trim(), value }, { create: true }),
     onSuccess: async ({ secret }) => {
       setLabel('');
       setValue('');
@@ -128,10 +130,13 @@ function AddToken() {
           className="max-w-80"
           aria-label="Token value"
         />
-        <Button type="submit" disabled={!name || value.length < 8 || add.isPending}>
+        <Button type="submit" disabled={!name || exists || value.length < 8 || add.isPending}>
           Save
         </Button>
       </div>
+      {exists && (
+        <p className="text-destructive text-sm">A token with that label exists; replace it above.</p>
+      )}
       <ErrorLine error={add.error} />
     </form>
   );
