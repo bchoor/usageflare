@@ -1,4 +1,4 @@
-# flareusage
+# usageflare
 
 Cloudflare usage dashboard across one or more accounts, pairing usage and limits with the real services and resources behind them. UI built with [`@columenlabs/lumen-ui`](https://www.npmjs.com/package/@columenlabs/lumen-ui).
 

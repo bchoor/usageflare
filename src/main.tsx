@@ -8,16 +8,16 @@ import { createRoot } from 'react-dom/client';
 import { api } from './api';
 import { TokensSettings } from './settings';
 
-configureLumen({ prefsCookie: 'flareusage_prefs' });
+configureLumen({ prefsCookie: 'usageflare_prefs' });
 const queryClient = createDeskQueryClient();
 
 function Shell() {
   const me = useQuery({ queryKey: ['me'], queryFn: api.me });
   return (
     <LumenShell
-      app="flareusage"
-      appLabel="Flareusage"
-      brand={<span className="font-semibold">Flareusage</span>}
+      app="usageflare"
+      appLabel="usageflare"
+      brand={<span className="font-semibold">usageflare</span>}
       nav={<NavGroup items={[{ title: 'Usage', to: '/', icon: Gauge, exact: true }]} />}
       releases="/api/releases"
       user={me.data ? { email: me.data.email, name: null } : null}
