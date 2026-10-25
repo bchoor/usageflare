@@ -101,6 +101,24 @@ function useSavedView(page: PageId, fallback: CustomViewConfig) {
 const sevClass = (st: Usage['st']) =>
   SEVERITY[st] >= 3 ? 'text-loss' : SEVERITY[st] >= 1 ? 'text-warning' : 'text-gain';
 
+/** One day's use as a share of that day's allowance (a month's split evenly; a size against the
+ *  whole allowance); 0 where nothing is included. */
+const dayShare = (u: Usage, v: number) =>
+  u.payg || !u.limit ? 0 : v / (u.m.kind === 'gauge' || u.per === 'day' ? u.limit : u.limit / 30);
+
+/** Per day: the closest meter's share of its daily allowance. */
+const worstByDay = (us: Usage[]) =>
+  Array.from({ length: Math.max(0, ...us.map((u) => u.days.length)) }, (_, i) =>
+    Math.max(0, ...us.map((u) => dayShare(u, u.days[i] ?? 0))),
+  );
+
+/** Per day: how many meters ran at or past their daily allowance. */
+const atRiskByDay = (us: Usage[]) =>
+  Array.from(
+    { length: Math.max(0, ...us.map((u) => u.days.length)) },
+    (_, i) => us.filter((u) => dayShare(u, u.days[i] ?? 0) >= 1).length,
+  );
+
 export function StatusPill({ u, dates }: { u: Usage; dates: string[] }) {
   return (
     <span
@@ -766,7 +784,7 @@ export function AccountPage({ acct, cat }: { acct: string; cat?: CategoryId }) {
       intro={
         <div className="flex flex-col gap-3">
           <Problems m={m} acct={acct} />
-          <TileRow aria-label="Account">
+          <TileRow fill aria-label="Account">
             <Tile
               label="Plan"
               value={a.plan === 'paid' ? 'Workers Paid' : 'Free'}
@@ -788,9 +806,12 @@ export function AccountPage({ acct, cat }: { acct: string; cat?: CategoryId }) {
               value={xs.filter((u) => SEVERITY[u.st] >= 2).length}
               caption={`of ${xs.length} tracked`}
               valueClassName={xs.some((u) => SEVERITY[u.st] >= 3) ? 'text-loss' : undefined}
+              spark={atRiskByDay(xs)}
+              sparkColor="var(--warning)"
             />
           </TileRow>
           <TileToggleGroup
+            fill
             label="Category"
             selected={tab}
             onSelect={(id) =>
@@ -805,13 +826,17 @@ export function AccountPage({ acct, cat }: { acct: string; cat?: CategoryId }) {
                 id: 'all',
                 label: 'All products',
                 value: `${xs.filter((u) => SEVERITY[u.st] >= 2).length} at risk`,
+                spark: worstByDay(xs),
               },
               ...cats.map((c) => {
-                const w = worst(xs.filter((u) => PRODUCT[u.m.product].cat === c.id));
+                const us = xs.filter((u) => PRODUCT[u.m.product].cat === c.id);
+                const w = worst(us);
                 return {
                   id: c.id,
                   label: c.label,
                   value: <span className={w ? sevClass(w.st) : ''}>{w ? pctText(w.fpct) : '—'}</span>,
+                  spark: worstByDay(us),
+                  sparkColor: w ? sevColor(w.st) : undefined,
                 };
               }),
             ]}
