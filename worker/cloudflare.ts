@@ -76,6 +76,8 @@ interface Dataset {
   values: (r: Row) => Record<string, number>;
   /** Gauges keep the day's maximum instead of adding rows up. */
   gauge?: boolean;
+  /** Most accounts don't use it: a field the token can't read isn't reported as missing. */
+  optional?: boolean;
 }
 
 const GB = 1e9;
@@ -281,6 +283,16 @@ const DATASETS: Dataset[] = [
     values: (r) => ({ 'queues.ops': r.sum?.billableOperations ?? 0 }),
   },
   {
+    name: 'R2 Data Catalog',
+    field: 'r2CatalogDataOperationsAdaptiveGroups',
+    select: 'count',
+    dims: ['warehouseName'],
+    product: 'basin',
+    optional: true,
+    key: (r) => r.dimensions.warehouseName || null,
+    values: (r) => ({ 'basin.ops': r.count ?? 0 }),
+  },
+  {
     name: 'Workers Builds',
     field: 'workersBuildsBuildMinutesAdaptiveGroups',
     select: 'sum { buildMinutes }',
@@ -323,8 +335,9 @@ async function fetchDatasets(token: string, accountId: string, dates: string[], 
   if (acct) {
     const failed = new Set((body?.errors ?? []).map((e) => String(e.path?.at(-1) ?? '')));
     DATASETS.forEach((d, i) => {
-      if (failed.has(`d${i}`) || !acct[`d${i}`]) missing.push(d.name);
-      else out[i] = acct[`d${i}`] ?? [];
+      if (failed.has(`d${i}`) || !acct[`d${i}`]) {
+        if (!d.optional) missing.push(d.name);
+      } else out[i] = acct[`d${i}`] ?? [];
     });
     rateLimited = (body?.errors ?? []).some((e) => RATE_LIMITED.test(e.message));
     return { rows: out, rateLimited };
@@ -339,7 +352,7 @@ async function fetchDatasets(token: string, accountId: string, dates: string[], 
       const rows = one?.data?.viewer?.accounts?.[0]?.[`d${i}`];
       if (rows) out[i] = rows;
       else {
-        missing.push(d.name);
+        if (!d.optional) missing.push(d.name);
         if ((one?.errors ?? []).some((e) => RATE_LIMITED.test(e.message))) rateLimited = true;
       }
     }),
@@ -546,7 +559,11 @@ export async function readAccount(
             ? { total: true }
             : {
                 detail:
-                  d.product === 'ai' ? key : 'Not in the account’s list: deleted, or the token can’t list it',
+                  d.product === 'ai'
+                    ? key
+                    : d.product === 'basin'
+                      ? 'Data Catalog warehouse'
+                      : 'Not in the account’s list: deleted, or the token can’t list it',
               },
         );
       }
@@ -559,6 +576,18 @@ export async function readAccount(
       }
     }
   });
+
+  // An Infrequent Access bucket's numbers count against the IA allowance and prices. R2's analytics
+  // don't split by storage class, so the bucket's default class decides.
+  for (const r of inv.resources.values()) {
+    if (r.product !== 'r2' || r.type !== 'Infrequent Access') continue;
+    for (const k of ['stor', 'a', 'b']) {
+      const s = r.series[`r2.${k}`];
+      if (!s) continue;
+      r.series[`r2.ia.${k}`] = s;
+      delete r.series[`r2.${k}`];
+    }
+  }
 
   const plan = meta.planOverride ?? detected ?? 'free';
   return {

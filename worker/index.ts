@@ -6,7 +6,9 @@ import { secureHeaders } from 'hono/secure-headers';
 import { z } from 'zod';
 import { requireAccess, sameOrigin } from './access';
 import changelog from './changelog.json';
+import { historyDates } from './cloudflare';
 import type { AppEnv } from './env';
+import { FIXTURE_LABELS, fixtureRefs, fixturesOn, fixtureUsage } from './fixtures';
 import { deleteSecret, hasSecret, listSecrets, putSecret, testSecret } from './secrets';
 import {
   accountRefs,
@@ -115,8 +117,18 @@ const api = new Hono<AppEnv>()
     return c.body(null, 204);
   })
   // Usage: the accounts the tokens reach, then one account at a time (`?fresh` skips the cache).
-  .get('/accounts', async (c) => c.json(await accountRefsPublic(c.env, fresh(c.req.query('fresh')))))
+  .get('/accounts', async (c) =>
+    c.json(
+      fixturesOn(c.env, c.req.url)
+        ? publicRefs(fixtureRefs())
+        : await accountRefsPublic(c.env, fresh(c.req.query('fresh'))),
+    ),
+  )
   .get('/accounts/:id/usage', zValidator('param', accountParam), async (c) => {
+    if (fixturesOn(c.env, c.req.url)) {
+      const usage = fixtureUsage(c.req.valid('param').id, historyDates());
+      return usage ? c.json(usage) : c.json({ error: 'No token reaches that account' }, 404);
+    }
     const usage = await accountUsage(c.env, c.req.valid('param').id, fresh(c.req.query('fresh')));
     return usage ? c.json(usage) : c.json({ error: 'No token reaches that account' }, 404);
   })
@@ -125,7 +137,10 @@ const api = new Hono<AppEnv>()
     await putPrefs(c.env, c.req.valid('json'));
     return c.json(await getPrefs(c.env));
   })
-  .get('/labels', async (c) => c.json(await getLabels(c.env)))
+  .get('/labels', async (c) => {
+    const labels = await getLabels(c.env);
+    return c.json(fixturesOn(c.env, c.req.url) && !labels.labels.length ? FIXTURE_LABELS : labels);
+  })
   .put('/labels', zValidator('json', labelsBody), async (c) => {
     await putLabels(c.env, c.req.valid('json'));
     return c.json(await getLabels(c.env));
@@ -154,7 +169,10 @@ const api = new Hono<AppEnv>()
 
 /** Account refs without the token's KV name: the UI only needs the label it's read with. */
 async function accountRefsPublic(env: AppEnv['Bindings'], fresh: boolean) {
-  const { accounts, errors } = await accountRefs(env, fresh);
+  return publicRefs(await accountRefs(env, fresh));
+}
+
+function publicRefs({ accounts, errors }: Awaited<ReturnType<typeof accountRefs>>) {
   return {
     accounts: accounts.map(({ id, name, tokenLabel }) => ({ id, name, tokenLabel })),
     errors: errors.map(({ label, error }) => ({ label, error })),

@@ -119,6 +119,8 @@ export interface Usage {
   peakDay: string | null;
   basis: 'now' | 'today' | 'mtd';
   hard: boolean;
+  /** No included amount (R2 Infrequent Access): billed from the first unit, never "near a limit". */
+  payg: boolean;
   /** Account total per day, 30 days. */
   days: number[];
   /** Each resource's share of `used`, largest first. */
@@ -175,10 +177,12 @@ function judge(a: AccountView, m: Metric, rs: Resource[], warn: number): Usage |
     cost = monthDays.reduce((s, v) => s + over(v), 0) * price;
     fcost = (cost / a.day) * a.monthDays;
   }
-  const pct = used / limit;
-  const fpct = forecast / limit;
+  const payg = limit === 0;
+  const pct = payg ? 0 : used / limit;
+  const fpct = payg ? 0 : forecast / limit;
   let st: Status;
-  if (hard && (pct >= 1 || (per === 'day' && (peak ?? 0) >= limit))) st = 'block';
+  if (payg) st = 'ok';
+  else if (hard && (pct >= 1 || (per === 'day' && (peak ?? 0) >= limit))) st = 'block';
   else if (pct >= 1) st = 'over';
   else if (fpct >= 1) st = 'soon';
   else if (pct >= warn / 100) st = 'watch';
@@ -206,6 +210,7 @@ function judge(a: AccountView, m: Metric, rs: Resource[], warn: number): Usage |
     peakDay,
     basis,
     hard,
+    payg,
     days,
     parts: mine.map((r) => ({ r, v: partOf(r) })).sort((x, y) => y.v - x.v),
   };
@@ -310,7 +315,7 @@ export function useModel(): Model {
         const sh = u.used ? v / u.used : 0;
         cost += u.cost * sh;
         fcost += u.fcost * sh;
-        const share = v / u.limit;
+        const share = shareOf(u, v);
         if (!main || share > main.share) main = { key, u, v, share };
       }
       const out = { main, cost, fcost };
@@ -362,6 +367,8 @@ export function fmt(v: number, unit = ''): string {
   else s = a > 0 && a < 10 && !Number.isInteger(v) ? v.toFixed(1) : Math.round(v).toLocaleString('en-US');
   return unit ? `${s} ${unit}` : s;
 }
+/** `v` as a share of `u`'s allowance; 0 where there is none (pay as you go). */
+export const shareOf = (u: Usage, v: number) => (u.limit > 0 ? v / u.limit : 0);
 export const pctText = (p: number) => `${p >= 10 ? '>999' : Math.round(p * 100)}%`;
 export const usd = (v: number) => `$${v.toFixed(2)}`;
 export const perText = (u: Usage) => (u.per === 'day' ? '/day' : u.m.kind === 'gauge' ? '' : '/mo');

@@ -11,6 +11,7 @@ import {
   Orbit,
   ScatterChart,
   Server,
+  Table2,
   Workflow,
   Zap,
 } from 'lucide-react';
@@ -29,6 +30,7 @@ export const PRODUCT_ICON: Record<ProductId, LucideIcon> = {
   ai: BrainCircuit,
   vectorize: ScatterChart,
   queues: ListOrdered,
+  basin: Table2,
 };
 
 export const CATEGORY_ICON: Record<CategoryId, LucideIcon> = {
