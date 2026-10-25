@@ -620,7 +620,7 @@ async function readBilling(token: string, acct: string, now = new Date()): Promi
   } catch (e) {
     return e instanceof CfError && (e.status === 401 || e.status === 403) ? 'no-access' : undefined;
   }
-  if (!info.covered) return 'not-covered';
+  if (!info?.covered) return 'not-covered';
   const anchor = info.subscriptions?.find((s) => !s.end_timestamp)?.billing_cycle_anchor_timestamp;
   const anchorDay = anchor ? new Date(anchor).getUTCDate() : 1;
   // The anchor day in a given month, or that month's last day when it's shorter.
@@ -676,7 +676,8 @@ export async function readAccount(
     inventory(token, meta.id, missing),
     meta.planOverride ? Promise.resolve(null) : detectPlan(token, meta.id),
     fetchDatasets(token, meta.id, dates, missing),
-    readBilling(token, meta.id),
+    // Optional extra: whatever goes wrong there, the usage still loads.
+    readBilling(token, meta.id).catch(() => undefined),
   ]);
   const dayIndex = new Map(dates.map((d, i) => [d, i]));
   const today = dates.at(-1) ?? '';
