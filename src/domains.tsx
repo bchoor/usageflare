@@ -9,6 +9,8 @@ import {
   DetailsTable,
   iconOf,
   LumenEChart,
+  meterLevel,
+  meterValueTone,
   ShareMeter,
   StackedColumns,
   TileSpark,
@@ -33,6 +35,7 @@ import {
   Shield,
   Tag,
   Text,
+  TrendingUp,
   TriangleAlert,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -47,9 +50,17 @@ import {
   type Resource,
 } from '../shared/catalog';
 import { LabelPicker, setLabels } from './labels';
-import { MetersCard, MetricChip, metersOf, ResourceCard, ShareBar } from './meters';
 import {
-  barColor,
+  MetersCard,
+  MetricChip,
+  metersOf,
+  ResourceCard,
+  ShareBar,
+  Trend7,
+  UsageCell,
+  WatchFor,
+} from './meters';
+import {
   costNote,
   fmt,
   gbUnit,
@@ -71,14 +82,9 @@ import { ProductIcon } from './products';
 export const view = (c: Partial<CustomViewConfig> & { name: string }) =>
   ({ ...customViewConfigSchema.parse(c), name: c.name }) as CustomViewConfig;
 
+const LEVEL_TEXT = { ok: 'Room', watch: 'Watch', alert: 'Near cap' } as const;
 const shareStatus = (share: number | undefined) =>
-  share === undefined
-    ? 'No data'
-    : share >= 1
-      ? 'Over allowance'
-      : share >= 0.5
-        ? 'Half or more'
-        : 'Under half';
+  share === undefined ? 'No data' : share >= 1 ? 'Over allowance' : LEVEL_TEXT[meterLevel(share)];
 
 /** A line of the last 30 days, in the row's account colour. */
 export function Spark({ values, color }: { values: number[]; color: string }) {
@@ -115,8 +121,7 @@ const UNIT_SHORT: Record<string, string> = { 'vCPU-min': 'vCPU-m' };
 /** A meter's amount as number and unit, for `UnitValue`. */
 export const amountParts = (v: number, unit: string): [string, string] =>
   unit === 'GB' ? (fmt(v, 'GB').split(' ') as [string, string]) : [fmt(v), UNIT_SHORT[unit] ?? unit];
-const toneOf = (share: number, payg?: boolean) =>
-  payg ? undefined : share >= 1 ? ('loss' as const) : share >= 0.5 ? ('warning' as const) : undefined;
+const toneOf = (share: number, payg?: boolean) => (payg ? undefined : meterValueTone(share));
 
 /** Sizes (storage, memory-time) read as amounts by default; counts against a cap as a share. */
 const AMOUNT_FIRST = new Set<string>(['stor', 'mem']);
@@ -157,17 +162,11 @@ function familyRoll(m: Model, family: string, as: 'amount' | 'share') {
   };
 }
 
-/** Used against the allowance: a bar coloured by status, with the share beside it. */
-export function Meter({ share, status, wide }: { share: number; status: Usage['st']; wide?: boolean }) {
+/** Used against the allowance: a bar in the kit's meter colours, with the share beside it. */
+export function Meter({ share, wide }: { share: number; wide?: boolean }) {
   // Wide meters stop at a short track: a full-width bar shouts even when there is room.
   return (
-    <ShareMeter
-      value={share}
-      label={pctText(share)}
-      color={barColor(status)}
-      wide={wide}
-      className={wide ? 'max-w-48' : undefined}
-    />
+    <ShareMeter value={share} label={pctText(share)} wide={wide} className={wide ? 'max-w-48' : undefined} />
   );
 }
 
@@ -237,9 +236,9 @@ export function resourceDomain(m: Model, open: (id: string) => void): ViewDomain
           <ResourceCard model={m} r={r}>
             <span className="inline-flex min-w-0 items-center gap-2">
               <ProductIcon id={r.product} />
-              <span className="truncate font-medium">{r.name}</span>
+              <span className="truncate font-medium max-md:max-w-28">{r.name}</span>
               {r.type && (
-                <span className="shrink-0 rounded bg-muted px-1.5 text-muted-foreground text-xs">
+                <span className="shrink-0 max-md:hidden rounded bg-muted px-1.5 text-muted-foreground text-xs">
                   {r.type}
                 </span>
               )}
@@ -278,6 +277,8 @@ export function resourceDomain(m: Model, open: (id: string) => void): ViewDomain
         color: (v) => PRODUCTS.find((p) => p.label === v)?.color,
         filterable: true,
         groupable: true,
+        // A phone keeps Name, Usage and Watch for.
+        hideOnPhone: true,
       },
       {
         key: 'label',
@@ -287,6 +288,7 @@ export function resourceDomain(m: Model, open: (id: string) => void): ViewDomain
         value: (r) => m.labelsOf(r).join(', ') || null,
         values: (r) => m.labelsOf(r),
         color: (v) => labelColor(m.labels, v),
+        hideOnPhone: true,
         iconOf: (v) => {
           const icon = m.labels.labels.find((l) => l.name === v)?.icon;
           return icon ? iconOf(icon, Tag) : undefined;
@@ -342,6 +344,37 @@ export function resourceDomain(m: Model, open: (id: string) => void): ViewDomain
             </MetersCard>
           );
         },
+      },
+      {
+        key: 'usage',
+        label: 'Usage',
+        icon: CircleGauge,
+        format: 'percent',
+        value: (r) => m.info(r).plan * 100,
+        render: (r) => <UsageCell model={m} r={r} />,
+      },
+      {
+        // The meter closest to its own cap, whatever the product: name and share, toned by level.
+        key: 'watch',
+        label: 'Watch for',
+        icon: Gauge,
+        format: 'percent',
+        value: (r) => (main(r) ? (main(r)?.share ?? 0) * 100 : null),
+        values: (r) => [shareStatus(main(r)?.share)],
+        filterable: true,
+        render: (r) => <WatchFor model={m} r={r} />,
+      },
+      {
+        key: 'trend7',
+        label: 'Trend 7d',
+        icon: TrendingUp,
+        format: 'percent',
+        value: (r) => {
+          const t = m.info(r).trend;
+          return t === null ? null : t * 100;
+        },
+        hideOnPhone: true,
+        render: (r) => <Trend7 t={m.info(r).trend} />,
       },
       {
         key: 'used',
@@ -432,6 +465,7 @@ export function resourceDomain(m: Model, open: (id: string) => void): ViewDomain
         format: 'price',
         value: (r) => (acct(r)?.plan === 'paid' ? m.info(r).fcost : null),
         empty: 'Free',
+        hideOnPhone: true,
         aggregate: 'sum',
         render: (r) => {
           if (acct(r)?.plan !== 'paid') return <span className="text-muted-foreground">Free</span>;
@@ -601,12 +635,7 @@ function ResourceUsage({ m, r }: { m: Model; r: Resource }) {
                 ) : (
                   // A phone drawer has room for the share, not its bar.
                   <span key="p">
-                    <ShareMeter
-                      className="max-md:hidden"
-                      value={share}
-                      label={pctText(share)}
-                      color={barColor(share >= 1 ? 'over' : share >= 0.75 ? 'watch' : 'ok')}
-                    />
+                    <ShareMeter className="max-md:hidden" value={share} label={pctText(share)} />
                     <span className="md:hidden">{pctText(share)}</span>
                   </span>
                 )
@@ -720,7 +749,7 @@ export function limitDomain(m: Model): ViewDomain<Usage> {
         icon: Gauge,
         format: 'percent',
         value: (u) => u.pct * 100,
-        render: (u) => <Meter share={u.pct} status={u.st} />,
+        render: (u) => <Meter share={u.pct} />,
       },
       {
         key: 'fpct',
