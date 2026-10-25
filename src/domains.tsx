@@ -91,6 +91,29 @@ export function Spark({ values, color }: { values: number[]; color: string }) {
   );
 }
 
+/** One line: the value, then its share of the allowance in brackets, coloured by how close it is. */
+export function ValueShare({
+  v,
+  unit,
+  share,
+  title,
+}: {
+  v: number;
+  unit: string;
+  share: number;
+  title: string;
+}) {
+  const st = share >= 1 ? 'over' : share >= 0.5 ? 'watch' : 'ok';
+  return (
+    <span className="whitespace-nowrap font-mono tabular-nums" title={title}>
+      {fmt(v, unit)}{' '}
+      <span style={{ color: st === 'ok' ? 'var(--muted-foreground)' : sevColor(st) }}>
+        [{pctText(share)}]
+      </span>
+    </span>
+  );
+}
+
 /** Used against the allowance: a bar coloured by status, with the share beside it. */
 export function Meter({ share, status, wide }: { share: number; status: Usage['st']; wide?: boolean }) {
   return (
@@ -239,9 +262,8 @@ export function resourceDomain(m: Model, open: (id: string) => void): ViewDomain
         render: (r) => {
           const x = main(r);
           return x ? (
-            <span className="font-mono tabular-nums">
-              {fmt(x.v, x.u.m.unit)}{' '}
-              <span className="font-sans text-muted-foreground text-xs">{x.u.m.label.toLowerCase()}</span>
+            <span className="whitespace-nowrap font-mono tabular-nums" title={x.u.m.label}>
+              {fmt(x.v, x.u.m.unit)}
             </span>
           ) : (
             '—'
@@ -295,11 +317,12 @@ export function resourceDomain(m: Model, open: (id: string) => void): ViewDomain
           const x = familyPart(m, r, f.id);
           if (!x) return <span className="text-muted-foreground">—</span>;
           return (
-            <span className="inline-flex flex-col items-end">
-              <span className="font-mono tabular-nums">{fmt(x.v, x.u.m.unit)}</span>
-              <span className="text-[10.5px] text-muted-foreground">{x.u.m.label}</span>
-              <Meter share={x.share} status={x.share >= 1 ? 'over' : x.share >= 0.5 ? 'watch' : 'ok'} />
-            </span>
+            <ValueShare
+              v={x.v}
+              unit={x.u.m.unit}
+              share={x.share}
+              title={`${PRODUCT[x.u.m.product].label} ${x.u.m.label.toLowerCase()}: ${pctText(x.share)} of the allowance`}
+            />
           );
         },
       })),
