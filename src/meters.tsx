@@ -153,45 +153,115 @@ export function ResourceCard({ model, r, children }: { model: Model; r: Resource
 /** A share of the allotment: `<1%` rather than a misleading 0%. */
 export const planText = (p: number) => (p > 0 && p < 0.005 ? '<1%' : pctText(p));
 
-/** Usage: the resource's share of its account's allotment, a quiet bar (it is a size, not a warning). */
-export function UsageCell({ model, r }: { model: Model; r: Resource }) {
-  const p = model.info(r).plan;
+/** A Usage share as a quiet bar (it is a size, not a warning); just the number on a phone. */
+export function PlanMeter({ share }: { share: number }) {
   return (
-    <MetersCard model={model} r={r}>
+    <>
       <ShareMeter
         className="max-md:hidden"
-        value={p}
-        label={planText(p)}
+        value={share}
+        label={planText(share)}
         color="color-mix(in oklab, var(--primary) 70%, transparent)"
       />
-      <span className="num md:hidden">{planText(p)}</span>
+      <span className="num md:hidden">{planText(share)}</span>
+    </>
+  );
+}
+
+/** A meter's name and share of its own cap, tinted by the kit's meter levels (grey, amber, red). */
+export function WatchChip({ label, share, payg }: { label: ReactNode; share: number; payg?: boolean }) {
+  const level = payg ? 'ok' : meterLevel(share);
+  const c = METER_LEVEL_COLOR[level];
+  return (
+    <span
+      className="inline-flex h-5 min-w-0 items-center gap-1.5 whitespace-nowrap rounded-[5px] px-1.5 text-xs"
+      style={
+        level === 'ok'
+          ? { background: 'var(--muted)' }
+          : {
+              background: `color-mix(in oklab, ${c} 18%, transparent)`,
+              color: `color-mix(in oklab, ${c} 80%, var(--foreground))`,
+            }
+      }
+    >
+      <span className="truncate max-md:max-w-16">{label}</span>
+      <span className="num">{payg ? 'pay as you go' : pctText(share)}</span>
+    </span>
+  );
+}
+
+/** Usage: the resource's share of its account's allotment. */
+export function UsageCell({ model, r }: { model: Model; r: Resource }) {
+  return (
+    <MetersCard model={model} r={r}>
+      <PlanMeter share={model.info(r).plan} />
     </MetersCard>
   );
 }
 
-/** Watch for: the meter closest to its own cap, name and share, tinted by the kit's meter levels. */
+/** Watch for: the resource's meter closest to its own cap. */
 export function WatchFor({ model, r }: { model: Model; r: Resource }) {
   const x = model.info(r).main;
   if (!x) return <span className="text-muted-foreground">—</span>;
-  const level = x.u.payg ? 'ok' : meterLevel(x.share);
-  const c = METER_LEVEL_COLOR[level];
   return (
     <MetersCard model={model} r={r} hl={x.key}>
-      <span
-        className="inline-flex h-5 min-w-0 items-center gap-1.5 whitespace-nowrap rounded-[5px] px-1.5 text-xs"
-        style={
-          level === 'ok'
-            ? { background: 'var(--muted)' }
-            : {
-                background: `color-mix(in oklab, ${c} 18%, transparent)`,
-                color: `color-mix(in oklab, ${c} 80%, var(--foreground))`,
-              }
-        }
-      >
-        <span className="truncate max-md:max-w-16">{x.u.m.label}</span>
-        <span className="num">{x.u.payg ? 'pay as you go' : pctText(x.share)}</span>
-      </span>
+      <WatchChip label={x.u.m.label} share={x.share} payg={x.u.payg} />
     </MetersCard>
+  );
+}
+
+/** Hover or focus `children` to see every meter of the account `us` belong to, closest to its cap first. */
+export function AccountMetersCard({
+  title,
+  us,
+  hl,
+  children,
+}: {
+  title: ReactNode;
+  us: Usage[];
+  hl?: string;
+  children: ReactNode;
+}) {
+  const rows = [...us].sort((p, q) => Number(p.payg) - Number(q.payg) || q.pct - p.pct);
+  return (
+    <HoverCard openDelay={150} closeDelay={80}>
+      <HoverCardTrigger asChild>
+        {/* biome-ignore lint/a11y/noNoninteractiveTabindex: focus opens the meters card for keyboards. */}
+        <span tabIndex={0} className="inline-flex min-w-0 items-center gap-1.5 outline-none">
+          {children}
+        </span>
+      </HoverCardTrigger>
+      <HoverCardContent align="start" className="max-h-96 w-auto min-w-72 max-w-md overflow-y-auto p-0">
+        <div className="flex items-center gap-2 border-b px-3 py-2">
+          <b className="truncate font-medium text-sm">{title}</b>
+          <span className="ml-auto text-muted-foreground text-xs">
+            {rows.length} meter{rows.length === 1 ? '' : 's'}
+          </span>
+        </div>
+        <table className="w-full text-sm">
+          <tbody>
+            {rows.map((u) => (
+              <tr key={u.m.key} className={u.m.key === hl ? 'bg-muted/60' : undefined}>
+                <td className="py-1 pr-2 pl-3 whitespace-nowrap">
+                  <span className="inline-flex items-center gap-1.5">
+                    <ProductIcon id={u.m.product} />
+                    <MetricChip m={u.m} />
+                  </span>
+                </td>
+                <td className="num py-1 pr-2 text-right">{fmt(u.used, u.m.unit)}</td>
+                <td className="py-1 pr-3 whitespace-nowrap">
+                  {u.payg ? (
+                    <span className="text-muted-foreground text-xs">Pay as you go</span>
+                  ) : (
+                    <ShareMeter value={u.pct} label={pctText(u.pct)} />
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </HoverCardContent>
+    </HoverCard>
   );
 }
 

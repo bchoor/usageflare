@@ -288,6 +288,17 @@ export interface ResourceInfo {
   trend: number | null;
 }
 
+export interface PlanInfo {
+  /** Share of the allotment used, at list prices (the Resources Usage summed over the account). */
+  share: number;
+  /** The meter closest to its own cap. */
+  watch: Usage | null;
+  /** Last 7 days against the 7 before, priced (0.12 = +12%). */
+  trend: number | null;
+  /** Usage this month so far, day by day (the `dates` before the 1st are null). */
+  days: (number | null)[];
+}
+
 /** A meter's list price: the plan's own, else the paid plan's (a free plan prices nothing). */
 const listPrice = (u: Usage) => u.price || u.m.paid?.[2] || 0;
 /** What a meter's monthly allowance is worth at list price; nothing for pay-as-you-go. */
@@ -307,6 +318,8 @@ export interface Model {
   resource: Record<string, Resource>;
   usage: Usage[];
   info: (r: Resource) => ResourceInfo;
+  /** An account's Usage, Watch for and trend, over all its meters or those `keep` passes. */
+  plan: (a: AccountView, keep?: (u: Usage) => boolean) => PlanInfo;
   labels: LabelsDoc;
   labelsOf: (r: Resource) => string[];
   prefs: Prefs;
@@ -405,6 +418,40 @@ export function useModel(): Model {
       resource: Object.fromEntries(resources.map((r) => [r.id, r])),
       usage,
       info,
+      plan: (a, keep = () => true) => {
+        const us = usage.filter((u) => u.a.id === a.id && keep(u));
+        const all = worth.get(a.id) || 1;
+        let share = 0;
+        let now = 0;
+        let prev = 0;
+        let watch: Usage | null = null;
+        for (const u of us) {
+          const p = listPrice(u);
+          share += (u.payg ? u.used * p : u.pct * worthOf(u)) / all;
+          now += u.days.slice(-7).reduce((q, y) => q + y, 0) * p;
+          prev += u.days.slice(-14, -7).reduce((q, y) => q + y, 0) * p;
+          if (!u.payg && (!watch || u.pct > watch.pct)) watch = u;
+        }
+        // Month to date per day: counts summed from the 1st, sizes at that day's level.
+        const dates = loaded[0]?.dates ?? [];
+        const first = dates.findIndex((d) => d.endsWith('-01'));
+        const days = dates.map((_, i) => {
+          if (first < 0 || i < first) return null;
+          let v = 0;
+          for (const u of us) {
+            const p = listPrice(u);
+            const n = u.days.length - dates.length + i;
+            v +=
+              u.m.kind === 'gauge'
+                ? (u.days[n] ?? 0) * p
+                : u.days
+                    .slice(Math.max(0, u.days.length - dates.length + first), n + 1)
+                    .reduce((q, y) => q + y, 0) * p;
+          }
+          return v / all;
+        });
+        return { share, watch, trend: prev > 0 ? now / prev - 1 : null, days };
+      },
       labels: doc,
       labelsOf: (r) => (doc.assign[r.id] ?? []).filter((n) => known.has(n)),
       prefs: prefs.data ?? { warn: 75, plans: {} },

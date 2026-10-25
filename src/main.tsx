@@ -25,10 +25,10 @@ import { z } from 'zod';
 import { CATEGORIES, type CategoryId, PRODUCTS, type ProductId } from '../shared/catalog';
 import { api } from './api';
 import { LabelForm, registerLabelSaver } from './labels';
+import { planText } from './meters';
 import {
   labelColor,
   type Model,
-  pctText,
   SEVERITY,
   skipCacheOnce,
   useModel,
@@ -104,7 +104,6 @@ function AccountNav({ m }: { m: Model }) {
     <>
       {m.accounts.map((a) => {
         const us = m.usage.filter((u) => u.a.id === a.id);
-        const w = [...us].sort((p, q) => SEVERITY[q.st] - SEVERITY[p.st] || q.fpct - p.fpct)[0];
         const rs = m.resources.filter((r) => r.acct === a.id && !r.total);
         const labels = m.labels.labels.filter((l) => rs.some((r) => m.labelsOf(r).includes(l.name)));
         const items: SectionItem[] = [
@@ -135,7 +134,11 @@ function AccountNav({ m }: { m: Model }) {
           },
         ];
         return (
-          <SidebarSection key={a.id} label={`${a.name}${w ? ` · ${pctText(w.fpct)}` : ''}`} items={items}>
+          <SidebarSection
+            key={a.id}
+            label={`${a.name}${us.length ? ` · ${planText(m.plan(a).share)}` : ''}`}
+            items={items}
+          >
             <LabelForm m={m}>
               <button
                 type="button"
