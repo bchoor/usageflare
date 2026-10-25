@@ -362,8 +362,17 @@ export function useModel(): Model {
 
 // ---------- Formatting ----------
 
+/** The unit a storage amount in GB reads best in: 2.4 MB, never 0.00 GB. */
+export const gbUnit = (v: number): [string, number] =>
+  v >= 1 || v === 0 ? ['GB', 1] : v >= 1e-3 ? ['MB', 1e-3] : v >= 1e-6 ? ['KB', 1e-6] : ['B', 1e-9];
+
 export function fmt(v: number, unit = ''): string {
-  if (unit === 'GB') return `${v < 10 ? v.toFixed(2) : v.toFixed(1)} GB`;
+  if (unit === 'GB') {
+    const [u, f] = gbUnit(Math.abs(v));
+    const x = v / f;
+    const a = Math.abs(x);
+    return `${a === 0 ? '0' : a < 10 ? +x.toFixed(2) : a < 100 ? +x.toFixed(1) : Math.round(x)} ${u}`;
+  }
   if (unit === 'min') return `${Math.round(v).toLocaleString('en-US')} min`;
   const a = Math.abs(v);
   let s: string;
@@ -393,6 +402,9 @@ export function costNote(u: Usage): string {
   return `(${what} − ${fmt(u.limit, u.m.unit)} included) = ${fmt(over, u.m.unit)} × ${priceText(u)} = ${usd(u.fcost)} for the account`;
 }
 export const perText = (u: Usage) => (u.per === 'day' ? '/day' : u.m.kind === 'gauge' ? '' : '/mo');
+/** A meter's bar: coloured only from Watch up, quiet grey while there is room. */
+export const barColor = (st: Status) =>
+  st === 'ok' ? 'color-mix(in oklab, var(--muted-foreground) 55%, transparent)' : sevColor(st);
 export const sevColor = (st: Status) =>
   st === 'block' || st === 'over'
     ? 'var(--loss)'

@@ -7,7 +7,7 @@ import { ShareMeter } from '@columenlabs/lumen-ui';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@columenlabs/lumen-ui/ui/hover-card';
 import type { ReactNode } from 'react';
 import { FAMILY, METRICS, type Metric, PRODUCT, type Resource } from '../shared/catalog';
-import { costNote, fmt, type Model, pctText, sevColor, shareOf, type Usage, usd } from './model';
+import { barColor, costNote, fmt, type Model, pctText, shareOf, type Usage, usd } from './model';
 import { ProductIcon } from './products';
 
 export interface MeterRow {
@@ -34,7 +34,7 @@ export function metersOf(model: Model, r: Resource): MeterRow[] {
   return rows;
 }
 
-const tone = (share: number) => (share >= 1 ? 'over' : share >= 0.5 ? 'watch' : 'ok');
+const tone = (share: number) => (share >= 1 ? 'over' : share >= 0.75 ? 'watch' : 'ok');
 
 /** The metric's name in a chip tinted by its family (Reads, Writes, Stored...). */
 export function MetricChip({ m }: { m: Metric }) {
@@ -58,7 +58,7 @@ export function MetricChip({ m }: { m: Metric }) {
 export function ShareBar({ row }: { row: MeterRow }) {
   if (row.m.noApi) return <span className="text-muted-foreground text-xs">No usage API</span>;
   if (row.u?.payg) return <span className="text-muted-foreground text-xs">Pay as you go</span>;
-  return <ShareMeter value={row.share} label={pctText(row.share)} color={sevColor(tone(row.share))} />;
+  return <ShareMeter value={row.share} label={pctText(row.share)} color={barColor(tone(row.share))} />;
 }
 
 /** Hover or focus `children` to see every meter of `r`; `hl` marks the one the cell shows. */
