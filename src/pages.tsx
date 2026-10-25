@@ -24,7 +24,7 @@ import {
   useShell,
 } from '@columenlabs/lumen-ui';
 import { Button } from '@columenlabs/lumen-ui/ui/button';
-import type { CustomViewConfig } from '@columenlabs/lumen-ui-types/views';
+import { type CustomViewConfig, domainTiles, type ViewCard } from '@columenlabs/lumen-ui-types/views';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import {
@@ -78,6 +78,19 @@ type PageId =
   | 'resources-all'
   | `resources-${CategoryId}`;
 
+/**
+ * A page's numbers live in a Row of numbers card of built-in tiles (`usageTile`). A layout saved
+ * before that had no tiles: it gets the default ones and the card on top, once. Once saved, its
+ * `tiles` are set, so a card the person removes stays removed.
+ */
+function withNumbers(c: CustomViewConfig, fallback: CustomViewConfig): CustomViewConfig {
+  if (c.tiles?.length || !fallback.tiles?.length || !c.cards) return c;
+  const ids = new Set(c.cards.map((x) => x.id));
+  const id = ['tiles', 'numbers', 'numbers_1', 'numbers_2'].find((x) => !ids.has(x));
+  if (!id) return { ...c, tiles: fallback.tiles };
+  return { ...c, tiles: fallback.tiles, cards: [{ ...NUMBERS, id, x: 0, y: 0 }, ...c.cards] };
+}
+
 function useSavedView(page: PageId, fallback: CustomViewConfig) {
   const qc = useQueryClient();
   const saved = useQuery({
@@ -98,7 +111,7 @@ function useSavedView(page: PageId, fallback: CustomViewConfig) {
     onSuccess: () => qc.setQueryData(['view', page], { config: null }),
   });
   return {
-    config: saved.data?.config ?? fallback,
+    config: saved.data?.config ? withNumbers(saved.data.config, fallback) : fallback,
     onConfigChange: (c: CustomViewConfig) => save.mutate(c),
     onReset: saved.data?.config ? () => reset.mutate() : undefined,
   };
@@ -222,6 +235,116 @@ function pageCard(
 const pageCardConfig = (ids: [string, number][]) =>
   ids.map(([id, w]) => ({ id, kind: 'page' as const, w, title: null, filter: [] }));
 
+/** The Row of numbers on top of a page: the view's own tiles, header off. */
+const NUMBERS: ViewCard = { id: 'tiles', kind: 'metric', style: 'row', title: null, w: 6, filter: [] };
+
+/**
+ * Draws a built-in tile over the rows its Row of numbers shows, so a card narrowed to one product
+ * or account reads only those. An account's $5 base counts only while every meter of it is shown.
+ */
+function usageTile(m: Model) {
+  return (key: string, rows: Usage[]): ReactNode => {
+    const shown = new Set(rows);
+    const as = m.accounts.filter((a) => rows.some((u) => u.a.id === a.id));
+    const whole = (a: AccountView) => m.usage.every((u) => u.a.id !== a.id || shown.has(u));
+    const based = as.filter((a) => a.plan === 'paid' && whole(a));
+    const one = as.length === 1 ? as[0] : undefined;
+    const base = based.length * 5;
+    switch (key) {
+      case 'bill': {
+        const mtd =
+          based.reduce((s, a) => s + (5 * a.day) / a.monthDays, 0) + rows.reduce((s, u) => s + u.cost, 0);
+        return (
+          <Tile
+            label="Bill so far"
+            value={usd(mtd)}
+            caption={
+              !one
+                ? `${as.length} accounts · ${monthStart()} – today`
+                : one.plan === 'paid'
+                  ? `${monthStart()} – today, est.`
+                  : 'No charges'
+            }
+          />
+        );
+      }
+      case 'forecast': {
+        const fc = base + rows.reduce((s, u) => s + u.fcost, 0);
+        return (
+          <Tile
+            label="Forecast"
+            value={usd(fc)}
+            caption={
+              base
+                ? `${usd(fc - base)} over the ${usd(base)} base`
+                : as.some((a) => a.plan === 'paid')
+                  ? 'Beyond the base'
+                  : 'Free plans only'
+            }
+            valueClassName={fc > base + 0.5 ? 'text-warning' : undefined}
+          />
+        );
+      }
+      case 'watch': {
+        const watching = rows.filter((u) => !u.payg && meterLevel(u.pct) !== 'ok');
+        const alerts = watching.filter((u) => meterLevel(u.pct) === 'alert');
+        return (
+          <Tile
+            label="Watch for"
+            value={watching.length}
+            caption={`${alerts.length} at ${Math.round(KIT.meterLevels.alert * 100)}% or more`}
+            valueClassName={alerts.length ? 'text-loss' : watching.length ? 'text-warning' : undefined}
+          />
+        );
+      }
+      case 'resources': {
+        const products = new Set(rows.map((u) => u.m.product));
+        const n = m.resources.filter(
+          (r) => !r.total && products.has(r.product) && as.some((a) => a.id === r.acct),
+        ).length;
+        return <Tile label="Resources" value={n} caption={`${m.labels.labels.length} labels`} />;
+      }
+      case 'plan': {
+        if (one)
+          return (
+            <Tile
+              label="Plan"
+              value={one.plan === 'paid' ? 'Workers Paid' : 'Free'}
+              caption={one.plan === 'paid' ? '$5.00/mo base' : 'Hard daily limits'}
+            />
+          );
+        const paid = as.filter((a) => a.plan === 'paid').length;
+        return <Tile label="Plan" value={`${paid} paid`} caption={`${as.length - paid} on Free`} />;
+      }
+      case 'usage': {
+        const ps = as.map((a) => ({ a, p: m.plan(a, (u) => shown.has(u)) }));
+        const top = ps.reduce<(typeof ps)[number] | undefined>(
+          (b, x) => (!b || x.p.share > b.p.share ? x : b),
+          undefined,
+        );
+        if (!top) return <Tile label="Usage" value="—" caption="No meters" />;
+        const w = top.p.watch;
+        return (
+          <Tile
+            label="Usage"
+            value={planText(top.p.share)}
+            caption={
+              !one
+                ? `Highest: ${top.a.name}`
+                : w
+                  ? `Watch for ${PRODUCT[w.m.product].label} ${w.m.label}`
+                  : 'of the allotment'
+            }
+            spark={top.p.days.filter((v): v is number => v !== null)}
+          />
+        );
+      }
+      default:
+        return null;
+    }
+  };
+}
+
 // ---------- Needs attention ----------
 
 // ---------- Usage chart (metric picker, bars) ----------
@@ -231,12 +354,16 @@ const pageCardConfig = (ids: [string, number][]) =>
 const OVERVIEW = view({
   name: 'Overview',
   columns: ['account', 'product', 'metric', 'used', 'pct', 'fpct', 'cost', 'status'],
-  cards: pageCardConfig([
-    ['accounts', 6],
-    ['watch', 3],
-    ['usage', 3],
-    ['top', 6],
-  ]),
+  tiles: domainTiles('bill', 'forecast', 'watch', 'resources'),
+  cards: [
+    NUMBERS,
+    ...pageCardConfig([
+      ['accounts', 6],
+      ['watch', 3],
+      ['usage', 3],
+      ['top', 6],
+    ]),
+  ],
 } as Partial<CustomViewConfig> & { name: string });
 
 /** A share's text colour on the kit's meter levels: none while there is room. */
@@ -378,13 +505,7 @@ export function OverviewPage() {
   if (!m.accounts.length) return <Waiting m={m} crumbs={[{ label: 'Overview' }]} />;
   const as = m.accounts;
   const xs = m.usage;
-  const paid = as.filter((a) => a.plan === 'paid');
-  const mtd = as.reduce((s, a) => s + accountBill(m, a).mtd, 0);
-  const fc = as.reduce((s, a) => s + accountBill(m, a).fc, 0);
-  const base = paid.length * 5;
   const day = as[0]?.day ?? 1;
-  const watching = xs.filter((u) => !u.payg && meterLevel(u.pct) !== 'ok');
-  const alerts = watching.filter((u) => meterLevel(u.pct) === 'alert');
   const resources = m.resources.filter((r) => !r.total);
   const cards: LumenLayoutCard[] = [
     pageCard(
@@ -472,35 +593,12 @@ export function OverviewPage() {
     <LumenLayout
       crumbs={[{ label: 'Overview' }]}
       meta={`Billing period ${monthStart()} – ${monthEnd()} · day ${day} of ${as[0]?.monthDays ?? 30}`}
-      intro={
-        <div className="flex flex-col gap-3">
-          <Problems m={m} />
-          <TileRow fill aria-label="Totals">
-            <Tile
-              label="Bill so far"
-              value={usd(mtd)}
-              caption={`${as.length} account${as.length === 1 ? '' : 's'} · ${monthStart()} – today`}
-            />
-            <Tile
-              label="Forecast"
-              value={usd(fc)}
-              caption={base ? `${usd(fc - base)} over the ${usd(base)} base` : 'Free plans only'}
-              valueClassName={fc > base + 0.5 ? 'text-warning' : undefined}
-            />
-            <Tile
-              label="Watch for"
-              value={watching.length}
-              caption={`${alerts.length} at ${Math.round(KIT.meterLevels.alert * 100)}% or more`}
-              valueClassName={alerts.length ? 'text-loss' : watching.length ? 'text-warning' : undefined}
-            />
-            <Tile label="Resources" value={resources.length} caption={`${m.labels.labels.length} labels`} />
-          </TileRow>
-        </div>
-      }
+      intro={<Problems m={m} />}
       domain={domain}
       rows={xs}
       load={m.load}
       cards={cards}
+      tile={usageTile(m)}
       rowTitle={(u) => `${u.a.name} · ${PRODUCT[u.m.product].label} ${u.m.label}`}
       {...saved}
     />
@@ -569,6 +667,7 @@ export function LimitsPage() {
       domain={domain}
       rows={xs}
       load={m.load}
+      tile={usageTile(m)}
       rowTitle={(u) => `${u.a.name} · ${PRODUCT[u.m.product].label} ${u.m.label}`}
       {...saved}
     />
@@ -580,11 +679,15 @@ export function LimitsPage() {
 const ACCOUNT = view({
   name: 'Account',
   columns: ['product', 'metric', 'used', 'allowance', 'pct', 'fpct', 'cost', 'status'],
-  cards: pageCardConfig([
-    ['watch', 6],
-    ['usage', 3],
-    ['top', 3],
-  ]),
+  tiles: domainTiles('plan', 'bill', 'forecast', 'usage'),
+  cards: [
+    NUMBERS,
+    ...pageCardConfig([
+      ['watch', 6],
+      ['usage', 3],
+      ['top', 3],
+    ]),
+  ],
 } as Partial<CustomViewConfig> & { name: string });
 
 export function AccountPage({ acct, cat }: { acct: string; cat?: CategoryId }) {
@@ -600,7 +703,6 @@ export function AccountPage({ acct, cat }: { acct: string; cat?: CategoryId }) {
   const inCat = (u: Usage) => tab === 'all' || PRODUCT[u.m.product].cat === tab;
   const inTab = xs.filter(inCat);
   const rs = m.resources.filter((r) => r.acct === acct && (tab === 'all' || PRODUCT[r.product].cat === tab));
-  const b = accountBill(m, a);
   const p = m.plan(a);
   const cats = CATEGORIES.filter((c) => xs.some((u) => PRODUCT[u.m.product].cat === c.id));
   const watching = inTab.filter((u) => !u.payg && meterLevel(u.pct) !== 'ok').length;
@@ -668,34 +770,6 @@ export function AccountPage({ acct, cat }: { acct: string; cat?: CategoryId }) {
       intro={
         <div className="flex flex-col gap-3">
           <Problems m={m} acct={acct} />
-          <TileRow fill aria-label="Account">
-            <Tile
-              label="Plan"
-              value={a.plan === 'paid' ? 'Workers Paid' : 'Free'}
-              caption={a.plan === 'paid' ? '$5.00/mo base' : 'Hard daily limits'}
-            />
-            <Tile
-              label="Bill so far"
-              value={usd(b.mtd)}
-              caption={a.plan === 'paid' ? `${monthStart()} – today, est.` : 'No charges'}
-            />
-            <Tile
-              label="Forecast"
-              value={usd(b.fc)}
-              caption={a.plan === 'paid' ? `${usd(b.fc - 5)} beyond base` : '—'}
-              valueClassName={b.fc > 5.5 ? 'text-warning' : undefined}
-            />
-            <Tile
-              label="Usage"
-              value={planText(p.share)}
-              caption={
-                p.watch
-                  ? `Watch for ${PRODUCT[p.watch.m.product].label} ${p.watch.m.label}`
-                  : 'of the allotment'
-              }
-              spark={p.days.filter((v): v is number => v !== null)}
-            />
-          </TileRow>
           <TileToggleGroup
             fill
             label="Category"
@@ -732,6 +806,7 @@ export function AccountPage({ acct, cat }: { acct: string; cat?: CategoryId }) {
       rows={inTab}
       load={m.load}
       cards={cards}
+      tile={usageTile(m)}
       rowTitle={(u) => `${PRODUCT[u.m.product].label} ${u.m.label}`}
       {...saved}
     />

@@ -794,6 +794,15 @@ export function limitDomain(m: Model): ViewDomain<Usage> {
         hideOnPhone: true,
       },
     ],
+    // Built-in cards for a Row of numbers, drawn by the page over the card's rows (`usageTile`).
+    tiles: [
+      { key: 'bill', label: 'Bill so far', icon: DollarSign },
+      { key: 'forecast', label: 'Forecast', icon: TrendingUp },
+      { key: 'watch', label: 'Watch for', icon: TriangleAlert },
+      { key: 'resources', label: 'Resources', icon: Server },
+      { key: 'plan', label: 'Plan', icon: Shield },
+      { key: 'usage', label: 'Usage', icon: Gauge },
+    ],
     details: [
       {
         id: 'who',
