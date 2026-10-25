@@ -26,7 +26,7 @@
   // Secret (wrangler secret put): SETTINGS_KEY, 32 random bytes in base64, the AES-GCM key.
   "env": {
     // The maintainers' own instance (usageflare.icaruslab.dev). Workers Builds builds it with
-    // CLOUDFLARE_ENV=production; everyone else deploys the defaults above.
+    // USAGEFLARE_ENV=production (vite.config.ts); everyone else deploys the defaults above.
     "production": {
       "name": "usageflare",
       "account_id": "87a4f50952b4b2ce00cab6c2680e63ae",
