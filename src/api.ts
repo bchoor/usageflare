@@ -11,9 +11,10 @@ export interface SecretInfo {
   test: KeyTestResult | null;
 }
 
+// apiJson sets the JSON content type itself; a second `Content-Type` here would join into
+// `application/json, application/json`, which the Worker's validator doesn't read as JSON.
 const json = (method: string, body?: unknown): RequestInit => ({
   method,
-  headers: { 'Content-Type': 'application/json' },
   body: body === undefined ? undefined : JSON.stringify(body),
 });
 

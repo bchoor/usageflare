@@ -1,5 +1,5 @@
 import { listReleases, RELEASES_HEADERS, type Release } from '@columenlabs/lumen-ship/releases';
-import { zValidator } from '@hono/zod-validator';
+import { zValidator as zv } from '@hono/zod-validator';
 import { Hono } from 'hono';
 import { secureHeaders } from 'hono/secure-headers';
 import { z } from 'zod';
@@ -7,6 +7,20 @@ import { requireAccess, sameOrigin } from './access';
 import changelog from './changelog.json';
 import type { AppEnv } from './env';
 import { deleteSecret, hasSecret, listSecrets, putSecret, testSecret } from './secrets';
+
+/** Validation failures answer `{error: string}`, the shape the client shows. */
+const zValidator = <T extends z.ZodType, Target extends 'json' | 'param' | 'query'>(
+  target: Target,
+  schema: T,
+) =>
+  zv(target, schema, (r, c) => {
+    if (!r.success) {
+      const issues = r.error.issues.map((i) =>
+        i.path.length ? `${i.path.join('.')}: ${i.message}` : i.message,
+      );
+      return c.json({ error: `Invalid request: ${issues.join('; ')}` }, 400);
+    }
+  });
 
 const name = z.object({ name: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/) });
 const secretBody = z.object({
