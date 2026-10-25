@@ -60,7 +60,9 @@ const SPECS: Record<string, Spec[]> = {
     ['r2', 'mailcellar-spike', { 'r2.stor': 0.4, 'r2.a': 900, 'r2.b': 2e3 }, { state: 'deleted' }, 13],
     ['d1', '86c1c9e9e1a54d0c9b0f3f6f4b7a2c11', { 'd1.read': 2e5, 'd1.write': 900 }, { state: 'deleted' }, 40],
     ['d1', 'mailcellar-db', { 'd1.read': 40e6, 'd1.write': 600e3, 'd1.stor': 2.1 }],
-    ['r2', 'backups', { 'r2.stor': 6.2, 'r2.a': 30e3, 'r2.b': 120e3 }, { type: 'Standard' }],
+    ['r2', 'backups', { 'r2.stor': 6.2, 'r2.a': 52e3, 'r2.b': 120e3 }, { type: 'Standard' }],
+    // A bucket with a handful of operations in an account whose Class A pool is over: no "At cap".
+    ['r2', 'agentic-inbox', { 'r2.stor': 1e-6, 'r2.a': 0.12 }, { type: 'Standard' }],
     [
       'r2',
       'backups-archive',

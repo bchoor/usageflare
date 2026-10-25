@@ -554,7 +554,7 @@ function TopResources({
             ),
             <UsageCell key="u" model={m} r={r} />,
             <WatchFor key="w" model={m} r={r} />,
-            <Trend7 key="t" t={m.info(r).trend} />,
+            <Trend7 key="t" change={m.info(r).change} unit={m.info(r).main?.u.m.unit} />,
           ],
         };
       })}
@@ -616,7 +616,7 @@ export function OverviewPage() {
               ) : (
                 '—'
               ),
-              <Trend7 key="t" t={p.trend} />,
+              <Trend7 key="t" change={p.change} />,
               <span key="b" className="num">
                 {usd(accountBill(m, a).fc)}
               </span>,
