@@ -58,13 +58,29 @@ async function read(env: Env, name: string) {
   return env.KV.get<StoredSecret>(PREFIX + name, 'json');
 }
 
+/**
+ * The secret names, kept in one key: KV `list()` can lag a write by up to a minute, so a token
+ * just added wouldn't show. Merged with `list()` so names saved before the index still appear.
+ */
+const INDEX = 'secrets:index';
+async function names(env: Env): Promise<string[]> {
+  const [index, { keys }] = await Promise.all([
+    env.KV.get<string[]>(INDEX, 'json'),
+    env.KV.list({ prefix: PREFIX }),
+  ]);
+  return [...new Set([...(index ?? []), ...keys.map((k) => k.name.slice(PREFIX.length))])];
+}
+async function setIndex(env: Env, edit: (names: Set<string>) => void) {
+  const set = new Set((await env.KV.get<string[]>(INDEX, 'json')) ?? []);
+  edit(set);
+  await env.KV.put(INDEX, JSON.stringify([...set]));
+}
+
 export async function listSecrets(env: Env): Promise<SecretInfo[]> {
-  const { keys } = await env.KV.list({ prefix: PREFIX });
   const rows = await Promise.all(
-    keys.map(async (k) => {
-      const name = k.name.slice(PREFIX.length);
+    (await names(env)).map(async (name) => {
       const [s, test] = await Promise.all([
-        env.KV.get<StoredSecret>(k.name, 'json'),
+        env.KV.get<StoredSecret>(PREFIX + name, 'json'),
         env.KV.get<KeyTest>(TEST + name, 'json'),
       ]);
       return s ? info(name, s, test) : null;
@@ -96,12 +112,14 @@ export async function putSecret(
     updatedBy: by,
   };
   await env.KV.put(PREFIX + name, JSON.stringify(stored));
+  await setIndex(env, (n) => n.add(name));
   await env.KV.delete(TEST + name);
   return info(name, stored, null);
 }
 
 export async function deleteSecret(env: Env, name: string) {
   await Promise.all([env.KV.delete(PREFIX + name), env.KV.delete(TEST + name)]);
+  await setIndex(env, (n) => n.delete(name));
 }
 
 export async function hasSecret(env: Env, name: string) {
