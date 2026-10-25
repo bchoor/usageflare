@@ -5,6 +5,7 @@
  */
 import { METER_LEVEL_COLOR, meterLevel, ShareMeter } from '@columenlabs/lumen-ui';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@columenlabs/lumen-ui/ui/hover-card';
+import { CircleDashed, CircleSlash } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { FAMILY, METRICS, type Metric, PRODUCT, type Resource } from '../shared/catalog';
 import { fmt, type Model, partNote, partShare, pctText, shareOf, type Usage, usd } from './model';
@@ -130,11 +131,51 @@ export function MetersCard({
 }
 
 /** The resource's details on hover: account, product, type, routes and what it is. */
+/** Live resources have no status word; the filter and Status column read `Live`. */
+export const stateLabel = (r: Resource) =>
+  r.state === 'deleted' ? 'Deleted' : r.state === 'unbound' ? 'Unbound' : 'Live';
+
+const shortDay = (d: string) =>
+  new Date(`${d}T00:00:00Z`).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+
+/** What a status means for this resource, for its hover card and drawer. */
+export function stateNote(r: Resource): string | null {
+  if (r.state === 'deleted')
+    return `Gone from Cloudflare. Last seen ${r.lastSeen ? shortDay(r.lastSeen) : 'before this app remembered it'}; its usage still counts this month.`;
+  if (r.state === 'unbound') return 'No Worker binds it (Pages projects aren’t checked).';
+  return null;
+}
+
+/** A small chip after the name: Deleted (with its last-seen day) or Unbound; just the icon on a phone. */
+export function StateChip({ r }: { r: Resource }) {
+  if (!r.state) return null;
+  const Icon = r.state === 'deleted' ? CircleSlash : CircleDashed;
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 text-xs ${
+        r.state === 'deleted' ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground'
+      }`}
+    >
+      <Icon className="size-3" aria-label={stateLabel(r)} />
+      <span className="max-md:hidden">
+        {stateLabel(r)}
+        {r.state === 'deleted' && r.lastSeen ? ` · ${shortDay(r.lastSeen)}` : ''}
+      </span>
+    </span>
+  );
+}
+
 export function ResourceCard({ model, r, children }: { model: Model; r: Resource; children: ReactNode }) {
   const rows: [string, ReactNode][] = [
     ['Account', model.account[r.acct]?.name ?? r.acct],
     ['Product', PRODUCT[r.product].label],
   ];
+  const note = stateNote(r);
+  if (note) rows.push([stateLabel(r), note]);
   if (r.type) rows.push(['Type', r.type]);
   if (r.detail) rows.push(['Detail', r.detail]);
   if (r.routes?.length) rows.push(['Routes', r.routes.join(', ')]);

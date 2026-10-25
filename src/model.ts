@@ -333,6 +333,8 @@ export interface Model {
   resource: Record<string, Resource>;
   usage: Usage[];
   info: (r: Resource) => ResourceInfo;
+  /** Deleted with no usage this billing period: hidden unless the filter asks for deleted ones. */
+  archived: (r: Resource) => boolean;
   /** An account's Usage, Watch for and trend, over all its meters or those `keep` passes. */
   plan: (a: AccountView, keep?: (u: Usage) => boolean) => PlanInfo;
   labels: LabelsDoc;
@@ -433,6 +435,15 @@ export function useModel(): Model {
       resource: Object.fromEntries(resources.map((r) => [r.id, r])),
       usage,
       info,
+      archived: (r) => {
+        if (r.state !== 'deleted') return false;
+        const dates = loaded[0]?.dates ?? [];
+        const first = Math.max(
+          0,
+          dates.findIndex((d) => d.endsWith('-01')),
+        );
+        return !Object.values(r.series).some((s) => s.slice(first).some((v) => v > 0));
+      },
       plan: (a, keep = () => true) => {
         const us = usage.filter((u) => u.a.id === a.id && keep(u));
         const all = worth.get(a.id) || 1;

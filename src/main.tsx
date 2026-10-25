@@ -113,7 +113,7 @@ function AccountNav({ m }: { m: Model }) {
             title: 'Resources',
             to: `/a/${a.id}/resources`,
             icon: Rows3,
-            badge: rs.length,
+            badge: rs.filter((r) => !m.archived(r)).length,
             fixed: true,
           },
           {
@@ -301,7 +301,7 @@ function Shell() {
                 title: 'All resources',
                 to: '/resources',
                 icon: Rows3,
-                badge: m.resources.filter((r) => !r.total).length || undefined,
+                badge: m.resources.filter((r) => !r.total && !m.archived(r)).length || undefined,
               },
             ]}
           />

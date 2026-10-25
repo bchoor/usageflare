@@ -31,7 +31,8 @@ function series(seed: number, base: number, days: number, gauge = false): number
   });
 }
 
-type Spec = [ProductId, string, Record<string, number>, Partial<Resource>?];
+/** The last item, for a deleted resource: how many days ago it was last seen. */
+type Spec = [ProductId, string, Record<string, number>, Partial<Resource>?, number?];
 
 /** Per account: product, name, daily base per metric (gauges are sizes), extras. */
 const SPECS: Record<string, Spec[]> = {
@@ -47,6 +48,9 @@ const SPECS: Record<string, Spec[]> = {
     ['workers', 'edgedesk-proxy', { 'workers.req': 45e3, 'workers.cpu': 120e3 }],
     ['kv', 'SESSIONS', { 'kv.read': 150e3, 'kv.write': 18e3, 'kv.stor': 0.4 }],
     ['kv', 'CONFIG', { 'kv.read': 30e3, 'kv.write': 40, 'kv.stor': 0.01 }],
+    ['kv', 'API_KEYS_PREVIEW', {}, { state: 'unbound' }],
+    ['r2', 'mailcellar-spike', { 'r2.stor': 0.4, 'r2.a': 900, 'r2.b': 2e3 }, { state: 'deleted' }, 13],
+    ['d1', '86c1c9e9e1a54d0c9b0f3f6f4b7a2c11', { 'd1.read': 2e5, 'd1.write': 900 }, { state: 'deleted' }, 40],
     ['d1', 'mailcellar-db', { 'd1.read': 40e6, 'd1.write': 600e3, 'd1.stor': 2.1 }],
     ['r2', 'backups', { 'r2.stor': 6.2, 'r2.a': 30e3, 'r2.b': 120e3 }, { type: 'Standard' }],
     [
@@ -122,16 +126,24 @@ export function fixtureUsage(accountId: string, dates: string[]) {
     syncedAt: new Date().toISOString(),
     missing: a.plan === 'free' ? ['R2 buckets'] : [],
   };
-  const resources: Resource[] = (SPECS[a.id] ?? []).map(([product, name, base, extra], i) => ({
-    id: `${a.id}:${product}:${name}`,
-    acct: a.id,
-    product,
-    name,
-    ...extra,
-    series: Object.fromEntries(
-      Object.entries(base).map(([k, v], j) => [k, series(i * 31 + j + 7, v, dates.length, GAUGES.has(k))]),
-    ),
-  }));
+  const resources: Resource[] = (SPECS[a.id] ?? []).map(([product, name, base, extra, ago], i) => {
+    // A deleted resource's days after it was last seen are empty; past the window, all of them.
+    const end = ago === undefined ? dates.length : Math.max(0, dates.length - ago);
+    return {
+      id: `${a.id}:${product}:${name}`,
+      acct: a.id,
+      product,
+      name,
+      ...extra,
+      ...(ago !== undefined && end > 0 ? { lastSeen: dates[end - 1] } : {}),
+      series: Object.fromEntries(
+        Object.entries(base).map(([k, v], j) => [
+          k,
+          series(i * 31 + j + 7, v, dates.length, GAUGES.has(k)).map((x, d) => (d < end ? x : 0)),
+        ]),
+      ),
+    };
+  });
   return { dates, account, resources, rateLimited: false };
 }
 
@@ -156,6 +168,7 @@ export const FIXTURE_LABELS: LabelsDoc = {
     'a1000000000000000000000000000001:workers:mailcellar-api': ['mailcellar'],
     'a1000000000000000000000000000001:d1:mailcellar-db': ['mailcellar'],
     'a1000000000000000000000000000001:queues:mail-out': ['mailcellar'],
+    'a1000000000000000000000000000001:r2:mailcellar-spike': ['mailcellar'],
     'a2000000000000000000000000000002:workers:p2e-staging': ['p2e'],
     'a2000000000000000000000000000002:d1:p2e-dev': ['p2e'],
     'a2000000000000000000000000000002:workers:ai-bots-dev': ['ai-bots'],

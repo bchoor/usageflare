@@ -551,6 +551,13 @@ export interface Resource {
   detail?: string;
   /** True for the account-wide row of a metric Cloudflare doesn't split by resource. */
   total?: boolean;
+  /**
+   * `deleted`: in analytics, labels or the Worker's memory, but gone from its product's list (only
+   * set when that list loaded). `unbound`: listed, but no Worker binds it. Left out: live.
+   */
+  state?: 'deleted' | 'unbound';
+  /** A deleted resource's last day in its list (or with usage), `YYYY-MM-DD`. */
+  lastSeen?: string;
   /** Daily values, `HISTORY_DAYS` long, per metric key. */
   series: Record<string, number[]>;
 }
