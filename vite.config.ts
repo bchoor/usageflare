@@ -5,4 +5,8 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), cloudflare()],
+  // Two pages: the public landing page at `/` and the app under /app.
+  environments: {
+    client: { build: { rollupOptions: { input: { landing: 'index.html', app: 'app/index.html' } } } },
+  },
 });

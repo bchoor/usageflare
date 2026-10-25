@@ -4,11 +4,12 @@ Cloudflare usage dashboard across one or more accounts, pairing usage and limits
 
 ## Stack
 
-One Cloudflare Worker (`wrangler.jsonc`), built with Vite and the Cloudflare Vite plugin. Hono serves `/api/*` (`worker/`) and the same Worker serves the React SPA (`src/`) as static assets.
+One Cloudflare Worker (`wrangler.jsonc`), built with Vite and the Cloudflare Vite plugin. Hono serves `/api/*` (`worker/`) and the same Worker serves two pages as static assets: the public landing page at `/` (`index.html`, media in `public/landing/`) and the React SPA under `/app` (`app/index.html`, `src/`). The Worker answers every `/app/*` path with the app shell and sends the old app paths (`/limits`, `/resources`, `/a/*`) to `/app`.
 
 | Binding | What |
 |---|---|
 | `KV` | The app's one KV namespace: settings and encrypted secrets |
+| `ASSETS` | Static assets: the landing page and the app shell |
 | `SETTINGS_KEY` (secret) | 32 random bytes, base64: the AES-GCM key for secrets in KV |
 | `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD` (vars) | Cloudflare Access team domain and audience tag; the Worker verifies the Access JWT on every `/api` call and answers 503 when they are empty (except on localhost) |
 
@@ -29,4 +30,4 @@ bun run lint && bun run type-check && bun run build
 
 ## Deploy
 
-Served at https://usageflare.icaruslab.dev (Worker custom domain, behind Cloudflare Access). Cloudflare Workers Builds deploys every push to `main` (build `bun run build`, deploy `bunx wrangler deploy`). CI (`.github/workflows/ci.yml`) runs lint, typecheck and build; there are no unit tests. Releases: `lumen-ship release` every 10 merges (`.github/workflows/release.yml`, secret `ANTHROPIC_API_KEY`, repo variable `RELEASE_ON_MERGE=true`).
+Served at https://usageflare.icaruslab.dev (Worker custom domain). The landing page at `/` is public; the Cloudflare Access application covers the paths `/app` and `/api` (both hosts), and the Worker still checks the Access JWT on every `/api` call. Cloudflare Workers Builds deploys every push to `main` (build `bun run build`, deploy `bunx wrangler deploy`). CI (`.github/workflows/ci.yml`) runs lint, typecheck and build; there are no unit tests. Releases: `lumen-ship release` every 10 merges (`.github/workflows/release.yml`, secret `ANTHROPIC_API_KEY`, repo variable `RELEASE_ON_MERGE=true`).

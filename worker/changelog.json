@@ -5,33 +5,23 @@
     "takeaways": [
       {
         "text": "**Usage dashboard on real Cloudflare data**: On the Overview page and under each account in the sidebar, you can now see bill so far, forecast, limits at risk and a resource breakdown for every account your tokens reach.",
-        "types": [
-          "feature"
-        ]
+        "types": ["feature"]
       },
       {
         "text": "**Bulk labels**: On any Resources page, select rows, groups or everything, then use **Labels…** in the floating bar to stage label changes, apply them in one go and undo from the toast.",
-        "types": [
-          "feature"
-        ]
+        "types": ["feature"]
       },
       {
         "text": "**Storage forecast in GB-months**: In the Forecast cost column on the Resources and Limits pages, storage is now billed on the month's average size, with the free allowance applied once per account, instead of an inflated month-end projection.",
-        "types": [
-          "improvement"
-        ]
+        "types": ["improvement"]
       },
       {
         "text": "**Saving a token works again**: In Settings ▸ Cloudflare API tokens, Save now stores the token, it appears in the list immediately, and any refusal shows a readable message instead of \"[object Object]\".",
-        "types": [
-          "fix"
-        ]
+        "types": ["fix"]
       },
       {
         "text": "**Encrypted tokens behind Access**: In Settings ▸ Cloudflare API tokens, you can add, replace, test and delete tokens that are stored encrypted and only ever shown as their last four characters.",
-        "types": [
-          "security"
-        ]
+        "types": ["security"]
       }
     ]
   }

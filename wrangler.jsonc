@@ -5,13 +5,17 @@
   "main": "worker/index.ts",
   "compatibility_date": "2026-10-01",
   "observability": { "enabled": true },
+  // `/` is the public landing page (index.html); the app lives under /app (app/index.html). The Worker
+  // answers /app/* with the app shell and sends the old app paths there.
   "assets": {
-    "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
+    "binding": "ASSETS",
+    "not_found_handling": "none",
+    "run_worker_first": ["/api/*", "/app", "/app/*", "/limits", "/resources", "/a/*"]
   },
   // One namespace for the app: plain settings and encrypted secrets (worker/secrets.ts).
   "kv_namespaces": [{ "binding": "KV", "id": "a9e1e84a14b747df95bb156af22ff56c" }],
-  // Cloudflare Access in front of the app; the Worker checks its JWT on every /api call.
+  // Cloudflare Access in front of /app and /api (the landing page at / is public); the Worker checks
+  // its JWT on every /api call.
   "vars": {
     "ACCESS_TEAM_DOMAIN": "bchoor.cloudflareaccess.com",
     "ACCESS_AUD": "38820bd8ab529917744d23b83818c66fdbd3538d3ac547578ce4286f8811aff2"

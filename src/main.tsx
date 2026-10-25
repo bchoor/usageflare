@@ -362,7 +362,8 @@ const routes = [
 ] as const;
 const [, , resourcesRoute, accountRoute, accountResourcesRoute] = routes;
 
-const router = createRouter({ routeTree: root.addChildren([...routes]) });
+// The public landing page owns `/`; the app is served under /app (wrangler.jsonc).
+const router = createRouter({ routeTree: root.addChildren([...routes]), basepath: '/app' });
 
 declare module '@tanstack/react-router' {
   interface Register {

@@ -2,14 +2,496 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>usageflare</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>usageflare · Usage and limits for every Cloudflare account</title>
+    <meta name="description" content="Usage and limits for every Cloudflare account, in one place. See what's blocked, what's already billing, and what's about to run out, before it happens." />
+    <meta property="og:title" content="usageflare" />
+    <meta property="og:description" content="Every account. Every limit. One gauge." />
+    <meta property="og:image" content="/landing/demo.jpg" />
+    <meta name="theme-color" content="#0d0c0b" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" />
+<style>
+/* Layout: one product, read like an instrument panel. Hero states the thesis next to the live overview;
+   three questions follow, each answered by a real screen recording; then coverage, setup, full demo. */
+:root {
+  --bg: #0d0c0b;
+  --bg-2: #151311;
+  --panel: #1b1916;
+  --line: #2a2622;
+  --fg: #f3efe9;
+  --muted: #a39b91;
+  --dim: #6f675e;
+  --accent: #f38020;
+  --accent-ink: #1a0f05;
+  --accent-soft: rgba(243,128,32,.14);
+  --glow: rgba(243,128,32,.22);
+  --s-block: #f0506e;
+  --s-over: #e8486a;
+  --s-exceed: #e3a72f;
+  --s-watch: #c9b48a;
+  --s-ok: #3fb68b;
+  --shadow: 0 30px 80px -30px rgba(0,0,0,.8);
+  --display: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --body: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #faf8f5; --bg-2: #f2eee8; --panel: #ffffff; --line: #e4ddd3;
+    --fg: #1c1712; --muted: #6a6056; --dim: #9a9086;
+    --accent: #e0700f; --accent-ink: #1a0f05; --accent-soft: rgba(224,112,15,.10); --glow: rgba(243,128,32,.16);
+    --s-block: #d23a5a; --s-over: #c9365a; --s-exceed: #b57d0c; --s-watch: #8a7550; --s-ok: #1f8f68;
+    --shadow: 0 30px 70px -35px rgba(60,35,10,.35);
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #faf8f5; --bg-2: #f2eee8; --panel: #ffffff; --line: #e4ddd3;
+  --fg: #1c1712; --muted: #6a6056; --dim: #9a9086;
+  --accent: #e0700f; --accent-ink: #1a0f05; --accent-soft: rgba(224,112,15,.10); --glow: rgba(243,128,32,.16);
+  --s-block: #d23a5a; --s-over: #c9365a; --s-exceed: #b57d0c; --s-watch: #8a7550; --s-ok: #1f8f68;
+  --shadow: 0 30px 70px -35px rgba(60,35,10,.35);
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { padding-top: env(safe-area-inset-top, 0px); }
+img { max-width: 100%; }
+body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-left: max(20px, env(safe-area-inset-left, 0px)); padding-right: max(20px, env(safe-area-inset-right, 0px)); }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; letter-spacing: -0.02em; }
+p { margin: 0; }
+
+/* Nav */
+.nav { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
+.nav .wrap { display: flex; align-items: center; gap: 24px; height: 60px; }
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 700; font-size: 19px; letter-spacing: -0.02em; }
+.brand svg { width: 30px; height: 30px; flex: none; }
+.brand b { color: var(--accent); font-weight: 700; }
+.nav nav { display: flex; gap: 22px; margin-left: auto; font-size: 14px; color: var(--muted); }
+.nav nav a { text-decoration: none; }
+.nav nav a:hover { color: var(--fg); }
+.btn { display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 20px; border-radius: 10px; font-weight: 700; font-size: 15px; text-decoration: none; border: 1px solid transparent; cursor: pointer; font-family: var(--body); transition: transform .15s ease, background .15s ease; }
+.btn:hover { transform: translateY(-1px); }
+.btn-primary { background: var(--accent); color: var(--accent-ink); }
+.btn-ghost { border-color: var(--line); color: var(--fg); background: var(--panel); }
+.btn-sm { height: 36px; padding: 0 14px; font-size: 14px; }
+@media (max-width: 720px) { .nav nav { display: none; } .nav .btn-sm { margin-left: auto; } }
+
+/* Hero */
+.hero { position: relative; overflow: hidden; padding-block: 72px 40px; }
+.hero::before { content: ""; position: absolute; width: 900px; height: 700px; left: -300px; top: -260px; background: radial-gradient(closest-side, var(--glow), transparent); pointer-events: none; }
+.hero .wrap { position: relative; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 56px; align-items: center; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 10px; }
+.eyebrow::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--s-ok); box-shadow: 0 0 0 4px color-mix(in srgb, var(--s-ok) 20%, transparent); }
+.hero h1 { font-size: clamp(40px, 5.6vw, 68px); line-height: 1.02; font-weight: 800; margin-top: 18px; }
+.hero h1 em { font-style: normal; color: var(--accent); }
+.hero .lede { margin-top: 22px; font-size: 18px; color: var(--muted); max-width: 34ch; }
+.cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+.fine { margin-top: 18px; font-size: 13px; color: var(--dim); }
+
+.screen { position: relative; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); background: #0f0e0d; box-shadow: var(--shadow); aspect-ratio: 16 / 10; max-width: 100%; }
+.screen video, .screen img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.hero .screen { transform: perspective(1800px) rotateY(-7deg) rotateX(2deg); transform-origin: left center; }
+@media (prefers-reduced-motion: reduce) { .hero .screen { transform: none; } }
+
+/* Gauge readout floating on hero */
+.readout { position: absolute; left: -28px; bottom: -22px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; display: flex; gap: 14px; align-items: center; box-shadow: var(--shadow); min-width: 0; max-width: 300px; }
+.readout svg { width: 64px; height: 64px; flex: none; }
+.readout .k { font-size: 13px; font-weight: 600; }
+.readout .v { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
+.pill { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11.5px; padding: 2px 8px; border-radius: 6px; font-weight: 500; margin-top: 4px; white-space: nowrap; }
+.pill::before { content: ""; width: 3px; height: 10px; border-radius: 2px; background: currentColor; }
+.p-block { color: var(--s-block); background: color-mix(in srgb, var(--s-block) 15%, transparent); }
+.p-over { color: var(--s-over); background: color-mix(in srgb, var(--s-over) 15%, transparent); }
+.p-exceed { color: var(--s-exceed); background: color-mix(in srgb, var(--s-exceed) 16%, transparent); }
+.p-watch { color: var(--s-watch); background: color-mix(in srgb, var(--s-watch) 16%, transparent); }
+.p-ok { color: var(--s-ok); background: color-mix(in srgb, var(--s-ok) 15%, transparent); }
+
+@media (max-width: 900px) {
+  .hero { padding-block: 44px 56px; }
+  .hero .wrap { grid-template-columns: minmax(0, 1fr); gap: 40px; }
+  .hero .screen { transform: none; }
+  .readout { left: 12px; bottom: -28px; }
+}
+
+/* Status scale */
+.scale { border-block: 1px solid var(--line); background: var(--bg-2); }
+.scale .wrap { display: grid; grid-template-columns: auto repeat(5, minmax(0, 1fr)); gap: 0; padding-block: 0; }
+.scale .lbl { font-family: var(--mono); font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: .08em; padding: 22px 24px 22px 0; align-self: center; }
+.scale .st { padding: 20px 18px; border-left: 1px solid var(--line); min-width: 0; }
+.scale .st .pill { margin: 0; }
+.scale .st p { font-size: 13px; color: var(--muted); margin-top: 8px; line-height: 1.45; }
+@media (max-width: 900px) {
+  .scale .wrap { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .scale .lbl { grid-column: 1 / -1; padding: 18px 0 4px; }
+  .scale .st { border-left: 0; border-top: 1px solid var(--line); padding: 16px 12px 16px 0; }
+}
+
+/* Sections */
+section.band { padding-block: 96px; }
+.sec-head { max-width: 640px; margin-bottom: 48px; }
+.sec-head .kicker { font-family: var(--mono); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); }
+.sec-head h2 { font-size: clamp(30px, 3.6vw, 44px); line-height: 1.08; font-weight: 800; margin-top: 12px; }
+.sec-head p { color: var(--muted); font-size: 17px; margin-top: 14px; }
+
+.q { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: 56px; align-items: center; }
+.q + .q { margin-top: 112px; }
+.q.flip { grid-template-columns: minmax(0, 7fr) minmax(0, 4fr); }
+.q.flip .q-text { order: 2; }
+.q-text .qn { font-family: var(--mono); font-size: 12px; color: var(--dim); letter-spacing: .06em; }
+.q-text h3 { font-size: clamp(26px, 2.8vw, 34px); line-height: 1.12; font-weight: 800; margin-top: 10px; }
+.q-text > p { color: var(--muted); margin-top: 14px; font-size: 16.5px; }
+.q-text ul { list-style: none; padding: 0; margin: 22px 0 0; display: grid; gap: 10px; }
+.q-text li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 10px; font-size: 15px; }
+.q-text li svg { width: 18px; height: 18px; margin-top: 3px; color: var(--accent); }
+.tabs { display: flex; gap: 6px; margin-top: 26px; flex-wrap: wrap; }
+.tab { font-family: var(--mono); font-size: 12.5px; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer; }
+.tab[aria-selected="true"] { background: var(--accent-soft); color: var(--fg); border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
+.cap { font-family: var(--mono); font-size: 12px; color: var(--dim); margin-top: 12px; }
+@media (max-width: 900px) {
+  section.band { padding-block: 64px; }
+  .q, .q.flip { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+  .q.flip .q-text { order: 0; }
+  .q + .q { margin-top: 72px; }
+}
+
+/* Coverage table */
+.cov { background: var(--bg-2); border-block: 1px solid var(--line); }
+.tbl-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 640px; }
+th, td { text-align: left; padding: 11px 16px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font-size: 12px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; font-family: var(--mono); }
+tr:last-child td { border-bottom: 0; }
+td.prod { font-weight: 600; }
+td.prod i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 10px; vertical-align: 1px; }
+td.met { color: var(--muted); }
+td.met span + span::before { content: "·"; margin: 0 8px; color: var(--dim); }
+td.unit { font-family: var(--mono); font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.meter { display: inline-grid; grid-template-columns: 72px 44px; gap: 10px; align-items: center; }
+.meter b { height: 5px; border-radius: 3px; background: var(--line); position: relative; overflow: hidden; }
+.meter b::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--w); background: var(--c); border-radius: 3px; }
+.meter span { font-family: var(--mono); font-size: 12.5px; text-align: right; font-variant-numeric: tabular-nums; }
+.note { font-size: 13px; color: var(--dim); margin-top: 14px; }
+
+/* Setup steps */
+.steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.step { padding: 28px 26px 30px; border-left: 1px solid var(--line); min-width: 0; }
+.step:first-child { border-left: 0; }
+.step .n { font-family: var(--mono); font-size: 13px; color: var(--accent); }
+.step h3 { font-size: 20px; font-weight: 700; margin-top: 14px; }
+.step p { color: var(--muted); font-size: 15px; margin-top: 10px; }
+.step code { font-family: var(--mono); font-size: 12.5px; background: var(--bg-2); border: 1px solid var(--line); padding: 1px 6px; border-radius: 5px; color: var(--fg); }
+@media (max-width: 900px) { .steps { grid-template-columns: minmax(0, 1fr); } .step { border-left: 0; border-top: 1px solid var(--line); } .step:first-child { border-top: 0; } }
+
+/* Demo */
+.demo .screen { aspect-ratio: 16 / 9; max-width: 980px; margin: 0 auto; }
+.demo .sec-head { margin-inline: auto; text-align: center; }
+.chapters { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 20px; }
+
+/* Footer CTA */
+.end { text-align: center; padding-block: 104px 56px; position: relative; overflow: hidden; }
+.end::before { content: ""; position: absolute; width: 900px; height: 500px; left: 50%; bottom: -260px; transform: translateX(-50%); background: radial-gradient(closest-side, var(--glow), transparent); pointer-events: none; }
+.end .mark { width: 72px; height: 72px; margin: 0 auto; }
+.end h2 { font-size: clamp(34px, 4.6vw, 56px); font-weight: 800; line-height: 1.05; margin-top: 26px; }
+.end h2 em { font-style: normal; color: var(--accent); }
+.end p { color: var(--muted); margin-top: 14px; font-size: 17px; }
+.end .cta { justify-content: center; }
+footer { border-top: 1px solid var(--line); }
+footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; padding-block: 22px; font-size: 13px; color: var(--dim); }
+</style>
+
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="mark" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#F38020"/><path d="M8.21 22.5A9 9 0 1 1 23.79 22.5" fill="none" stroke="#1A0F05" stroke-opacity=".32" stroke-width="3" stroke-linecap="round"/><path d="M8.21 22.5A9 9 0 0 1 22.69 11.98" fill="none" stroke="#1A0F05" stroke-width="3" stroke-linecap="round"/><path d="M16 18L20.6 13.9" stroke="#1A0F05" stroke-width="2.2" stroke-linecap="round"/><circle cx="16" cy="18" r="2.2" fill="#1A0F05"/></symbol>
+    <symbol id="tick" viewBox="0 0 18 18"><path d="M4 9.5l3 3 7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  </defs>
+</svg>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="usageflare home"><svg aria-hidden="true"><use href="#mark"/></svg><span>usage<b>flare</b></span></a>
+    <nav aria-label="Sections">
+      <a href="#limits">Limits</a>
+      <a href="#projects">Projects</a>
+      <a href="#views">Views</a>
+      <a href="#coverage">Coverage</a>
+      <a href="#setup">Setup</a>
+    </nav>
+    <a class="btn btn-primary btn-sm" href="/app/">Open dashboard</a>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero">
+    <div class="wrap">
+      <div>
+        <div class="eyebrow">Usage and limits for Cloudflare</div>
+        <h1>Every account. Every limit. <em>One gauge.</em></h1>
+        <p class="lede">Usage and limits for every Cloudflare account, in one place. See what's blocked, what's already billing, and what's about to run out, before it happens.</p>
+        <div class="cta">
+          <a class="btn btn-primary" href="#demo">
+            <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 1.8v10.4L12 7z" fill="currentColor"/></svg>
+            Watch the demo
+          </a>
+          <a class="btn btn-ghost" href="#setup">Set it up</a>
+        </div>
+        <p class="fine">Runs as a Worker on your own Cloudflare account. Read-only tokens.</p>
+      </div>
+      <div style="position:relative; min-width:0">
+        <div class="screen">
+          <video src="/landing/overview.mp4" poster="/landing/overview.jpg" autoplay muted loop playsinline aria-label="usageflare overview across three Cloudflare accounts"></video>
+        </div>
+        <div class="readout" role="status" aria-live="polite">
+          <svg viewBox="0 0 64 64" aria-hidden="true">
+            <path d="M16.4 47A22 22 0 1 1 47.6 47" fill="none" stroke="var(--line)" stroke-width="6" stroke-linecap="round"/>
+            <path id="arc" d="M16.4 47A22 22 0 1 1 47.6 47" fill="none" stroke="var(--s-exceed)" stroke-width="6" stroke-linecap="round" pathLength="100" stroke-dasharray="88 100" style="transition: stroke-dasharray .8s ease, stroke .4s ease"/>
+            <text id="pct" x="32" y="38" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="12" font-weight="500" fill="var(--fg)">88%</text>
+          </svg>
+          <div style="min-width:0">
+            <div class="k" id="rk">Workers · Requests</div>
+            <div class="v" id="rv">8.79M of 10.0M/mo</div>
+            <span class="pill p-exceed" id="rp">Will exceed</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="scale" aria-label="Status scale">
+    <div class="wrap">
+      <div class="lbl">Every allowance<br>gets a status</div>
+      <div class="st"><span class="pill p-block">Blocked</span><p>Free plan, hit a hard limit. Failing until reset.</p></div>
+      <div class="st"><span class="pill p-over">Over, billed</span><p>Paid plan, beyond what's included.</p></div>
+      <div class="st"><span class="pill p-exceed">Will exceed</span><p>Forecast passes the allowance by month end.</p></div>
+      <div class="st"><span class="pill p-watch">Watch</span><p>Above 75% of the allowance.</p></div>
+      <div class="st"><span class="pill p-ok">OK</span><p>Comfortably inside the plan.</p></div>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="kicker">Three questions</div>
+        <h2>Cloudflare bills by resource. You think in projects.</h2>
+        <p>usageflare reads usage for Workers, KV, D1, R2, AI and more, measures every number against your plan, and forecasts it to the end of the month.</p>
+      </div>
+
+      <div class="q" id="limits">
+        <div class="q-text">
+          <div class="qn">01 · Limits</div>
+          <h3>What's about to hit a limit?</h3>
+          <p>One overview across Personal, Dev and Prod. Every allowance, how much is used, where it lands by month end, and what it will cost.</p>
+          <ul>
+            <li><svg aria-hidden="true"><use href="#tick"/></svg><span>Blocked, billed and will-exceed, sorted to the top</span></li>
+            <li><svg aria-hidden="true"><use href="#tick"/></svg><span>Forecast and extra cost per metric, per account</span></li>
+            <li><svg aria-hidden="true"><use href="#tick"/></svg><span>Metric cards with 30 days of daily history</span></li>
+          </ul>
+          <div class="tabs" role="tablist" data-for="v1">
+            <button type="button" class="tab" role="tab" aria-selected="true" data-src="limits">Limits</button>
+            <button type="button" class="tab" role="tab" aria-selected="false" data-src="acct">One account</button>
+          </div>
+        </div>
+        <div style="min-width:0">
+          <div class="screen"><video id="v1" src="/landing/limits.mp4" poster="/landing/limits.jpg" autoplay muted loop playsinline aria-label="Limits screen"></video></div>
+        </div>
+      </div>
+
+      <div class="q flip" id="projects">
+        <div class="q-text">
+          <div class="qn">02 · Projects</div>
+          <h3>What does each project use?</h3>
+          <p>Labels turn resources into projects, across accounts. Filter for anything without a label, pick resources from any account, and tag them all in one go.</p>
+          <ul>
+            <li><svg aria-hidden="true"><use href="#tick"/></svg><span>Tokenized filter, including <span class="mono">Labels: none</span></span></li>
+            <li><svg aria-hidden="true"><use href="#tick"/></svg><span>Bulk-label across accounts, undo in one click</span></li>
+            <li><svg aria-hidden="true"><use href="#tick"/></svg><span>Group by account and product, save the view</span></li>
+          </ul>
+          <div class="tabs" role="tablist" data-for="v2">
+            <button type="button" class="tab" role="tab" aria-selected="true" data-src="labels">Labels</button>
+            <button type="button" class="tab" role="tab" aria-selected="false" data-src="group">Grouping</button>
+          </div>
+        </div>
+        <div style="min-width:0">
+          <div class="screen"><video id="v2" src="/landing/labels.mp4" poster="/landing/labels.jpg" autoplay muted loop playsinline aria-label="Labelling resources"></video></div>
+        </div>
+      </div>
+
+      <div class="q" id="views">
+        <div class="q-text">
+          <div class="qn">03 · Views</div>
+          <h3>Make the dashboard yours.</h3>
+          <p>Add a formula column, like each resource's share of the bill, and it's checked as you type. Drag cards, add charts and widgets, and save the layout.</p>
+          <ul>
+            <li><svg aria-hidden="true"><use href="#tick"/></svg><span>Formulas such as <span class="mono">round(cost / total_sum("cost") * 100, 1)</span></span></li>
+            <li><svg aria-hidden="true"><use href="#tick"/></svg><span>Tables, numbers, bars, donuts and trackers</span></li>
+            <li><svg aria-hidden="true"><use href="#tick"/></svg><span>Layouts saved with the dashboard</span></li>
+          </ul>
+          <div class="tabs" role="tablist" data-for="v3">
+            <button type="button" class="tab" role="tab" aria-selected="true" data-src="formula">Formula</button>
+            <button type="button" class="tab" role="tab" aria-selected="false" data-src="widgets">Widgets</button>
+          </div>
+        </div>
+        <div style="min-width:0">
+          <div class="screen"><video id="v3" src="/landing/formula.mp4" poster="/landing/formula.jpg" autoplay muted loop playsinline aria-label="Adding a formula column"></video></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band cov" id="coverage">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="kicker">Coverage</div>
+        <h2>The products you actually run.</h2>
+        <p>Each metric is matched to your plan's allowance, on Free or Paid. Sample readings from one account, mid-month.</p>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Product</th><th>Metrics</th><th>Allowance (Paid)</th><th>Used</th></tr></thead>
+          <tbody>
+            <tr><td class="prod"><i style="background:#f38020"></i>Workers</td><td class="met"><span>Requests</span><span>CPU time</span></td><td class="unit">10.0M req/mo</td><td><span class="meter" style="--w:88%;--c:var(--s-exceed)"><b></b><span>88%</span></span></td></tr>
+            <tr><td class="prod"><i style="background:#3b82f6"></i>Workers KV</td><td class="met"><span>Reads</span><span>Writes</span><span>Stored data</span></td><td class="unit">10.0M reads/mo</td><td><span class="meter" style="--w:69%;--c:var(--s-ok)"><b></b><span>69%</span></span></td></tr>
+            <tr><td class="prod"><i style="background:#3b82f6"></i>D1</td><td class="met"><span>Rows read</span><span>Rows written</span><span>Storage</span></td><td class="unit">5.00 GB</td><td><span class="meter" style="--w:100%;--c:var(--s-over)"><b></b><span>113%</span></span></td></tr>
+            <tr><td class="prod"><i style="background:#22c55e"></i>R2</td><td class="met"><span>Class A ops</span><span>Class B ops</span><span>Storage</span></td><td class="unit">10.0M Class B/mo</td><td><span class="meter" style="--w:93%;--c:var(--s-exceed)"><b></b><span>93%</span></span></td></tr>
+            <tr><td class="prod"><i style="background:#ec4899"></i>Durable Objects</td><td class="met"><span>Requests</span><span>Duration</span><span>Stored data</span></td><td class="unit">400k GB-s/mo</td><td><span class="meter" style="--w:81%;--c:var(--s-watch)"><b></b><span>81%</span></span></td></tr>
+            <tr><td class="prod"><i style="background:#ec4899"></i>Queues</td><td class="met"><span>Operations</span></td><td class="unit">1.00M ops/mo</td><td><span class="meter" style="--w:70%;--c:var(--s-ok)"><b></b><span>70%</span></span></td></tr>
+            <tr><td class="prod"><i style="background:#a855f7"></i>Workers AI</td><td class="met"><span>Neurons</span></td><td class="unit">10.0k neurons/day</td><td><span class="meter" style="--w:54%;--c:var(--s-ok)"><b></b><span>54%</span></span></td></tr>
+            <tr><td class="prod"><i style="background:#e11d48"></i>Containers</td><td class="met"><span>vCPU time</span><span>Memory</span><span>Disk</span></td><td class="unit">375 vCPU-min/mo</td><td><span class="meter" style="--w:89%;--c:var(--s-exceed)"><b></b><span>89%</span></span></td></tr>
+            <tr><td class="prod"><i style="background:#14b8a6"></i>Vectorize · Hyperdrive · Workflows</td><td class="met"><span>Queried dimensions</span><span>Queries</span><span>Steps</span></td><td class="unit">per plan</td><td class="unit">—</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Where Cloudflare exposes no usage API for a product, usageflare says so instead of showing zero.</p>
+    </div>
+  </section>
+
+  <section class="band" id="setup">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="kicker">Setup</div>
+        <h2>Your Worker, your accounts, read-only.</h2>
+        <p>usageflare is a Hono app on Cloudflare Workers. It lives in your account and never writes to the ones it watches.</p>
+      </div>
+      <div class="steps">
+        <div class="step">
+          <div class="n">Step 1</div>
+          <h3>Deploy the Worker</h3>
+          <p>One Worker and one KV namespace. Put it behind Cloudflare Access so only your team can open it.</p>
+        </div>
+        <div class="step">
+          <div class="n">Step 2</div>
+          <h3>Add a token per account</h3>
+          <p>Create a read-only API token in each account and paste it in Settings. It's encrypted with AES-GCM under <code>SETTINGS_KEY</code> and never sent back out.</p>
+        </div>
+        <div class="step">
+          <div class="n">Step 3</div>
+          <h3>Read it at a glance</h3>
+          <p>usageflare pulls Cloudflare GraphQL analytics, matches each metric to your plan, and forecasts it to the end of the billing period.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band demo cov" id="demo">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="kicker">Demo · 1:34</div>
+        <h2>See it on real screens.</h2>
+        <p>Recorded in the app with sample data for three accounts. Sound on for the narration.</p>
+      </div>
+      <div class="screen">
+        <video id="demo-v" src="/landing/demo.mp4" poster="/landing/demo.jpg" controls playsinline preload="metadata" aria-label="usageflare demo video with narration">
+          <track kind="captions" src="/landing/demo.en.vtt" srclang="en" label="English" default />
+        </video>
+      </div>
+      <div class="chapters">
+        <button type="button" class="tab" data-t="0">Intro</button>
+        <button type="button" class="tab" data-t="8.7">Limits</button>
+        <button type="button" class="tab" data-t="30.4">Labels</button>
+        <button type="button" class="tab" data-t="44.7">Grouping</button>
+        <button type="button" class="tab" data-t="54">Formulas</button>
+        <button type="button" class="tab" data-t="65.2">Widgets</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="end">
+    <div class="wrap">
+      <svg class="mark" aria-hidden="true"><use href="#mark"/></svg>
+      <h2>Know before you're <em>blocked.</em></h2>
+      <p>Usage and limits for every Cloudflare account, in one place.</p>
+      <div class="cta">
+        <a class="btn btn-primary" href="/app/">Open dashboard</a>
+        <a class="btn btn-ghost" href="#demo">Watch the demo</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>usageflare · Built with @columenlabs/lumen-ui · Hono on Cloudflare Workers</span>
+    <span>Not affiliated with Cloudflare, Inc.</span>
+  </div>
+</footer>
+
+<script>
+(() => {
+  // Clip switchers
+  document.querySelectorAll('.tabs[data-for]').forEach(group => {
+    const v = document.getElementById(group.dataset.for);
+    group.addEventListener('click', e => {
+      const b = e.target.closest('.tab'); if (!b) return;
+      for (const t of group.querySelectorAll('.tab')) t.setAttribute('aria-selected', String(t === b));
+      v.poster = `/landing/${b.dataset.src}.jpg`;
+      v.src = `/landing/${b.dataset.src}.mp4`;
+      v.play().catch(() => {});
+    });
+  });
+
+  // Demo chapters
+  const dv = document.getElementById('demo-v');
+  for (const b of document.querySelectorAll('.chapters .tab')) {
+    b.addEventListener('click', () => { dv.currentTime = Number(b.dataset.t); dv.play().catch(() => {}); });
+  }
+
+  // Hero readout cycles through real readings from the sample accounts
+  const readings = [
+    { k: 'Workers · Requests', v: '8.79M of 10.0M/mo', p: 88, s: 'exceed', l: 'Will exceed' },
+    { k: 'Workers KV · Reads', v: '100k of 100k/day', p: 100, s: 'block', l: 'Blocked' },
+    { k: 'D1 · Storage', v: '5.63 GB of 5.00 GB', p: 113, s: 'over', l: 'Over, billed' },
+    { k: 'R2 · Class A ops', v: '784k of 1.00M/mo', p: 78, s: 'watch', l: 'Watch' },
+    { k: 'Queues · Operations', v: '703k of 1.00M/mo', p: 70, s: 'ok', l: 'OK' },
+  ];
+  const arc = document.getElementById('arc'), pct = document.getElementById('pct');
+  const rk = document.getElementById('rk'), rv = document.getElementById('rv'), rp = document.getElementById('rp');
+  let i = 0;
+  const show = r => {
+    arc.setAttribute('stroke-dasharray', `${Math.min(r.p, 100)} 100`);
+    arc.setAttribute('stroke', `var(--s-${r.s})`);
+    pct.textContent = `${r.p}%`;
+    rk.textContent = r.k; rv.textContent = r.v;
+    rp.className = `pill p-${r.s}`; rp.textContent = r.l;
+  };
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    setInterval(() => { i = (i + 1) % readings.length; show(readings[i]); }, 2800);
+  }
+})();
+</script>
+
   </body>
 </html>

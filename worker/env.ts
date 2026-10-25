@@ -1,5 +1,7 @@
 export interface Env {
   KV: KVNamespace;
+  /** Static assets: the landing page at `/` and the app shell at `/app/`. */
+  ASSETS: Fetcher;
   /** AES-GCM key for secrets kept in KV: 32 random bytes, base64 (a Worker secret). */
   SETTINGS_KEY: string;
   /** Cloudflare Access team domain, e.g. `myteam.cloudflareaccess.com`. */

@@ -179,7 +179,19 @@ function publicRefs({ accounts, errors }: Awaited<ReturnType<typeof accountRefs>
   };
 }
 
-const app = new Hono<AppEnv>().route('/api', api).all('/api/*', (c) => c.json({ error: 'Not found' }, 404));
+/** The app's client routes live under /app; every one of them gets the same shell. */
+const appShell = (req: Request, env: AppEnv['Bindings']) =>
+  env.ASSETS.fetch(new Request(new URL('/app/', req.url), req));
+
+const app = new Hono<AppEnv>()
+  .route('/api', api)
+  .all('/api/*', (c) => c.json({ error: 'Not found' }, 404))
+  .get('/app', (c) => appShell(c.req.raw, c.env))
+  .get('/app/*', (c) => appShell(c.req.raw, c.env))
+  // Bookmarks from before the app moved under /app.
+  .get('/limits', (c) => c.redirect(`/app/limits${new URL(c.req.url).search}`, 301))
+  .get('/resources', (c) => c.redirect(`/app/resources${new URL(c.req.url).search}`, 301))
+  .get('/a/*', (c) => c.redirect(`/app${new URL(c.req.url).pathname}${new URL(c.req.url).search}`, 301));
 
 export type Api = typeof api;
 export default app;
