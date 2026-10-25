@@ -6,13 +6,13 @@ If you build on Cloudflare, your usage is spread across products, plans and acco
 00:00:06.512 --> 00:00:08.600
 usageflare brings it into one place.
 
-00:00:08.700 --> 00:00:15.734
-It connects to each of your Cloudflare accounts, and reads usage for Workers, KV, D1, R2, AI and more.
+00:00:08.700 --> 00:00:17.004
+It connects to each of your Cloudflare accounts, and reads usage across the four areas you pay for: compute, storage and databases, AI, and messaging.
 
-00:00:15.884 --> 00:00:22.298
+00:00:17.154 --> 00:00:22.303
 Every number is measured against your plan's allowance, and forecast to the end of the month.
 
-00:00:22.448 --> 00:00:29.483
+00:00:22.453 --> 00:00:28.100
 So you can see what's blocked, what's already billing, and what's about to run out, before it happens.
 
 00:00:30.400 --> 00:00:34.262
