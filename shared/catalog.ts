@@ -515,3 +515,28 @@ export interface Prefs {
   /** Per-account plan override. */
   plans: Record<string, Plan>;
 }
+
+/**
+ * The token permission each thing the Worker reads needs, by the name it reports when it can't
+ * (`Account.missing`); analytics datasets also need Account Analytics: Read.
+ */
+const PERMISSION_BY_PREFIX: [RegExp, string][] = [
+  [/^Workers Builds/, 'Workers CI'],
+  [/^Workers AI/, 'Workers AI'],
+  [/^(Workers|Durable Objects|Workflows|Bindings)/, 'Workers Scripts'],
+  [/^KV/, 'Workers KV Storage'],
+  [/^D1/, 'D1'],
+  [/^R2/, 'Workers R2 Storage'],
+  [/^Queues/, 'Queues'],
+  [/^Hyperdrive/, 'Hyperdrive'],
+  [/^Vectorize/, 'Vectorize'],
+  [/^Containers/, 'Workers Containers'],
+];
+export function permissionsFor(missing: string[]): string[] {
+  const out = new Set<string>();
+  for (const m of missing) {
+    const hit = PERMISSION_BY_PREFIX.find(([re]) => re.test(m));
+    if (hit) out.add(`Account › ${hit[1]} › Read`);
+  }
+  return [...out].sort();
+}
