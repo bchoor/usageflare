@@ -1,6 +1,6 @@
 # usageflare
 
-**Every account. Every limit. One gauge.** Usage and limits for every Cloudflare account, in one place: see what's blocked, what's already billing, and what's about to run out, before it happens. UI built with [`@columenlabs/lumen-ui`](https://www.npmjs.com/package/@columenlabs/lumen-ui). MIT licensed.
+**Every account. Every limit. One gauge.** Usage and limits for every Cloudflare account, in one place: see what's blocked, what's already billing, and what's about to run out, before it happens. Self-hosted on Cloudflare Workers. MIT licensed.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/bchoor/usageflare)
 
@@ -22,7 +22,7 @@ The landing page at `/` plays the full narrated demo (`public/landing/demo.mp4`)
 
 ## Stack
 
-One Cloudflare Worker (`wrangler.jsonc`), built with Vite and the Cloudflare Vite plugin. Hono serves `/api/*` (`worker/`) and the same Worker serves two pages as static assets: the public landing page at `/` (`index.html`, media in `public/landing/`) and the React SPA under `/app` (`app/index.html`, `src/`). The Worker answers every `/app/*` path with the app shell and sends the old app paths (`/limits`, `/resources`, `/a/*`) to `/app`.
+One Cloudflare Worker (`wrangler.jsonc`), built with Vite and the Cloudflare Vite plugin. The UI uses the [`@columenlabs/lumen-ui`](https://www.npmjs.com/package/@columenlabs/lumen-ui) component kit. Hono serves `/api/*` (`worker/`) and the same Worker serves two pages as static assets: the public landing page at `/` (`index.html`, media in `public/landing/`) and the React SPA under `/app` (`app/index.html`, `src/`). The Worker answers every `/app/*` path with the app shell and sends the old app paths (`/limits`, `/resources`, `/a/*`) to `/app`.
 
 | Binding | What |
 |---|---|
