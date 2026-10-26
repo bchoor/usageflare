@@ -11,7 +11,7 @@ import { Building2, CloudUpload, Combine, MapPin, Palette, Rows3, Tag, Trash2, X
 import { useState } from 'react';
 import { acctOf, CF_TAG_TYPE, PRODUCT, PROJECT_PREFIX, type Resource, type TagsDoc } from '../shared/catalog';
 import { type Model, tagKey } from './model';
-import { ensureTag, saveTagDoc, TagForm, TagMark, undoTags } from './tags';
+import { ensureTag, notTaggable, saveTagDoc, TagForm, TagMark, undoTags } from './tags';
 
 export interface TagRow {
   /** `<account>|<name>`: one name in two accounts is two rows. */
@@ -163,20 +163,17 @@ const gone = (m: Model, id: string) => !m.resource[id] || m.resource[id].state =
 
 /**
  * Resources whose tags are kept here though Cloudflare could hold them (the account's token can
- * write tags). A deleted one stays: Cloudflare can't tag what no longer exists.
+ * write tags). Never one Cloudflare can't take: deleted, no tag type yet, or refused before.
  */
 export function movable(m: Model): string[] {
-  return Object.keys(m.tags.local).filter((id) => {
-    const [acct = '', product] = id.split(':') as [string, Resource['product']];
-    return (
-      !!m.tags.local[id]?.length && !!CF_TAG_TYPE[product] && !!m.tags.access[acct]?.write && !gone(m, id)
-    );
-  });
+  return Object.keys(m.tags.local).filter(
+    (id) => !!m.tags.local[id]?.length && !!m.tags.access[acctOf(id)]?.write && !notTaggable(m, id),
+  );
 }
 
 /**
  * Of `acct`'s (or every account's) resources with tags kept here, the ones that stay here: products
- * Cloudflare can't tag yet (by product name) and deleted resources.
+ * Cloudflare can't tag yet (by product name), deleted resources, and ones Cloudflare refused.
  */
 export function stayHere(m: Model, acct?: string) {
   const ids = Object.keys(m.tags.local).filter(
@@ -187,7 +184,10 @@ export function stayHere(m: Model, acct?: string) {
     ...new Set(untaggable.map((id) => PRODUCT[id.split(':')[1] as Resource['product']]?.label ?? '')),
   ].filter(Boolean);
   const deleted = ids.filter((id) => !untaggable.includes(id) && gone(m, id));
-  return { untaggable: untaggable.length, products, deleted: deleted.length };
+  const refused = ids.filter(
+    (id) => !untaggable.includes(id) && !deleted.includes(id) && !!m.tags.refused?.[id],
+  );
+  return { untaggable: untaggable.length, products, deleted: deleted.length, refused: refused.length };
 }
 
 /** The tile's short form: `6 not taggable yet · 13 deleted`, or null when none stay. */
@@ -196,30 +196,31 @@ export function stayShort(m: Model, acct?: string) {
   const parts = [
     s.untaggable && `${s.untaggable} not taggable yet`,
     s.deleted && `${s.deleted} deleted`,
+    s.refused && `${s.refused} refused by Cloudflare`,
   ].filter(Boolean);
   return parts.length ? parts.join(' · ') : null;
 }
 
-/** One line on the tags that stay in usageflare and why, or null when none do. */
-export function stayLine(m: Model, acct?: string) {
+/** For the move button's hover: what it leaves out and why, or null when it leaves nothing out. */
+export function leftOut(m: Model, acct?: string) {
   const s = stayHere(m, acct);
   const parts = [
-    s.untaggable && `${s.untaggable} Cloudflare can't tag yet (${s.products.join(', ')})`,
-    s.deleted && `${s.deleted} deleted`,
+    s.untaggable &&
+      `${s.untaggable} ${s.products.join(' and ')} resource${s.untaggable === 1 ? '' : 's'} (Cloudflare can't tag ${s.products.length === 1 ? 'it' : 'them'} yet)`,
+    s.deleted && `${s.deleted} deleted resource${s.deleted === 1 ? '' : 's'}`,
+    s.refused && `${s.refused} Cloudflare refused`,
   ].filter(Boolean);
-  return parts.length ? `Stay in usageflare: ${parts.join(' · ')}` : null;
+  return parts.length
+    ? `Not included: ${parts.join(', ')}. Their tags stay in usageflare; a resource's Tags section can try one anyway.`
+    : null;
 }
 
 /** Resources of `acct` (or any account) whose tags Cloudflare could hold once its token can write tags. */
 const waiting = (m: Model, acct?: string) =>
   Object.keys(m.tags.local).filter((id) => {
-    const [a = '', product] = id.split(':') as [string, Resource['product']];
+    const a = acctOf(id);
     return (
-      (!acct || a === acct) &&
-      !!m.tags.local[id]?.length &&
-      !!CF_TAG_TYPE[product] &&
-      !m.tags.access[a]?.write &&
-      !gone(m, id)
+      (!acct || a === acct) && !!m.tags.local[id]?.length && !m.tags.access[a]?.write && !notTaggable(m, id)
     );
   });
 
@@ -237,7 +238,7 @@ export function MoveToCloudflare({ m, acct }: { m: Model; acct?: string }) {
         size="sm"
         variant="outline"
         disabled
-        title={`Add Account › Tag › Edit to the account's token (Settings › Cloudflare API tokens) to save these tags in Cloudflare.${stayLine(m, acct) ? ` ${stayLine(m, acct)}.` : ''}`}
+        title={`Add Account › Tag › Edit to the account's token (Settings › Cloudflare API tokens) to save these tags in Cloudflare.${leftOut(m, acct) ? ` ${leftOut(m, acct)}` : ''}`}
       >
         <CloudUpload className="size-4" />
         Move {n} to Cloudflare
@@ -246,7 +247,7 @@ export function MoveToCloudflare({ m, acct }: { m: Model; acct?: string }) {
   }
   const by = new Map<string, number>();
   for (const id of ids) by.set(id.split(':')[0] ?? '', (by.get(id.split(':')[0] ?? '') ?? 0) + 1);
-  const stay = stayLine(m, acct);
+  const out = leftOut(m, acct);
   return (
     <LumenConfirm
       title={`Move tags on ${ids.length} resource${ids.length === 1 ? '' : 's'} to Cloudflare?`}
@@ -264,7 +265,6 @@ export function MoveToCloudflare({ m, acct }: { m: Model; acct?: string }) {
               {m.account[a]?.name ?? a}: {n}
             </span>
           ))}
-          {stay && <span className="text-muted-foreground text-xs">{stay}.</span>}
         </span>
       }
       onConfirm={async () => {
@@ -275,7 +275,7 @@ export function MoveToCloudflare({ m, acct }: { m: Model; acct?: string }) {
       <Button
         size="sm"
         variant="outline"
-        title={`Writes these resources' tags to Cloudflare.${stay ? ` ${stay}.` : ''}`}
+        title={`Saves the tags of ${ids.length} resource${ids.length === 1 ? '' : 's'} in Cloudflare.${out ? ` ${out}` : ''}`}
       >
         <CloudUpload className="size-4" />
         Move {ids.length} to Cloudflare

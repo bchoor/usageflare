@@ -280,7 +280,6 @@ const FIXTURE_ASSIGN: Record<string, string[]> = {
  */
 const FIXTURE_LOCAL: Record<string, string[]> = {
   ...Object.fromEntries(Object.entries(FIXTURE_ASSIGN).filter(([id]) => id.startsWith('a2'))),
-  'a1000000000000000000000000000001:kv:SESSIONS': ['mailcellar'],
   'a1000000000000000000000000000001:workflows:nightly-export': ['edgedesk'],
   'a1000000000000000000000000000001:r2:mailcellar-spike': ['mailcellar'],
 };
