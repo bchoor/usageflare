@@ -101,13 +101,21 @@ export async function getStored(env: Env): Promise<Stored> {
       assign?: Record<string, string[]>;
     };
     const local = before.local ?? before.assign ?? {};
+    // Who uses a tag: the resources kept here, and the ones Cloudflare listed when last read.
+    const used = new Map<string, Set<string>>();
+    const use = (acct: string, name: string) => used.set(name, (used.get(name) ?? new Set()).add(acct));
+    for (const [id, names] of Object.entries(local)) for (const n of names) use(acctOf(id), n);
+    const { accounts } = await accountRefs(env, false).catch(() => ({ accounts: [] as { id: string }[] }));
+    await Promise.all(
+      accounts.map(async (a) => {
+        const hit = await env.KV.get<{ value: CfTagged[] }>(`cftags:v1:${a.id}`, 'json');
+        for (const t of hit?.value ?? []) for (const n of namesOf(t.tags)) use(a.id, n);
+      }),
+    );
+    // A tag on no resource has no account to go to; the copy kept below still has it.
     const tags: Tag[] = [];
     for (const t of before.tags ?? before.labels ?? []) {
-      const accts = new Set(
-        Object.entries(local)
-          .filter(([, names]) => names.includes(t.name))
-          .map(([id]) => acctOf(id)),
-      );
+      const accts = used.get(t.name) ?? new Set<string>();
       for (const acct of accts) tags.push({ ...t, acct });
     }
     const stored: Stored = { tags, local };

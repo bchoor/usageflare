@@ -127,7 +127,7 @@ export function TagForm({
 }) {
   const [open, setOpen] = useState(false);
   const [pick, setPick] = useState(acct ?? m.accounts[0]?.id ?? '');
-  const a = acct ?? pick;
+  const a = acct ?? (pick || m.accounts[0]?.id || '');
   const ex = edit ? m.tags.tags.find((l) => l.name === edit && l.acct === a) : undefined;
   const [name, setName] = useState(ex?.name ?? '');
   const [c, setC] = useState(ex?.c ?? nextColor(m.tags, a));
@@ -188,7 +188,7 @@ export function TagForm({
               size="sm"
               label="Account"
               options={m.accounts.map((x) => ({ value: x.id, label: x.name }))}
-              value={pick}
+              value={a}
               onChange={(v) => v && setPick(v)}
             />
           )}
