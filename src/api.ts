@@ -21,7 +21,7 @@ const json = (method: string, body?: unknown): RequestInit => ({
 });
 
 export const api = {
-  me: () => apiJson<{ email: string }>('/api/me', undefined, 'me'),
+  me: () => apiJson<Me>('/api/me', undefined, 'me'),
   secrets: () => apiJson<{ secrets: SecretInfo[] }>('/api/secrets', undefined, 'secrets.list'),
   putSecret: (
     name: string,
@@ -48,3 +48,9 @@ export const slug = (label: string) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 64);
+
+/** The signed-in person, and the suite this deployment joins (its variables), if any. */
+export interface Me {
+  email: string;
+  suite?: { list?: string; prefsCookie?: string; prefsDomain?: string };
+}

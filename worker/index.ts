@@ -8,7 +8,7 @@ import { METRIC } from '../shared/catalog';
 import { requireAccess, sameOrigin } from './access';
 import changelog from './changelog.json';
 import { historyDates } from './cloudflare';
-import type { AppEnv } from './env';
+import type { AppEnv, Env } from './env';
 import { FIXTURE_TAGS, fixtureRefs, fixturesOn, fixtureUsage } from './fixtures';
 import { deleteSecret, hasSecret, listSecrets, putSecret, testSecret } from './secrets';
 import { forgetTagAccess, getTagsState, saveTags } from './tags';
@@ -111,6 +111,16 @@ const secretBody = z.object({
   value: z.string().trim().min(8).max(4096),
 });
 
+/** The suite this deployment joins, from its variables; undefined when none is set. */
+function suiteOf(env: Env) {
+  const suite = {
+    list: env.SUITE_LIST_URL || undefined,
+    prefsCookie: env.SUITE_PREFS_COOKIE || undefined,
+    prefsDomain: env.SUITE_PREFS_DOMAIN || undefined,
+  };
+  return suite.list || suite.prefsCookie ? suite : undefined;
+}
+
 const api = new Hono<AppEnv>()
   .use(secureHeaders(), async (c, next) => {
     await next();
@@ -118,7 +128,7 @@ const api = new Hono<AppEnv>()
   })
   .use(requireAccess, sameOrigin)
   .get('/health', (c) => c.json({ ok: true }))
-  .get('/me', (c) => c.json({ email: c.get('email') }))
+  .get('/me', (c) => c.json({ email: c.get('email'), suite: suiteOf(c.env) }))
   // What's new in the status bar: the Key takeaways lumen-ship commits on each release.
   .get('/releases', (c) =>
     c.json(

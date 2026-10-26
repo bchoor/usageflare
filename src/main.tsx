@@ -7,6 +7,7 @@ import {
   type LumenFinderRow,
   LumenSelector,
   LumenShell,
+  LumenSuiteSwitcher,
   NavGroup,
   type SectionItem,
   SettingRow,
@@ -31,7 +32,7 @@ import { StrictMode, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { z } from 'zod';
 import { CATEGORIES, type CategoryId, METRICS, PRODUCT, PRODUCTS, type ProductId } from '../shared/catalog';
-import { api } from './api';
+import { api, type Me } from './api';
 import { planText } from './meters';
 import {
   type Model,
@@ -106,6 +107,39 @@ function Brand({ n }: { n: number }) {
       </span>
     </span>
   );
+}
+
+/** In a suite (its variables, sent with /api/me): the suite's app switcher, with this app's own mark. */
+function SuiteBrand({ list }: { list: string }) {
+  return (
+    <LumenSuiteSwitcher
+      source={list}
+      current={{
+        id: 'usageflare',
+        name: 'usageflare',
+        label: (
+          <>
+            usage<span className="text-primary">flare</span>
+          </>
+        ),
+        iconUrl: '/brand/usageflare-mark.svg',
+        href: '/app',
+      }}
+    />
+  );
+}
+
+/** A suite's shared prefs cookie: theme mode, font and size follow the person across its apps. */
+function useSuitePrefs(suite: Me['suite']) {
+  const cookie = suite?.prefsCookie;
+  const domain = suite?.prefsDomain;
+  useEffect(() => {
+    if (!cookie) return;
+    configureLumen({
+      prefsCookie: cookie,
+      cookieDomain: (host) => (domain && host.endsWith(domain.replace(/^\./, '')) ? domain : undefined),
+    });
+  }, [cookie, domain]);
 }
 
 function AccountNav({ m }: { m: Model }) {
@@ -324,6 +358,7 @@ function FinderRows({ m }: { m: Model }) {
 
 function Shell() {
   const me = useQuery({ queryKey: ['me'], queryFn: api.me });
+  useSuitePrefs(me.data?.suite);
   const m = useModel();
   const saveTags = useSaveTags();
   registerTagSaver((doc, base, push, force) => saveTags.mutateAsync({ doc, base, push, force }));
@@ -335,7 +370,9 @@ function Shell() {
     <LumenShell
       app="usageflare"
       appLabel="usageflare"
-      brand={<Brand n={m.accounts.length} />}
+      brand={
+        me.data?.suite?.list ? <SuiteBrand list={me.data.suite.list} /> : <Brand n={m.accounts.length} />
+      }
       nav={
         <>
           <NavGroup
