@@ -159,6 +159,8 @@ const renameKeys = (o: unknown) =>
 function renameFields(v: any): unknown {
   if (!v || typeof v !== 'object') return v;
   const out = { ...v };
+  // The account Limits default view's own name, not one the person typed.
+  if (out.name === 'By label') out.name = 'By tag';
   for (const k of ['columns', 'hidden']) if (Array.isArray(out[k])) out[k] = out[k].map(rename);
   for (const k of ['formats', 'aggs', 'shows']) if (out[k]) out[k] = renameKeys(out[k]);
   if (out.group)
