@@ -250,7 +250,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: s
           </a>
           <a class="btn btn-ghost" href="https://deploy.workers.cloudflare.com/?url=https://github.com/bchoor/usageflare" target="_blank" rel="noopener">Deploy to Cloudflare</a>
         </div>
-        <p class="fine">Open source (MIT). Runs as a Worker on your own Cloudflare account, with read-only tokens.</p>
+        <p class="fine">Open source (MIT). Runs as a Worker on your own Cloudflare account, with one token per account.</p>
       </div>
       <div style="position:relative; min-width:0">
         <div class="screen">
@@ -319,15 +319,17 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: s
           <ul>
             <li><svg aria-hidden="true"><use href="#tick"/></svg><span>Tokenized filter, including <span class="mono">Tags: none</span></span></li>
             <li><svg aria-hidden="true"><use href="#tick"/></svg><span>Bulk-tag across accounts, undo in one click</span></li>
+            <li><svg aria-hidden="true"><use href="#tick"/></svg><span>Saved on the resource as <span class="mono">project.&lt;name&gt;</span>, so it shows in the Cloudflare dashboard too</span></li>
             <li><svg aria-hidden="true"><use href="#tick"/></svg><span>Group by account and product, save the view</span></li>
           </ul>
           <div class="tabs" role="tablist" data-for="v2">
-            <button type="button" class="tab" role="tab" aria-selected="true" data-src="labels">Labels</button>
+            <button type="button" class="tab" role="tab" aria-selected="true" data-src="tags">Tagging</button>
+            <button type="button" class="tab" role="tab" aria-selected="false" data-src="tagspage">In Cloudflare</button>
             <button type="button" class="tab" role="tab" aria-selected="false" data-src="group">Grouping</button>
           </div>
         </div>
         <div style="min-width:0">
-          <div class="screen"><video id="v2" src="/landing/labels.mp4" poster="/landing/labels.jpg" autoplay muted loop playsinline aria-label="Labelling resources"></video></div>
+          <div class="screen"><video id="v2" src="/landing/tags.mp4" poster="/landing/tags.jpg" autoplay muted loop playsinline aria-label="Tagging resources"></video></div>
         </div>
       </div>
 
@@ -384,8 +386,8 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: s
     <div class="wrap">
       <div class="sec-head">
         <div class="kicker">Setup</div>
-        <h2>Your Worker, your accounts, read-only.</h2>
-        <p>usageflare is an open-source Hono app on Cloudflare Workers. It lives in your account and never writes to the ones it watches.</p>
+        <h2>Your Worker, your accounts, your tags.</h2>
+        <p>usageflare is an open-source Hono app on Cloudflare Workers. It lives in your account, reads the ones it watches, and writes only their resource tags.</p>
         <div class="cta">
           <a href="https://deploy.workers.cloudflare.com/?url=https://github.com/bchoor/usageflare" target="_blank" rel="noopener"><img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare" height="32" /></a>
           <a class="btn btn-ghost btn-sm" href="https://github.com/bchoor/usageflare" target="_blank" rel="noopener">View on GitHub</a>
@@ -401,7 +403,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: s
         <div class="step">
           <div class="n">Step 2</div>
           <h3>Add a token per account</h3>
-          <p>Create a read-only API token in each account and paste it in Settings. It's encrypted with AES-GCM under <code>SETTINGS_KEY</code> and never sent back out.</p>
+          <p>One token per account reads usage and, with Tag Edit, saves your tags in Cloudflare. Paste it in Settings: it's encrypted under <code>SETTINGS_KEY</code> and never sent back out.</p>
         </div>
         <div class="step">
           <div class="n">Step 3</div>
@@ -427,8 +429,8 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: s
       <div class="chapters">
         <button type="button" class="tab" data-t="0">Intro</button>
         <button type="button" class="tab" data-t="8.7">Limits</button>
-        <button type="button" class="tab" data-t="30.4">Labels</button>
-        <button type="button" class="tab" data-t="43.8">Grouping</button>
+        <button type="button" class="tab" data-t="30.4">Tagging</button>
+        <button type="button" class="tab" data-t="41.6">Grouping</button>
         <button type="button" class="tab" data-t="54">Cost</button>
         <button type="button" class="tab" data-t="65.6">Dashboard</button>
       </div>
