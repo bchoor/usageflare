@@ -274,13 +274,20 @@ const FIXTURE_ASSIGN: Record<string, string[]> = {
   'a3000000000000000000000000000003:r2:assets': ['appflare'],
 };
 
-/** Account 2's token can't write tags: its tags are kept in usageflare. */
-const FIXTURE_LOCAL = Object.fromEntries(
-  Object.entries(FIXTURE_ASSIGN).filter(([id]) => id.startsWith('a2')),
-);
+/**
+ * Account 2's token can't write tags: its tags are kept in usageflare. Account 1 keeps a few here
+ * too: one Cloudflare could hold, a Workflow it can't tag yet and a deleted bucket.
+ */
+const FIXTURE_LOCAL: Record<string, string[]> = {
+  ...Object.fromEntries(Object.entries(FIXTURE_ASSIGN).filter(([id]) => id.startsWith('a2'))),
+  'a1000000000000000000000000000001:kv:SESSIONS': ['mailcellar'],
+  'a1000000000000000000000000000001:workflows:nightly-export': ['edgedesk'],
+  'a1000000000000000000000000000001:r2:mailcellar-spike': ['mailcellar'],
+};
 
 const FIXTURE_ALL: Record<string, string[]> = {
   ...FIXTURE_ASSIGN,
+  ...FIXTURE_LOCAL,
   'a3000000000000000000000000000003:workers:p2e': ['env=production', 'p2e'],
   'a3000000000000000000000000000003:workers:tools': ['env=production', 'tools'],
 };

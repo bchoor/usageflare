@@ -338,7 +338,13 @@ export async function saveTags(
     const [acct = '', product] = id.split(':') as [string, ProductId];
     return !!CF_TAG_TYPE[product] && cur.readable.has(acct);
   };
-  if (push) for (const id of Object.keys(local)) if (writable(id)) todo[id] ??= { add: [], remove: [] };
+  // Only resources that still exist move: Cloudflare can't tag a deleted one, so it keeps its tags here.
+  const live = (id: string) => {
+    const r = cur.known.get(id);
+    return !!r && r.state !== 'deleted';
+  };
+  if (push)
+    for (const id of Object.keys(local)) if (writable(id) && live(id)) todo[id] ??= { add: [], remove: [] };
   let writes = 0;
   let left = 0;
   const tokens = new Map<string, string | null>();
