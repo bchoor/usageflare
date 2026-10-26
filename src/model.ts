@@ -259,6 +259,10 @@ export function partShare(u: Usage, r: Resource, v: number): number {
   return u.forecast ? monthAvg(r.series[u.m.key] ?? [], u.a) / u.forecast : 0;
 }
 
+/** An overage as billed: rounded up to the meter's billing unit, when it has one. */
+export const billed = (m: Metric, x: number) =>
+  m.block && x > 0 ? Math.ceil(x / m.block - 1e-9) * m.block : x;
+
 function judge(a: AccountView, m: Metric, rs: Resource[], warn: number): Usage | null {
   const plan = a.plan === 'paid' ? m.paid : m.free;
   const mine = rs.filter((r) => r.series[m.key]);
@@ -300,13 +304,13 @@ function judge(a: AccountView, m: Metric, rs: Resource[], warn: number): Usage |
     basis = 'mtd';
   }
   const hard = a.plan === 'free' && plan[2] === undefined;
-  const over = (x: number) => Math.max(0, x - limit);
+  const over = (x: number) => billed(m, Math.max(0, x - limit));
   let cost = hard ? 0 : over(used) * price;
   let fcost = hard ? 0 : over(forecast) * price;
   if (!hard && m.kind === 'gauge') {
     // Accrued so far: the GB-months stored to date less the allowance accrued to date.
     const sofar = monthDays.reduce((x, y) => x + y, 0) / a.monthDays;
-    cost = Math.max(0, sofar - (limit * monthDays.length) / a.monthDays) * price;
+    cost = billed(m, Math.max(0, sofar - (limit * monthDays.length) / a.monthDays)) * price;
   } else if (!hard && per === 'day') {
     cost = monthDays.reduce((s, v) => s + over(v), 0) * price;
     fcost = (cost / a.day) * a.monthDays;
@@ -359,10 +363,10 @@ function costTo(u: Usage, k: number): number {
   if (u.hard || k <= 0) return 0;
   const n = u.days.length;
   const days = u.days.slice(Math.max(0, n - u.a.day), Math.max(0, n - u.a.day) + k);
-  const over = (x: number) => Math.max(0, x - u.limit);
+  const over = (x: number) => billed(u.m, Math.max(0, x - u.limit));
   if (u.m.kind === 'gauge') {
     const sofar = days.reduce((x, y) => x + y, 0) / u.a.monthDays;
-    return Math.max(0, sofar - (u.limit * days.length) / u.a.monthDays) * u.price;
+    return billed(u.m, Math.max(0, sofar - (u.limit * days.length) / u.a.monthDays)) * u.price;
   }
   if (u.per === 'day') return days.reduce((s, v) => s + over(v), 0) * u.price;
   return over(days.reduce((x, y) => x + y, 0)) * u.price;
@@ -749,13 +753,14 @@ const priceText = (u: Usage) =>
 /** How a meter's forecast cost is worked out, for its tooltip. */
 export function costNote(u: Usage): string {
   if (u.hard) return 'Free plan: a hard limit, never billed';
-  const over = Math.max(0, u.forecast - u.limit);
+  const raw = Math.max(0, u.forecast - u.limit);
+  const over = billed(u.m, raw);
   if (u.per === 'day') return `Each day's use past ${fmt(u.limit, u.m.unit)} × ${priceText(u)}, to month end`;
   const what =
     u.m.kind === 'gauge'
       ? `average ${fmt(u.forecast, u.m.unit)} this month`
       : `${fmt(u.forecast, u.m.unit)} by month end`;
-  return `(${what} − ${fmt(u.limit, u.m.unit)} included) = ${fmt(over, u.m.unit)} × ${priceText(u)} = ${usd(u.fcost)} for the account`;
+  return `(${what} − ${fmt(u.limit, u.m.unit)} included) = ${fmt(raw, u.m.unit)}${over > raw ? `, billed as ${fmt(over, u.m.unit)}` : ''} × ${priceText(u)} = ${usd(u.fcost)} for the account`;
 }
 /** How one resource's part of a meter's forecast cost is worked out, e.g.
  *  "avg 53 GB-mo × $0.015 − 1.3 GB-mo free share = $0.77 (now 184 GB)". */
@@ -763,7 +768,8 @@ export function partNote(u: Usage, r: Resource, v: number): string {
   if (u.hard) return 'Free plan: a hard limit, never billed';
   const sh = partShare(u, r, v);
   const cost = usd(u.fcost * sh);
-  if (u.per === 'day') return `${Math.round(sh * 100)}% of the account's ${costNote(u)}`;
+  // A day's cap, or an overage billed in whole units, is the account's: a part takes its share.
+  if (u.per === 'day' || u.m.block) return `${Math.round(sh * 100)}% of the account's ${costNote(u)}`;
   const own = u.forecast * sh;
   const free = `${fmt(u.limit * sh, u.m.unit)}${u.m.kind === 'gauge' ? '-mo' : ''} free share`;
   return u.m.kind === 'gauge'
