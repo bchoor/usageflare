@@ -5,9 +5,12 @@
  * line (the kit's sub-group) that reads the pool again from its rows (`poolShare`).
  */
 import {
+  ColorDot,
+  DetailsTable,
   iconOf,
   meterValueTone,
   type PaceWindow,
+  PaceWindowPicker,
   poolShare,
   ShareMeter,
   UnitValue,
@@ -16,8 +19,8 @@ import {
 import { Box, ChartColumn, DollarSign, Gauge, Server, Tag, Timer, TriangleAlert } from 'lucide-react';
 import { PRODUCT, PRODUCTS, type Resource } from '../shared/catalog';
 import { amountParts } from './domains';
-import { type Model, pctText, perText, STATUS_LABEL, shareOf, tagColor, type Usage } from './model';
-import { hitting, MeterPaceCell } from './pace';
+import { fmt, type Model, pctText, perText, STATUS_LABEL, shareOf, tagColor, type Usage } from './model';
+import { hitting, MeterPaceCell, PaceSection } from './pace';
 import { PRODUCT_ICON, ProductIcon } from './products';
 
 export const NO_TAG = 'No tag';
@@ -264,6 +267,89 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
         value: (q) => STATUS_LABEL[q.u.st],
         filterable: true,
         hideOnPhone: true,
+      },
+    ],
+    details: [
+      {
+        id: 'resources',
+        label: 'Resources with this tag',
+        icon: Server,
+        open: true,
+        count: (q) => q.parts.length,
+        render: (q) => (
+          <DetailsTable
+            head={[
+              { label: 'Resource', grow: true },
+              { label: 'Used', right: true },
+              { label: '% of quota', right: true },
+            ]}
+            rows={q.parts.map((p) => ({
+              key: p.r.id,
+              cells: [
+                <span key="n" className="inline-flex min-w-0 items-center gap-2">
+                  <ProductIcon id={p.r.product} />
+                  <span className="truncate">{p.r.name}</span>
+                </span>,
+                fmt(p.v, q.u.m.unit),
+                q.u.payg ? '—' : pctText(shareOf(q.u, p.v)),
+              ],
+            }))}
+          />
+        ),
+      },
+      {
+        id: 'pool',
+        label: 'Every tag on this quota',
+        icon: Gauge,
+        open: true,
+        render: (q) => {
+          const all = quotaRows(m, [q.u]).sort((a, b) => b.used - a.used);
+          return (
+            <div className="flex flex-col gap-2">
+              {!q.u.payg && (
+                <ShareMeter
+                  wide
+                  value={shareOf(q.u, q.u.used)}
+                  label={pctText(shareOf(q.u, q.u.used))}
+                  segments={all.map((x) => ({ value: x.share, color: colorOf(m, x.tag), label: x.tag }))}
+                />
+              )}
+              <DetailsTable
+                head={[
+                  { label: 'Tag', grow: true },
+                  { label: 'Used', right: true },
+                  { label: '% of quota', right: true },
+                ]}
+                rows={all.map((x) => ({
+                  key: x.tag,
+                  cells: [
+                    <span
+                      key="n"
+                      className={`inline-flex items-center gap-2 ${x.tag === q.tag ? 'font-medium' : ''}`}
+                    >
+                      <ColorDot color={colorOf(m, x.tag)} />
+                      {x.tag}
+                    </span>,
+                    fmt(x.used, q.u.m.unit),
+                    q.u.payg ? '—' : pctText(x.share),
+                  ],
+                }))}
+              />
+            </div>
+          );
+        },
+      },
+      {
+        id: 'pace',
+        label: 'Pace of this quota',
+        icon: Timer,
+        open: true,
+        render: (q) => (
+          <div className="flex flex-col gap-2">
+            <PaceWindowPicker className="self-start" />
+            <PaceSection u={q.u} w={w} />
+          </div>
+        ),
       },
     ],
     subgroups: [
