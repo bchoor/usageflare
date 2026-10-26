@@ -1229,10 +1229,15 @@ export function TagsPage({ acct }: { acct?: string }) {
         intro={
           <TileRow fill aria-label="Tags">
             <Tile
-              label="Tagged in usageflare"
-              value={tagged}
-              caption={`of ${live} resources · ${new Set(rows.filter((t) => t.kind === 'Project').map((t) => t.name)).size} projects`}
+              label="Number of tags"
+              value={rows.length}
+              caption={
+                rows.some((t) => t.kind !== 'Project')
+                  ? `${rows.filter((t) => t.kind === 'Project').length} projects · ${rows.filter((t) => t.kind !== 'Project').length} other`
+                  : 'All projects'
+              }
             />
+            <Tile label="Tagged in usageflare" value={tagged} caption={`of ${live} resources`} />
             <Tile
               label="Tagged in Cloudflare"
               value={inCf}
@@ -1254,7 +1259,7 @@ export function TagsPage({ acct }: { acct?: string }) {
               value={stay.untaggable + stay.refused}
               caption={
                 [
-                  stay.products.length ? `Cloudflare can't tag ${stay.products.join(' or ')} yet` : '',
+                  stay.products.length ? `${stay.products.join(', ')} not supported yet` : '',
                   stay.refused ? `${stay.refused} refused by Cloudflare` : '',
                 ]
                   .filter(Boolean)
