@@ -1,0 +1,47 @@
+WEBVTT
+
+00:00:00.500 --> 00:00:05.172
+If you build on Cloudflare, your usage is spread across products, plans and accounts.
+
+00:00:05.322 --> 00:00:07.413
+usageflare brings it into one place.
+
+00:00:10.334 --> 00:00:19.934
+It connects to each of your Cloudflare accounts, and reads usage across the four areas you pay for: compute, storage and databases, AI, and messaging.
+
+00:00:20.871 --> 00:00:25.458
+Every number is measured against your plan's allowance, and forecast to the end of the month.
+
+00:00:25.973 --> 00:00:31.072
+So you can see what's blocked, what's already billing, and what's about to run out, before it happens.
+
+00:00:37.575 --> 00:00:40.711
+Cloudflare bills by resource, but you think in projects.
+
+00:00:40.861 --> 00:00:46.301
+Filter for anything without a tag, pick resources from any account, and tag them in one go.
+
+00:00:53.811 --> 00:00:56.669
+The tags land on the resources in Cloudflare too.
+
+00:00:58.046 --> 00:01:01.800
+Then group by tag and product, to see what each project uses.
+
+00:01:09.152 --> 00:01:10.838
+Now, where is the money going?
+
+00:01:11.079 --> 00:01:14.301
+Ask it as a column: each resource's share of the bill.
+
+00:01:17.699 --> 00:01:22.179
+It's checked as you type, shown as a percent, and the answer lands on every row.
+
+00:01:29.462 --> 00:01:31.104
+Then keep that answer in sight.
+
+00:01:34.292 --> 00:01:39.625
+Put the chart or number you check every day on your dashboard, and it's there every time you open it.
+
+00:01:56.397 --> 00:01:59.853
+usageflare. Every account. Every limit. One gauge.
+

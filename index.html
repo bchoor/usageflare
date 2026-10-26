@@ -7,7 +7,7 @@
     <meta name="description" content="Usage and limits for every Cloudflare account, in one place. See what's blocked, what's already billing, and what's about to run out, before it happens." />
     <meta property="og:title" content="usageflare" />
     <meta property="og:description" content="Every account. Every limit. One gauge." />
-    <meta property="og:image" content="/landing/overview.jpg" />
+    <meta property="og:image" content="/landing/demo.jpg" />
     <meta name="theme-color" content="#0d0c0b" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon.ico" sizes="any" />
@@ -244,6 +244,10 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: s
         <h1>Every account. Every limit. <em>One gauge.</em></h1>
         <p class="lede">Usage and limits for every Cloudflare account, in one place. See what's blocked, what's already billing, and what's about to run out, before it happens.</p>
         <div class="cta">
+          <a class="btn btn-primary" href="#demo">
+            <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 1.8v10.4L12 7z" fill="currentColor"/></svg>
+            Watch the demo
+          </a>
           <a class="btn btn-ghost" href="https://deploy.workers.cloudflare.com/?url=https://github.com/bchoor/usageflare" target="_blank" rel="noopener">Deploy to Cloudflare</a>
         </div>
         <p class="fine">Open source (MIT). Runs as a Worker on your own Cloudflare account, with one token per account.</p>
@@ -406,6 +410,29 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: s
           <h3>Read it at a glance</h3>
           <p>usageflare pulls Cloudflare GraphQL analytics, matches each metric to your plan, and forecasts it to the end of the billing period.</p>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band demo cov" id="demo">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="kicker">Demo · 2:03</div>
+        <h2>See it on real screens.</h2>
+        <p>Recorded in the app with sample data for three accounts. Sound on for the narration.</p>
+      </div>
+      <div class="screen">
+        <video id="demo-v" src="/landing/demo.mp4" poster="/landing/demo.jpg" controls playsinline preload="metadata" aria-label="usageflare demo video with narration">
+          <track kind="captions" src="/landing/demo.en.vtt" srclang="en" label="English" default />
+        </video>
+      </div>
+      <div class="chapters">
+        <button type="button" class="tab" data-t="0">Intro</button>
+        <button type="button" class="tab" data-t="7.9">Limits</button>
+        <button type="button" class="tab" data-t="35.4">Tagging</button>
+        <button type="button" class="tab" data-t="57.8">Grouping</button>
+        <button type="button" class="tab" data-t="68.9">Cost</button>
+        <button type="button" class="tab" data-t="89.3">Dashboard</button>
       </div>
     </div>
   </section>
