@@ -8,6 +8,11 @@ export interface Env {
   ACCESS_TEAM_DOMAIN: string;
   /** The Access application's audience tag. */
   ACCESS_AUD: string;
+  /** A suite of Lumen apps this deployment joins (all optional): the address its app switcher reads,
+   *  and the Lumen prefs cookie and its domain shared across the suite's apps. */
+  SUITE_LIST_URL?: string;
+  SUITE_PREFS_COOKIE?: string;
+  SUITE_PREFS_DOMAIN?: string;
   /** `1` serves sample accounts on localhost (worker/fixtures.ts); never set in production. */
   FIXTURES?: string;
 }
