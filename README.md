@@ -45,6 +45,8 @@ bun run build && bunx wrangler deploy
 | **Formula columns** | **Widgets** |
 | ![Adding a formula column](public/landing/formula.jpg) | ![Adding a widget to the dashboard](public/landing/widgets.jpg) |
 
+The landing page at `/` plays the full narrated demo (`public/landing/demo.mp4`).
+
 ## Stack
 
 One Cloudflare Worker (`wrangler.jsonc`), built with Vite and the Cloudflare Vite plugin. The UI uses the [`@columenlabs/lumen-ui`](https://www.npmjs.com/package/@columenlabs/lumen-ui) component kit. Hono serves `/api/*` (`worker/`) and the same Worker serves two pages as static assets: the public landing page at `/` (`index.html`, media in `public/landing/`) and the React SPA under `/app` (`app/index.html`, `src/`). The Worker answers every `/app/*` path with the app shell and sends the old app paths (`/limits`, `/resources`, `/a/*`) to `/app`.
