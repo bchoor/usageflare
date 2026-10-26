@@ -7,7 +7,7 @@
  */
 import { LumenConfirm, LumenSelector, lumenToast, type ViewDomain } from '@columenlabs/lumen-ui';
 import { Button } from '@columenlabs/lumen-ui/ui/button';
-import { Building2, CloudUpload, Combine, MapPin, Palette, Rows3, Tag, Trash2, X } from 'lucide-react';
+import { Ban, Building2, CloudUpload, Combine, MapPin, Palette, Rows3, Tag, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
 import { acctOf, CF_TAG_TYPE, PRODUCT, PROJECT_PREFIX, type Resource, type TagsDoc } from '../shared/catalog';
 import { type Model, tagKey } from './model';
@@ -25,11 +25,17 @@ export interface TagRow {
   /** Of those, how many keep it in Cloudflare and how many only here. */
   inCf: number;
   local: number;
+  /** Of those kept here: deleted resources, and ones Cloudflare can't tag yet (or refused). */
+  deleted: number;
+  untaggable: number;
   /** Resources Cloudflare can't tag that show it from a Worker that binds them. */
   inherited: number;
 }
 
 export const tagKind = (name: string): TagRow['kind'] => (name.includes('=') ? 'Cloudflare tag' : 'Project');
+
+/** Deleted, or no longer listed at all: Cloudflare can't tag it. */
+const gone = (m: Model, id: string) => !m.resource[id] || m.resource[id].state === 'deleted';
 
 /** One row per tag of `acct`, or of every account. */
 export function tagRows(m: Model, acct?: string): TagRow[] {
@@ -40,7 +46,10 @@ export function tagRows(m: Model, acct?: string): TagRow[] {
       const ids = Object.keys(m.tags.assign).filter(
         (id) => acctOf(id) === t.acct && m.tags.assign[id]?.includes(t.name),
       );
-      const local = ids.filter((id) => m.tags.local[id]?.includes(t.name)).length;
+      const here = ids.filter((id) => m.tags.local[id]?.includes(t.name));
+      const local = here.length;
+      const deleted = here.filter((id) => gone(m, id)).length;
+      const untaggable = here.filter((id) => !gone(m, id) && !!notTaggable(m, id)).length;
       return {
         key: tagKey(t.acct, t.name),
         acct: t.acct,
@@ -49,6 +58,8 @@ export function tagRows(m: Model, acct?: string): TagRow[] {
         ids,
         inCf: ids.length - local,
         local,
+        deleted,
+        untaggable,
         inherited: live.filter((r) => r.acct === t.acct && m.inherited(r).includes(t.name)).length,
       };
     });
@@ -137,11 +148,20 @@ export function tagDomain(m: Model): ViewDomain<TagRow> {
         ),
       },
       {
-        key: 'local',
-        label: 'Only in usageflare',
-        icon: MapPin,
+        key: 'deleted',
+        label: 'Deleted',
+        icon: Trash2,
         format: 'integer',
-        value: (t) => t.local,
+        value: (t) => t.deleted,
+        aggregate: 'sum',
+        hideOnPhone: true,
+      },
+      {
+        key: 'untaggable',
+        label: 'Not taggable',
+        icon: Ban,
+        format: 'integer',
+        value: (t) => t.untaggable,
         aggregate: 'sum',
         hideOnPhone: true,
       },
@@ -157,9 +177,6 @@ export function tagDomain(m: Model): ViewDomain<TagRow> {
     ],
   };
 }
-
-/** Deleted, or no longer listed at all: Cloudflare can't tag it. */
-const gone = (m: Model, id: string) => !m.resource[id] || m.resource[id].state === 'deleted';
 
 /**
  * Resources whose tags are kept here though Cloudflare could hold them (the account's token can
@@ -188,17 +205,6 @@ export function stayHere(m: Model, acct?: string) {
     (id) => !untaggable.includes(id) && !deleted.includes(id) && !!m.tags.refused?.[id],
   );
   return { untaggable: untaggable.length, products, deleted: deleted.length, refused: refused.length };
-}
-
-/** The tile's short form: `6 not taggable yet · 13 deleted`, or null when none stay. */
-export function stayShort(m: Model, acct?: string) {
-  const s = stayHere(m, acct);
-  const parts = [
-    s.untaggable && `${s.untaggable} not taggable yet`,
-    s.deleted && `${s.deleted} deleted`,
-    s.refused && `${s.refused} refused by Cloudflare`,
-  ].filter(Boolean);
-  return parts.length ? parts.join(' · ') : null;
 }
 
 /** For the move button's hover: what it leaves out and why, or null when it leaves nothing out. */

@@ -84,7 +84,7 @@ import {
 import { hitting, PaceList } from './pace';
 import { CATEGORY_ICON, ProductIcon } from './products';
 import { meterName, quotaDomain, quotaRows } from './quotas';
-import { MoveToCloudflare, stayShort, TagBulkBar, tagAccessLine, tagDomain, tagRows } from './tag-manager';
+import { MoveToCloudflare, stayHere, TagBulkBar, tagAccessLine, tagDomain, tagRows } from './tag-manager';
 import { BulkBar, TagForm, TagMark } from './tags';
 
 // ---------- Saved page layouts ----------
@@ -136,6 +136,19 @@ function withPace(c: CustomViewConfig, fallback: CustomViewConfig): CustomViewCo
   };
 }
 
+/**
+ * A saved Tags view from before shows "Only in usageflare" (`local`) and "Kept in" (`where`): the
+ * first becomes Deleted and Not taggable, the second goes.
+ */
+function splitLocal(config: CustomViewConfig): CustomViewConfig {
+  const cols = config.columns;
+  if (!cols?.some((c) => c === 'local' || c === 'where')) return config;
+  return {
+    ...config,
+    columns: cols.flatMap((c) => (c === 'local' ? ['deleted', 'untaggable'] : c === 'where' ? [] : [c])),
+  };
+}
+
 function useSavedView(page: PageId, fallback: CustomViewConfig) {
   const qc = useQueryClient();
   const saved = useQuery({
@@ -156,7 +169,9 @@ function useSavedView(page: PageId, fallback: CustomViewConfig) {
     onSuccess: () => qc.setQueryData(['view', page], { config: null }),
   });
   return {
-    config: saved.data?.config ? withPace(withNumbers(saved.data.config, fallback), fallback) : fallback,
+    config: saved.data?.config
+      ? withPace(withNumbers(splitLocal(saved.data.config), fallback), fallback)
+      : fallback,
     onConfigChange: (c: CustomViewConfig) => save.mutate(c),
     onReset: saved.data?.config ? () => reset.mutate() : undefined,
   };
@@ -1151,13 +1166,13 @@ export function ResourcesPage({
 
 const TAGS = view({
   name: 'Tags',
-  columns: ['name', 'account', 'key', 'resources', 'where', 'local', 'inherited'],
+  columns: ['name', 'account', 'key', 'resources', 'deleted', 'untaggable', 'inherited'],
   group: { fields: ['account', 'kind', 'where'], default: 'account' },
   sort: { key: 'resources', desc: true },
 } as Partial<CustomViewConfig> & { name: string });
 const ACCOUNT_TAGS = view({
   name: 'Tags',
-  columns: ['name', 'key', 'resources', 'where', 'local', 'inherited'],
+  columns: ['name', 'key', 'resources', 'deleted', 'untaggable', 'inherited'],
   group: { fields: ['kind', 'where'], default: 'kind' },
   sort: { key: 'resources', desc: true },
 } as Partial<CustomViewConfig> & { name: string });
@@ -1187,6 +1202,11 @@ export function TagsPage({ acct }: { acct?: string }) {
   const access = tagAccessLine(m);
   const tagged = new Set(rows.flatMap((t) => t.ids)).size;
   const local = new Set(rows.flatMap((t) => t.ids.filter((id) => m.tags.local[id]?.length))).size;
+  const inCf = tagged - local;
+  const stay = stayHere(m, acct);
+  // Kept here though Cloudflare could hold them: waiting on a move or on a token that writes tags.
+  const pending = local - stay.untaggable - stay.deleted - stay.refused;
+  const toMove = pending ? `${pending} still to move · ` : '';
   const live = m.resources.filter((r) => !r.total && !m.archived(r) && (!acct || r.acct === acct)).length;
   const write = acct ? m.tags.access[acct] : undefined;
   return (
@@ -1209,34 +1229,43 @@ export function TagsPage({ acct }: { acct?: string }) {
         intro={
           <TileRow fill aria-label="Tags">
             <Tile
-              label="Projects"
-              value={new Set(rows.filter((t) => t.kind === 'Project').map((t) => t.name)).size}
-              caption={`${new Set(rows.filter((t) => t.kind !== 'Project').map((t) => t.name)).size} other Cloudflare tags`}
+              label="Number of tags"
+              value={rows.length}
+              caption={
+                rows.some((t) => t.kind !== 'Project')
+                  ? `${rows.filter((t) => t.kind === 'Project').length} projects · ${rows.filter((t) => t.kind !== 'Project').length} other`
+                  : 'All projects'
+              }
             />
-            <Tile label="Tagged resources" value={tagged} caption={`of ${live}`} />
+            <Tile label="Tagged in usageflare" value={tagged} caption={`of ${live} resources`} />
             <Tile
-              label="Only in usageflare"
-              value={local}
-              caption={stayShort(m, acct) ?? 'Not saved in Cloudflare'}
-              valueClassName={local ? 'text-warning' : undefined}
+              label="Tagged in Cloudflare"
+              value={inCf}
+              caption={
+                (acct ? write?.write : access.yes)
+                  ? `${toMove}${acct ? 'its token writes tags' : `${access.yes} of ${access.of} accounts write tags`}`
+                  : acct
+                    ? (write?.error ?? 'Add Account › Tag › Edit to its token')
+                    : 'Add Account › Tag › Edit to a token'
+              }
             />
-            {acct ? (
-              <Tile
-                label="Saved in Cloudflare"
-                value={write?.write ? 'Yes' : 'No'}
-                caption={
-                  write?.write
-                    ? 'Its token writes tags'
-                    : (write?.error ?? 'Add Account › Tag › Edit to its token')
-                }
-              />
-            ) : (
-              <Tile
-                label="Saved in Cloudflare"
-                value={`${access.yes} of ${access.of}`}
-                caption={access.yes ? access.names.join(' · ') : 'Add Account › Tag › Edit to a token'}
-              />
-            )}
+            <Tile
+              label="Deleted"
+              value={stay.deleted}
+              caption={stay.deleted ? 'Tags kept in usageflare' : 'None with tags'}
+            />
+            <Tile
+              label="Not taggable"
+              value={stay.untaggable + stay.refused}
+              caption={
+                [
+                  stay.products.length ? `${stay.products.join(', ')} not supported yet` : '',
+                  stay.refused ? `${stay.refused} refused by Cloudflare` : '',
+                ]
+                  .filter(Boolean)
+                  .join(' · ') || 'Cloudflare can tag them all'
+              }
+            />
           </TileRow>
         }
         domain={domain}
