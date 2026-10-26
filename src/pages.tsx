@@ -1196,7 +1196,7 @@ export function TagsPage({ acct }: { acct?: string }) {
         meta={
           (acct ? write?.write : m.tags.readAt) && m.tags.readAt
             ? `Cloudflare resource tags, read ${new Date(m.tags.readAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
-            : 'Kept in usageflare until a tags token is added'
+            : 'Kept in usageflare until a token can write tags'
         }
         actions={
           <>
@@ -1226,15 +1226,15 @@ export function TagsPage({ acct }: { acct?: string }) {
                 value={write?.write ? 'Yes' : 'No'}
                 caption={
                   write?.write
-                    ? 'A tags token reaches this account'
-                    : (write?.error ?? 'Add a tags token in Settings')
+                    ? 'Its token writes tags'
+                    : (write?.error ?? 'Add Account › Tag › Edit to its token')
                 }
               />
             ) : (
               <Tile
                 label="Saved in Cloudflare"
                 value={`${access.yes} of ${access.of}`}
-                caption={access.yes ? access.names.join(' · ') : 'Add a tags token in Settings'}
+                caption={access.yes ? access.names.join(' · ') : 'Add Account › Tag › Edit to a token'}
               />
             )}
           </TileRow>

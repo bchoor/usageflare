@@ -1,6 +1,7 @@
 /**
- * Tags: Cloudflare's own resource tags (its Tagging API) wherever an account has a tags token, and
- * kept in usageflare for the rest (no tags token yet, or a product Cloudflare can't tag). A project
+ * Tags: Cloudflare's own resource tags (its Tagging API) wherever a token with Account › Tag reaches
+ * the account, and kept in usageflare for the rest (no such token yet, or a product Cloudflare
+ * can't tag). A project
  * tag `mailcellar` is the key `project.mailcellar` with no value, so a resource holds as many as it
  * likes; any other Cloudflare tag shows as `key=value`. Colours and icons stay here: Cloudflare
  * tags hold text only. Each account keeps its own tags, as Cloudflare does: one name in two
@@ -134,7 +135,11 @@ async function tagAccess(env: Env, fresh: boolean): Promise<Access> {
     const hit = await env.KV.get<{ at: number; value: Access }>(ACCESS_KEY, 'json');
     if (hit && Date.now() - hit.at < ACCESS_TTL_MS) return hit.value;
   }
-  const secrets = (await listSecrets(env)).filter((s) => s.kind === 'cf_tags_token');
+  // The usage token writes tags too when it has Account › Tag › Edit; a tags-only token saved
+  // before that is tried after it.
+  const secrets = (await listSecrets(env)).sort(
+    (a, b) => Number(a.kind === 'cf_tags_token') - Number(b.kind === 'cf_tags_token'),
+  );
   const out: Access = {};
   if (secrets.length) {
     const { accounts } = await accountRefs(env, false);

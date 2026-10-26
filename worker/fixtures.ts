@@ -274,7 +274,7 @@ const FIXTURE_ASSIGN: Record<string, string[]> = {
   'a3000000000000000000000000000003:r2:assets': ['appflare'],
 };
 
-/** Account 2 has no tags token: its tags are kept in usageflare. */
+/** Account 2's token can't write tags: its tags are kept in usageflare. */
 const FIXTURE_LOCAL = Object.fromEntries(
   Object.entries(FIXTURE_ASSIGN).filter(([id]) => id.startsWith('a2')),
 );

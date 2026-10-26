@@ -6,6 +6,7 @@
  * KV layout: `secret:<name>` → StoredSecret (JSON); `test:<name>` → KeyTest, kept apart so a slow
  * test can never write an old ciphertext back over a replace or a delete.
  */
+import { listAccounts } from './cloudflare';
 import type { Env } from './env';
 
 export interface KeyTest {
@@ -13,11 +14,17 @@ export interface KeyTest {
   ok: boolean;
   detail?: string | null;
   error?: string | null;
+  /** Accounts the token reaches, and of those, how many let it read tags (Account › Tag). */
+  accounts?: number;
+  tagAccounts?: number;
 }
 
 interface StoredSecret {
   v: 1;
-  /** `cf_tags_token`: Tag Read + Tag Write only, for writing tags; the usage token stays read-only. */
+  /**
+   * `cf_api_token` reads usage and, with Account › Tag › Edit, writes tags too. `cf_tags_token` was
+   * a tags-only token; ones saved before still write tags but aren't offered any more.
+   */
   kind: 'cf_api_token' | 'cf_tags_token';
   label: string;
   iv: string;
@@ -154,9 +161,32 @@ export async function testSecret(env: Env, name: string): Promise<SecretInfo | n
       result?: { status?: string };
       errors?: { message: string }[];
     };
-    test = body.success
-      ? { at: new Date().toISOString(), ok: true, detail: `Token ${body.result?.status ?? 'valid'}` }
-      : { at: new Date().toISOString(), ok: false, error: body.errors?.[0]?.message ?? `HTTP ${res.status}` };
+    if (body.success && token) {
+      // Which accounts it reaches, and in which listing tag keys works (Tag Read; Edit adds Write).
+      const accounts = await listAccounts(token).catch(() => []);
+      const tags = await Promise.all(
+        accounts.map((a) =>
+          fetch(`https://api.cloudflare.com/client/v4/accounts/${a.id}/tags/keys`, {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+            .then((r) => r.ok)
+            .catch(() => false),
+        ),
+      );
+      const tagAccounts = tags.filter(Boolean).length;
+      test = {
+        at: new Date().toISOString(),
+        ok: true,
+        detail: `Token ${body.result?.status ?? 'valid'} · ${accounts.length} account${accounts.length === 1 ? '' : 's'} · tags in ${tagAccounts}`,
+        accounts: accounts.length,
+        tagAccounts,
+      };
+    } else
+      test = {
+        at: new Date().toISOString(),
+        ok: false,
+        error: body.errors?.[0]?.message ?? `HTTP ${res.status}`,
+      };
   } catch (e) {
     test = { at: new Date().toISOString(), ok: false, error: e instanceof Error ? e.message : 'Test failed' };
   }
