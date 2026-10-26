@@ -3,13 +3,14 @@ import { apiJson } from '@columenlabs/lumen-ui';
 
 export interface SecretInfo {
   name: string;
-  /** `cf_tags_token`: Tag Read + Tag Write, for saving tags in Cloudflare. */
+  /** `cf_api_token` reads usage (and writes tags with Account › Tag › Edit); `cf_tags_token` is a tags-only token from before. */
   kind: 'cf_api_token' | 'cf_tags_token';
   label: string;
   last4: string;
   updatedAt: string;
   updatedBy: string;
-  test: KeyTestResult | null;
+  /** With the accounts the token reaches and how many of them let it read tags. */
+  test: (KeyTestResult & { accounts?: number; tagAccounts?: number }) | null;
 }
 
 // apiJson sets the JSON content type itself; a second `Content-Type` here would join into

@@ -136,6 +136,8 @@ const api = new Hono<AppEnv>()
   })
   .post('/secrets/:name/test', zValidator('param', name), async (c) => {
     const secret = await testSecret(c.env, c.req.valid('param').name);
+    // A test can find Tag access the token didn't have before: probe it again on the next read.
+    await forgetTagAccess(c.env);
     return secret ? c.json({ secret }) : c.json({ error: 'Not found' }, 404);
   })
   .delete('/secrets/:name', zValidator('param', name), async (c) => {
@@ -166,7 +168,7 @@ const api = new Hono<AppEnv>()
     await putPrefs(c.env, c.req.valid('json'));
     return c.json(await getPrefs(c.env));
   })
-  // Tags: Cloudflare's where a tags token reaches the account, else kept here (`?fresh` re-reads).
+  // Tags: Cloudflare's where a token with Account › Tag reaches the account, else kept here (`?fresh` re-reads).
   .get('/tags', async (c) => {
     const tags = await getTagsState(c.env, fresh(c.req.query('fresh')));
     return c.json(fixturesOn(c.env, c.req.url) && !tags.tags.length ? FIXTURE_TAGS : tags);

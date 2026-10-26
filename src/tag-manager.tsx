@@ -58,7 +58,8 @@ const whereOf = (t: TagRow) =>
   t.ids.length === 0 ? 'Unused' : t.local === 0 ? 'Cloudflare' : t.inCf === 0 ? 'usageflare' : 'Both';
 const WHERE_NOTE: Record<string, string> = {
   Cloudflare: 'Saved as Cloudflare resource tags',
-  usageflare: 'Kept in usageflare: Cloudflare can’t tag those resources, or their account has no tags token',
+  usageflare:
+    'Kept in usageflare: Cloudflare can’t tag those resources, or its token lacks Account › Tag › Edit',
   Both: 'Some resources keep it in Cloudflare, some only in usageflare',
   Unused: 'On no resource yet',
 };
@@ -157,7 +158,7 @@ export function tagDomain(m: Model): ViewDomain<TagRow> {
   };
 }
 
-/** Resources whose tags are kept here though Cloudflare could hold them (a tags token reaches the account). */
+/** Resources whose tags are kept here though Cloudflare could hold them (the account's token can write tags). */
 export function movable(m: Model): string[] {
   return Object.keys(m.tags.local).filter((id) => {
     const [acct = '', product] = id.split(':') as [string, Resource['product']];
@@ -165,7 +166,7 @@ export function movable(m: Model): string[] {
   });
 }
 
-/** Resources of `acct` (or any account) whose tags Cloudflare could hold once a tags token reaches it. */
+/** Resources of `acct` (or any account) whose tags Cloudflare could hold once its token can write tags. */
 const waiting = (m: Model, acct?: string) =>
   Object.keys(m.tags.local).filter((id) => {
     const [a = '', product] = id.split(':') as [string, Resource['product']];
@@ -178,8 +179,8 @@ const waiting = (m: Model, acct?: string) =>
   });
 
 /**
- * Moves tags kept here to Cloudflare, after a preview of how many per account. Until a tags token
- * reaches the account it shows greyed out, saying what to add.
+ * Moves tags kept here to Cloudflare, after a preview of how many per account. Until the account's token
+ * can write tags it shows greyed out, saying what to add.
  */
 export function MoveToCloudflare({ m, acct }: { m: Model; acct?: string }) {
   const ids = movable(m).filter((id) => !acct || acctOf(id) === acct);
@@ -191,7 +192,7 @@ export function MoveToCloudflare({ m, acct }: { m: Model; acct?: string }) {
         size="sm"
         variant="outline"
         disabled
-        title="Add a Tags token (Account › Tag › Edit) in Settings › Tokens to save these tags in Cloudflare"
+        title="Add Account › Tag › Edit to the account's token (Settings › Cloudflare API tokens) to save these tags in Cloudflare"
       >
         <CloudUpload className="size-4" />
         Move {n} to Cloudflare
