@@ -76,8 +76,9 @@ export interface Metric {
   /** Billed, but Cloudflare offers no usage API for it: shown as "No usage API", never 0. */
   noApi?: boolean;
   /**
-   * The billing unit an overage rounds up to (R2: whole millions of ops, whole GB-months), so
-   * 1.58M Class A ops past a 1M allowance bills 1M, not 0.58M.
+   * The billing unit an overage rounds up to, where Cloudflare's pricing docs say usage rounds
+   * up: R2 (whole millions of ops, whole GB-months) and Durable Objects compute (whole millions
+   * of requests and GB-s). So 1.58M R2 Class A ops past a 1M allowance bills 1M, not 0.58M.
    */
   block?: number;
   paid: Allowance | null;
@@ -369,6 +370,7 @@ export const METRICS: Metric[] = [
   },
   {
     key: 'do.req',
+    block: 1e6,
     family: 'req',
     product: 'do',
     label: 'Requests',
@@ -379,6 +381,7 @@ export const METRICS: Metric[] = [
   },
   {
     key: 'do.dur',
+    block: 1e6,
     family: 'mem',
     product: 'do',
     label: 'Duration',
