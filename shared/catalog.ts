@@ -608,7 +608,7 @@ export interface UsageSnapshot {
 export interface Tag {
   /** The account it belongs to: each account keeps its own tags; one name in two accounts is two tags. */
   acct: string;
-  /** A project tag's name (`mailcellar`, its key in Cloudflare `project.mailcellar`), or `key=value` for any other Cloudflare tag. */
+  /** A project tag's name (`newsletter`, its key in Cloudflare `project.newsletter`), or `key=value` for any other Cloudflare tag. */
   name: string;
   /** Index into the tag palette. */
   c: number;
@@ -654,7 +654,7 @@ export const CF_TAG_TYPE: Partial<Record<ProductId, string>> = {
 /** The account a resource id (`<account>:<product>:<name>`) belongs to. */
 export const acctOf = (id: string) => id.slice(0, Math.max(0, id.indexOf(':')));
 
-/** A project tag `mailcellar` is the key `project.mailcellar` (no value); others are `key=value`. */
+/** A project tag `newsletter` is the key `project.newsletter` (no value); others are `key=value`. */
 export const PROJECT_PREFIX = 'project.';
 export function tagToCf(name: string): [string, string] {
   const i = name.indexOf('=');

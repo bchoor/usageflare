@@ -1,7 +1,6 @@
 name: Release
 
-# Runs `lumen-ship release` (lumen-ship.json, the version pinned in package.json), copied from
-# edgedesk. Release notes are key takeaways Claude writes (secret ANTHROPIC_API_KEY).
+# Runs `lumen-ship release` (lumen-ship.json, the version pinned in package.json). Release notes are key takeaways Claude writes (secret ANTHROPIC_API_KEY).
 # - push to main: one patch once RELEASE_EVERY merges (repo variable, default 10) landed since the
 #   last tag, or on the first merge 7 days after it, only while the repo variable RELEASE_ON_MERGE is "true".
 # - Run workflow: patch (now, whatever the count), minor or notes, dry run by default.

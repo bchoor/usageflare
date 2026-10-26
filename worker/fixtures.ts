@@ -17,8 +17,8 @@ import type { Env } from './env';
 
 const ACCOUNTS = [
   { id: 'a1000000000000000000000000000001', name: 'Personal', plan: 'paid' as const },
-  { id: 'a2000000000000000000000000000002', name: 'Columen Labs Dev', plan: 'free' as const },
-  { id: 'a3000000000000000000000000000003', name: 'Columen Labs Prod', plan: 'paid' as const },
+  { id: 'a2000000000000000000000000000002', name: 'Icaruslab Dev', plan: 'free' as const },
+  { id: 'a3000000000000000000000000000003', name: 'Icaruslab Prod', plan: 'paid' as const },
 ];
 
 export const fixturesOn = (env: Env, url: string) => {
@@ -48,22 +48,22 @@ const SPECS: Record<string, Spec[]> = {
   a1000000000000000000000000000001: [
     [
       'workers',
-      'online-backup',
+      'photo-backup',
       { 'workers.req': 90e3, 'workers.cpu': 260e3 },
       { routes: ['backup.example.dev'] },
     ],
-    ['workers', 'career-site', { 'workers.req': 21e3, 'workers.cpu': 60e3 }],
-    ['workers', 'mailcellar-api', { 'workers.req': 130e3, 'workers.cpu': 420e3 }],
-    ['workers', 'edgedesk-proxy', { 'workers.req': 45e3, 'workers.cpu': 120e3 }],
+    ['workers', 'blog-site', { 'workers.req': 21e3, 'workers.cpu': 60e3 }],
+    ['workers', 'newsletter-api', { 'workers.req': 130e3, 'workers.cpu': 420e3 }],
+    ['workers', 'status-page-proxy', { 'workers.req': 45e3, 'workers.cpu': 120e3 }],
     ['kv', 'SESSIONS', { 'kv.read': 150e3, 'kv.write': 18e3, 'kv.stor': 0.4 }],
     ['kv', 'CONFIG', { 'kv.read': 30e3, 'kv.write': 40, 'kv.stor': 0.01 }],
     ['kv', 'API_KEYS_PREVIEW', {}, { state: 'unbound' }],
-    ['r2', 'mailcellar-spike', { 'r2.stor': 0.4, 'r2.a': 900, 'r2.b': 2e3 }, { state: 'deleted' }, 13],
+    ['r2', 'newsletter-spike', { 'r2.stor': 0.4, 'r2.a': 900, 'r2.b': 2e3 }, { state: 'deleted' }, 13],
     ['d1', '86c1c9e9e1a54d0c9b0f3f6f4b7a2c11', { 'd1.read': 2e5, 'd1.write': 900 }, { state: 'deleted' }, 40],
-    ['d1', 'mailcellar-db', { 'd1.read': 40e6, 'd1.write': 600e3, 'd1.stor': 2.1 }],
+    ['d1', 'newsletter-db', { 'd1.read': 40e6, 'd1.write': 600e3, 'd1.stor': 2.1 }],
     ['r2', 'backups', { 'r2.stor': 6.2, 'r2.a': 52e3, 'r2.b': 120e3 }, { type: 'Standard' }],
     // A bucket with a handful of operations in an account whose Class A pool is over: no "At cap".
-    ['r2', 'agentic-inbox', { 'r2.stor': 1e-6, 'r2.a': 0.12 }, { type: 'Standard' }],
+    ['r2', 'upload-inbox', { 'r2.stor': 1e-6, 'r2.a': 0.12 }, { type: 'Standard' }],
     [
       'r2',
       'backups-archive',
@@ -83,18 +83,23 @@ const SPECS: Record<string, Spec[]> = {
     ['builds', 'Workers Builds', { 'builds.min': 160 }, { total: true }],
   ],
   a2000000000000000000000000000002: [
-    ['workers', 'p2e-staging', { 'workers.req': 38e3, 'workers.cpu': 200e3 }],
-    ['workers', 'ai-bots-dev', { 'workers.req': 14e3, 'workers.cpu': 90e3 }],
+    ['workers', 'quizgame-staging', { 'workers.req': 38e3, 'workers.cpu': 200e3 }],
+    ['workers', 'chatbot-dev', { 'workers.req': 14e3, 'workers.cpu': 90e3 }],
     ['kv', 'CACHE', { 'kv.read': 64e3, 'kv.write': 640, 'kv.stor': 0.2 }],
-    ['d1', 'p2e-dev', { 'd1.read': 3.1e6, 'd1.write': 45e3, 'd1.stor': 0.6 }],
+    ['d1', 'quizgame-dev', { 'd1.read': 3.1e6, 'd1.write': 45e3, 'd1.stor': 0.6 }],
     ['ai', '@cf/baai/bge-base-en-v1.5', { 'ai.neurons': 6.8e3 }],
     ['vectorize', 'docs-index', { 'vec.q': 300e3, 'vec.stor': 3.8e6 }, { detail: '768 dims' }],
     ['hyperdrive', 'pg-dev', { 'hd.q': 40e3 }],
   ],
   a3000000000000000000000000000003: [
-    ['workers', 'p2e', { 'workers.req': 240e3, 'workers.cpu': 700e3 }, { routes: ['p2e.example.com'] }],
-    ['workers', 'tools', { 'workers.req': 30e3, 'workers.cpu': 90e3 }],
-    ['workers', 'appflare-web', { 'workers.req': 110e3, 'workers.cpu': 300e3 }],
+    [
+      'workers',
+      'quizgame',
+      { 'workers.req': 240e3, 'workers.cpu': 700e3 },
+      { routes: ['quizgame.example.com'] },
+    ],
+    ['workers', 'admin', { 'workers.req': 30e3, 'workers.cpu': 90e3 }],
+    ['workers', 'storefront-web', { 'workers.req': 110e3, 'workers.cpu': 300e3 }],
     [
       'containers',
       'renderer',
@@ -102,7 +107,7 @@ const SPECS: Record<string, Spec[]> = {
       { type: 'standard', detail: '3 instances' },
     ],
     ['kv', 'FLAGS', { 'kv.read': 300e3, 'kv.write': 2e3, 'kv.stor': 0.05 }],
-    ['d1', 'p2e-prod', { 'd1.read': 600e6, 'd1.write': 1.6e6, 'd1.stor': 4.4 }],
+    ['d1', 'quizgame-prod', { 'd1.read': 600e6, 'd1.write': 1.6e6, 'd1.stor': 4.4 }],
     ['r2', 'assets', { 'r2.stor': 8.7, 'r2.a': 34e3, 'r2.b': 410e3 }, { type: 'Standard' }],
     [
       'do',
@@ -148,9 +153,9 @@ function fixtureBilling(id: string, dates: string[]): Account['billing'] {
  * (it hits the daily cap), and one lone hour of KV reads on Personal (damped, not projected).
  */
 const SURGE: Record<string, (slot: number) => number> = {
-  'a2000000000000000000000000000002:workers:p2e-staging|workers.req': (h) => (h >= 17 ? 3.2 : 1),
+  'a2000000000000000000000000000002:workers:quizgame-staging|workers.req': (h) => (h >= 17 ? 3.2 : 1),
   'a1000000000000000000000000000001:kv:SESSIONS|kv.read': (h) => (h === 20 ? 9 : 1),
-  'a3000000000000000000000000000003:d1:p2e-prod|d1.read': (h) => (h >= 12 ? 1.8 : 1),
+  'a3000000000000000000000000000003:d1:quizgame-prod|d1.read': (h) => (h >= 12 ? 1.8 : 1),
 };
 
 /** The last day by the hour, from yesterday's total, with a daytime rise; today's day matches it. */
@@ -242,36 +247,36 @@ export function fixtureUsage(accountId: string, dates: string[]) {
 
 /** Tags to start from, so the sidebar, filters and Tags settings have something to show. */
 const FIXTURE_TAG_STYLE: Omit<Tag, 'acct'>[] = [
-  { name: 'online-backup', c: 1, icon: 'archive' },
-  { name: 'career', c: 2, icon: 'briefcase' },
-  { name: 'edgedesk', c: 3, icon: 'zap' },
-  { name: 'mailcellar', c: 4, icon: 'mail' },
-  { name: 'p2e', c: 5, icon: 'gamepad-2' },
-  { name: 'tools', c: 6, icon: 'wrench' },
-  { name: 'appflare', c: 7, icon: 'flame' },
-  { name: 'ai-bots', c: 8, icon: 'bot' },
+  { name: 'photo-backup', c: 1, icon: 'archive' },
+  { name: 'blog', c: 2, icon: 'briefcase' },
+  { name: 'status-page', c: 3, icon: 'zap' },
+  { name: 'newsletter', c: 4, icon: 'mail' },
+  { name: 'quizgame', c: 5, icon: 'gamepad-2' },
+  { name: 'admin', c: 6, icon: 'wrench' },
+  { name: 'storefront', c: 7, icon: 'flame' },
+  { name: 'chatbot', c: 8, icon: 'bot' },
   { name: 'env=production', c: 9 },
 ];
 
 const FIXTURE_ASSIGN: Record<string, string[]> = {
-  'a1000000000000000000000000000001:workers:online-backup': ['online-backup'],
-  'a1000000000000000000000000000001:r2:backups': ['online-backup'],
-  'a1000000000000000000000000000001:r2:backups-archive': ['online-backup'],
-  'a1000000000000000000000000000001:workers:career-site': ['career'],
-  'a1000000000000000000000000000001:workers:edgedesk-proxy': ['edgedesk'],
-  'a1000000000000000000000000000001:workers:mailcellar-api': ['mailcellar'],
-  'a1000000000000000000000000000001:d1:mailcellar-db': ['mailcellar'],
-  'a1000000000000000000000000000001:queues:mail-out': ['mailcellar'],
-  'a1000000000000000000000000000001:r2:mailcellar-spike': ['mailcellar'],
-  'a2000000000000000000000000000002:workers:p2e-staging': ['p2e'],
-  'a2000000000000000000000000000002:d1:p2e-dev': ['p2e'],
-  'a2000000000000000000000000000002:workers:ai-bots-dev': ['ai-bots'],
-  'a3000000000000000000000000000003:workers:p2e': ['p2e'],
-  'a3000000000000000000000000000003:d1:p2e-prod': ['p2e'],
-  'a3000000000000000000000000000003:do:Rooms': ['p2e'],
-  'a3000000000000000000000000000003:workers:tools': ['tools'],
-  'a3000000000000000000000000000003:workers:appflare-web': ['appflare'],
-  'a3000000000000000000000000000003:r2:assets': ['appflare'],
+  'a1000000000000000000000000000001:workers:photo-backup': ['photo-backup'],
+  'a1000000000000000000000000000001:r2:backups': ['photo-backup'],
+  'a1000000000000000000000000000001:r2:backups-archive': ['photo-backup'],
+  'a1000000000000000000000000000001:workers:blog-site': ['blog'],
+  'a1000000000000000000000000000001:workers:status-page-proxy': ['status-page'],
+  'a1000000000000000000000000000001:workers:newsletter-api': ['newsletter'],
+  'a1000000000000000000000000000001:d1:newsletter-db': ['newsletter'],
+  'a1000000000000000000000000000001:queues:mail-out': ['newsletter'],
+  'a1000000000000000000000000000001:r2:newsletter-spike': ['newsletter'],
+  'a2000000000000000000000000000002:workers:quizgame-staging': ['quizgame'],
+  'a2000000000000000000000000000002:d1:quizgame-dev': ['quizgame'],
+  'a2000000000000000000000000000002:workers:chatbot-dev': ['chatbot'],
+  'a3000000000000000000000000000003:workers:quizgame': ['quizgame'],
+  'a3000000000000000000000000000003:d1:quizgame-prod': ['quizgame'],
+  'a3000000000000000000000000000003:do:Rooms': ['quizgame'],
+  'a3000000000000000000000000000003:workers:admin': ['admin'],
+  'a3000000000000000000000000000003:workers:storefront-web': ['storefront'],
+  'a3000000000000000000000000000003:r2:assets': ['storefront'],
 };
 
 /**
@@ -280,15 +285,15 @@ const FIXTURE_ASSIGN: Record<string, string[]> = {
  */
 const FIXTURE_LOCAL: Record<string, string[]> = {
   ...Object.fromEntries(Object.entries(FIXTURE_ASSIGN).filter(([id]) => id.startsWith('a2'))),
-  'a1000000000000000000000000000001:workflows:nightly-export': ['edgedesk'],
-  'a1000000000000000000000000000001:r2:mailcellar-spike': ['mailcellar'],
+  'a1000000000000000000000000000001:workflows:nightly-export': ['status-page'],
+  'a1000000000000000000000000000001:r2:newsletter-spike': ['newsletter'],
 };
 
 const FIXTURE_ALL: Record<string, string[]> = {
   ...FIXTURE_ASSIGN,
   ...FIXTURE_LOCAL,
-  'a3000000000000000000000000000003:workers:p2e': ['env=production', 'p2e'],
-  'a3000000000000000000000000000003:workers:tools': ['env=production', 'tools'],
+  'a3000000000000000000000000000003:workers:quizgame': ['env=production', 'quizgame'],
+  'a3000000000000000000000000000003:workers:admin': ['env=production', 'admin'],
 };
 
 /** Each account's own tags: the styles above, in every account that uses them. */
