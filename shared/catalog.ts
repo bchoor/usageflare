@@ -626,11 +626,11 @@ export interface TagsDoc {
  * token, else as kept in usageflare.
  */
 export interface TagsState extends TagsDoc {
-  /** resource id → tag names kept only in usageflare (Cloudflare can't tag it, or no tags token yet). */
+  /** resource id → tag names kept only in usageflare (Cloudflare can't tag it, or no token that writes tags yet). */
   local: Record<string, string[]>;
-  /** account id → whether a tags token reaches it, and why not when one was tried. */
+  /** account id → whether a token that writes tags reaches it, and why not when one was tried. */
   access: Record<string, { write: boolean; error?: string }>;
-  /** When Cloudflare's tags were read (ISO); absent when no account has a tags token. */
+  /** When Cloudflare's tags were read (ISO); absent when no token reaches any account's tags. */
   readAt?: string;
   /** Resources Cloudflare refused a write for, with why (a 412 means it changed there: read again). */
   failed?: { id: string; error: string }[];

@@ -71,7 +71,7 @@ export async function accountRefs(env: Env, fresh: boolean, defer?: Defer) {
     async () => {
       const accounts: AccountRef[] = [];
       const errors: { token: string; label: string; error: string }[] = [];
-      // Tags tokens only write tags; usage is read with the read-only ones.
+      // A tags-only token from before only writes tags; usage is read with the others.
       for (const s of (await listSecrets(env)).filter((x) => x.kind !== 'cf_tags_token')) {
         try {
           const token = await revealSecret(env, s.name);

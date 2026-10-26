@@ -1,6 +1,6 @@
 /**
  * Tags are projects: a colour and an optional icon, put on resources, and kept in Cloudflare (its
- * resource tags) where the account has a tags token. Each account keeps its own tags, as Cloudflare
+ * resource tags) where the account's token has Account › Tag › Edit. Each account keeps its own tags, as Cloudflare
  * does; the same name in two accounts is two tags that a filter by name finds together. These are the mark that stands
  * for one, the form that makes or edits one, and the pickers that tag one or several resources.
  */
@@ -508,6 +508,6 @@ export function TagSource({ m, r }: { m: Model; r: Resource }) {
         ? m.tags.local[r.id]?.length
           ? 'Kept in usageflare until moved to Cloudflare (Settings › Tags)'
           : 'Saved as Cloudflare resource tags'
-        : 'Kept in usageflare: add a tags token for this account to save them in Cloudflare';
+        : "Kept in usageflare: add Account › Tag › Edit to this account's token to save them in Cloudflare";
   return <p className="text-muted-foreground text-xs">{text}</p>;
 }
