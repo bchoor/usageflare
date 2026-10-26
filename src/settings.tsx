@@ -56,7 +56,7 @@ function scopeOf(s: SecretInfo) {
   if (!n) return { text: 'Read', note: 'Read-only: add Account › Tag › Edit to save tags in Cloudflare' };
   return {
     text: 'Read + tags',
-    note: n === of ? 'Reads usage and writes tags in every account' : `Writes tags in ${n} of ${of} accounts`,
+    note: `${n === of ? 'Reaches tags in every account' : `Reaches tags in ${n} of ${of} accounts`}; saving them needs Tag Edit, not just Read`,
   };
 }
 

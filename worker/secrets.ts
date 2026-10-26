@@ -162,8 +162,13 @@ export async function testSecret(env: Env, name: string): Promise<SecretInfo | n
       errors?: { message: string }[];
     };
     if (body.success && token) {
-      // Which accounts it reaches, and in which listing tag keys works (Tag Read; Edit adds Write).
-      const accounts = await listAccounts(token).catch(() => []);
+      // Which accounts it reaches, and in which listing tag keys works. That needs Tag Read; Write
+      // can't be checked without writing, so a token with Read only fails on its first save.
+      const listed = await listAccounts(token).then(
+        (x) => ({ ok: true as const, x }),
+        (e) => ({ ok: false as const, x: [] as { id: string }[], e }),
+      );
+      const accounts = listed.x;
       const tags = await Promise.all(
         accounts.map((a) =>
           fetch(`https://api.cloudflare.com/client/v4/accounts/${a.id}/tags/keys`, {
@@ -174,13 +179,19 @@ export async function testSecret(env: Env, name: string): Promise<SecretInfo | n
         ),
       );
       const tagAccounts = tags.filter(Boolean).length;
-      test = {
-        at: new Date().toISOString(),
-        ok: true,
-        detail: `Token ${body.result?.status ?? 'valid'} · ${accounts.length} account${accounts.length === 1 ? '' : 's'} · tags in ${tagAccounts}`,
-        accounts: accounts.length,
-        tagAccounts,
-      };
+      test = listed.ok
+        ? {
+            at: new Date().toISOString(),
+            ok: true,
+            detail: `Token ${body.result?.status ?? 'valid'} · ${accounts.length} account${accounts.length === 1 ? '' : 's'} · tag access in ${tagAccounts}`,
+            accounts: accounts.length,
+            tagAccounts,
+          }
+        : {
+            at: new Date().toISOString(),
+            ok: true,
+            detail: `Token ${body.result?.status ?? 'valid'}; listing its accounts failed: ${listed.e instanceof Error ? listed.e.message : 'error'}`,
+          };
     } else
       test = {
         at: new Date().toISOString(),
