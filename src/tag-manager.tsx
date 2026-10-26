@@ -9,9 +9,9 @@ import { LumenConfirm, LumenSelector, lumenToast, type ViewDomain } from '@colum
 import { Button } from '@columenlabs/lumen-ui/ui/button';
 import { Building2, CloudUpload, Combine, MapPin, Palette, Rows3, Tag, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
-import { acctOf, CF_TAG_TYPE, PROJECT_PREFIX, type Resource, type TagsDoc } from '../shared/catalog';
+import { acctOf, CF_TAG_TYPE, PRODUCT, PROJECT_PREFIX, type Resource, type TagsDoc } from '../shared/catalog';
 import { type Model, tagKey } from './model';
-import { ensureTag, saveTagDoc, TagForm, TagMark, undoTags } from './tags';
+import { ensureTag, notTaggable, saveTagDoc, TagForm, TagMark, undoTags } from './tags';
 
 export interface TagRow {
   /** `<account>|<name>`: one name in two accounts is two rows. */
@@ -158,23 +158,69 @@ export function tagDomain(m: Model): ViewDomain<TagRow> {
   };
 }
 
-/** Resources whose tags are kept here though Cloudflare could hold them (the account's token can write tags). */
+/** Deleted, or no longer listed at all: Cloudflare can't tag it. */
+const gone = (m: Model, id: string) => !m.resource[id] || m.resource[id].state === 'deleted';
+
+/**
+ * Resources whose tags are kept here though Cloudflare could hold them (the account's token can
+ * write tags). Never one Cloudflare can't take: deleted, no tag type yet, or refused before.
+ */
 export function movable(m: Model): string[] {
-  return Object.keys(m.tags.local).filter((id) => {
-    const [acct = '', product] = id.split(':') as [string, Resource['product']];
-    return !!m.tags.local[id]?.length && !!CF_TAG_TYPE[product] && !!m.tags.access[acct]?.write;
-  });
+  return Object.keys(m.tags.local).filter(
+    (id) => !!m.tags.local[id]?.length && !!m.tags.access[acctOf(id)]?.write && !notTaggable(m, id),
+  );
+}
+
+/**
+ * Of `acct`'s (or every account's) resources with tags kept here, the ones that stay here: products
+ * Cloudflare can't tag yet (by product name), deleted resources, and ones Cloudflare refused.
+ */
+export function stayHere(m: Model, acct?: string) {
+  const ids = Object.keys(m.tags.local).filter(
+    (id) => (!acct || acctOf(id) === acct) && !!m.tags.local[id]?.length,
+  );
+  const untaggable = ids.filter((id) => !CF_TAG_TYPE[id.split(':')[1] as Resource['product']]);
+  const products = [
+    ...new Set(untaggable.map((id) => PRODUCT[id.split(':')[1] as Resource['product']]?.label ?? '')),
+  ].filter(Boolean);
+  const deleted = ids.filter((id) => !untaggable.includes(id) && gone(m, id));
+  const refused = ids.filter(
+    (id) => !untaggable.includes(id) && !deleted.includes(id) && !!m.tags.refused?.[id],
+  );
+  return { untaggable: untaggable.length, products, deleted: deleted.length, refused: refused.length };
+}
+
+/** The tile's short form: `6 not taggable yet · 13 deleted`, or null when none stay. */
+export function stayShort(m: Model, acct?: string) {
+  const s = stayHere(m, acct);
+  const parts = [
+    s.untaggable && `${s.untaggable} not taggable yet`,
+    s.deleted && `${s.deleted} deleted`,
+    s.refused && `${s.refused} refused by Cloudflare`,
+  ].filter(Boolean);
+  return parts.length ? parts.join(' · ') : null;
+}
+
+/** For the move button's hover: what it leaves out and why, or null when it leaves nothing out. */
+export function leftOut(m: Model, acct?: string) {
+  const s = stayHere(m, acct);
+  const parts = [
+    s.untaggable &&
+      `${s.untaggable} ${s.products.join(' and ')} resource${s.untaggable === 1 ? '' : 's'} (Cloudflare can't tag ${s.products.length === 1 ? 'it' : 'them'} yet)`,
+    s.deleted && `${s.deleted} deleted resource${s.deleted === 1 ? '' : 's'}`,
+    s.refused && `${s.refused} Cloudflare refused`,
+  ].filter(Boolean);
+  return parts.length
+    ? `Not included: ${parts.join(', ')}. Their tags stay in usageflare; a resource's Tags section can try one anyway.`
+    : null;
 }
 
 /** Resources of `acct` (or any account) whose tags Cloudflare could hold once its token can write tags. */
 const waiting = (m: Model, acct?: string) =>
   Object.keys(m.tags.local).filter((id) => {
-    const [a = '', product] = id.split(':') as [string, Resource['product']];
+    const a = acctOf(id);
     return (
-      (!acct || a === acct) &&
-      !!m.tags.local[id]?.length &&
-      !!CF_TAG_TYPE[product] &&
-      !m.tags.access[a]?.write
+      (!acct || a === acct) && !!m.tags.local[id]?.length && !m.tags.access[a]?.write && !notTaggable(m, id)
     );
   });
 
@@ -192,7 +238,7 @@ export function MoveToCloudflare({ m, acct }: { m: Model; acct?: string }) {
         size="sm"
         variant="outline"
         disabled
-        title="Add Account › Tag › Edit to the account's token (Settings › Cloudflare API tokens) to save these tags in Cloudflare"
+        title={`Add Account › Tag › Edit to the account's token (Settings › Cloudflare API tokens) to save these tags in Cloudflare.${leftOut(m, acct) ? ` ${leftOut(m, acct)}` : ''}`}
       >
         <CloudUpload className="size-4" />
         Move {n} to Cloudflare
@@ -201,6 +247,7 @@ export function MoveToCloudflare({ m, acct }: { m: Model; acct?: string }) {
   }
   const by = new Map<string, number>();
   for (const id of ids) by.set(id.split(':')[0] ?? '', (by.get(id.split(':')[0] ?? '') ?? 0) + 1);
+  const out = leftOut(m, acct);
   return (
     <LumenConfirm
       title={`Move tags on ${ids.length} resource${ids.length === 1 ? '' : 's'} to Cloudflare?`}
@@ -225,7 +272,11 @@ export function MoveToCloudflare({ m, acct }: { m: Model; acct?: string }) {
         if (saved && !saved.out.failed?.length) lumenToast.success('Tags moved to Cloudflare');
       }}
     >
-      <Button size="sm" variant="outline">
+      <Button
+        size="sm"
+        variant="outline"
+        title={`Saves the tags of ${ids.length} resource${ids.length === 1 ? '' : 's'} in Cloudflare.${out ? ` ${out}` : ''}`}
+      >
         <CloudUpload className="size-4" />
         Move {ids.length} to Cloudflare
       </Button>

@@ -38,7 +38,8 @@ export function ensureTag(doc: TagsDoc, acct: string, name: string) {
 /** The accounts of some resources, each once. */
 const acctsOf = (ids: string[]) => [...new Set(ids.map(acctOf))];
 
-let saver: ((doc: TagsDoc, base: TagsDoc, push?: boolean) => Promise<TagsState>) | null = null;
+let saver: ((doc: TagsDoc, base: TagsDoc, push?: boolean, force?: string[]) => Promise<TagsState>) | null =
+  null;
 /** The tag store's save, set by the app once (the mutation lives in React). */
 export const registerTagSaver = (fn: typeof saver) => {
   saver = fn;
@@ -47,12 +48,18 @@ export const registerTagSaver = (fn: typeof saver) => {
  * Saves an edited copy of the tags (only what the edit changed is sent); resources Cloudflare
  * refused are named in a toast. Answers both copies, so an Undo can send the change back.
  */
-export async function saveTagDoc(m: Model, edit: (doc: TagsDoc) => void, push?: boolean) {
+export async function saveTagDoc(
+  m: Model,
+  edit: (doc: TagsDoc) => void,
+  push?: boolean,
+  /** Resources to try in Cloudflare though it can't take them, to get its answer. */
+  force?: string[],
+) {
   const base: TagsDoc = structuredClone({ tags: m.tags.tags, assign: m.tags.assign });
   const doc: TagsDoc = structuredClone(base);
   edit(doc);
   if (!saver) return null;
-  const out = await saver(doc, base, push);
+  const out = await saver(doc, base, push, force);
   reportFailed(m, out);
   return { out, base, doc };
 }
@@ -496,18 +503,64 @@ export function BulkBar({
   );
 }
 
-/** Where a resource's tags live: Cloudflare, usageflare (and why), or the Workers that bind it. */
+/**
+ * Why Cloudflare can't hold a resource's tags, or null when it can: what Cloudflare said when it
+ * refused them, deleted, or a product its Tagging API has no type for yet.
+ */
+export function notTaggable(m: Model, id: string): string | null {
+  const said = m.tags.refused?.[id];
+  if (said) return `Cloudflare said "${said}"`;
+  const r = m.resource[id];
+  if (!r || r.state === 'deleted') return "it's deleted, and Cloudflare can't tag what no longer exists";
+  const product = id.split(':')[1] as Resource['product'];
+  if (!CF_TAG_TYPE[product]) return `Cloudflare can't tag ${PRODUCT[product]?.label ?? product} yet`;
+  return null;
+}
+
+/**
+ * Where a resource's tags live: Cloudflare, usageflare (and why), or the Workers that bind it. One
+ * Cloudflare can't take has "Try in Cloudflare anyway", which keeps Cloudflare's answer.
+ */
 export function TagSource({ m, r }: { m: Model; r: Resource }) {
+  const [busy, setBusy] = useState(false);
   const from = m.inherited(r);
   const workers = m.resources.filter((w) => w.binds?.includes(r.id) && m.tagsOf(w).length);
+  const why = from.length ? null : notTaggable(m, r.id);
+  const write = !!m.tags.access[r.acct]?.write;
   const text = from.length
     ? `From ${workers.map((w) => w.name).join(', ')}, the Worker${workers.length === 1 ? '' : 's'} that bind${workers.length === 1 ? 's' : ''} it`
-    : !CF_TAG_TYPE[r.product]
-      ? `Kept in usageflare: Cloudflare can't tag ${PRODUCT[r.product].label} yet`
-      : m.tags.access[r.acct]?.write
+    : why
+      ? `Not taggable: ${why}. Its tags stay in usageflare.`
+      : write
         ? m.tags.local[r.id]?.length
           ? 'Kept in usageflare until moved to Cloudflare (Settings › Tags)'
           : 'Saved as Cloudflare resource tags'
         : "Kept in usageflare: add Account › Tag › Edit to this account's token to save them in Cloudflare";
-  return <p className="text-muted-foreground text-xs">{text}</p>;
+  const tryAnyway = async () => {
+    setBusy(true);
+    try {
+      const saved = await saveTagDoc(m, () => {}, false, [r.id]);
+      if (saved && !saved.out.failed?.length) lumenToast.success(`Cloudflare took the tags on ${r.name}`);
+    } catch (e) {
+      lumenToast.error(e instanceof Error ? e.message : 'Saving tags failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <p className="text-muted-foreground text-xs">{text}</p>
+      {why && write && !!m.tags.local[r.id]?.length && (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy}
+          onClick={tryAnyway}
+          title="Sends the tags to Cloudflare anyway; if it says no, its answer shows here"
+        >
+          {busy ? 'Trying…' : 'Try in Cloudflare anyway'}
+        </Button>
+      )}
+    </div>
+  );
 }

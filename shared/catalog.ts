@@ -628,6 +628,8 @@ export interface TagsDoc {
 export interface TagsState extends TagsDoc {
   /** resource id → tag names kept only in usageflare (Cloudflare can't tag it, or no token that writes tags yet). */
   local: Record<string, string[]>;
+  /** resource id → what Cloudflare said when it refused its tags (kept until a write takes). */
+  refused?: Record<string, string>;
   /** account id → whether a token that writes tags reaches it, and why not when one was tried. */
   access: Record<string, { write: boolean; error?: string }>;
   /** When Cloudflare's tags were read (ISO); absent when no token reaches any account's tags. */

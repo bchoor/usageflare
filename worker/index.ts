@@ -50,6 +50,8 @@ const tagName = z
   .regex(/^[^\n]+$/);
 const tagsBody = z.object({
   push: z.boolean().optional(),
+  /** Resources to try in Cloudflare though it can't take them (no tag type, deleted, refused before). */
+  force: z.array(z.string().max(600)).max(50).optional(),
   tags: z
     .array(
       z.object({
@@ -174,8 +176,8 @@ const api = new Hono<AppEnv>()
     return c.json(fixturesOn(c.env, c.req.url) && !tags.tags.length ? FIXTURE_TAGS : tags);
   })
   .put('/tags', zValidator('json', tagsBody), async (c) => {
-    const { push, tags, changes } = c.req.valid('json');
-    return c.json(await saveTags(c.env, tags, changes, !!push));
+    const { push, force, tags, changes } = c.req.valid('json');
+    return c.json(await saveTags(c.env, tags, changes, !!push, force));
   })
   // A page's saved layout (LumenLayout's view config): cards, widths, columns, sort and grouping.
   .get('/views/:page', zValidator('param', viewPage), async (c) =>

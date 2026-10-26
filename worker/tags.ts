@@ -47,6 +47,8 @@ interface Stored {
   tags: Tag[];
   /** resource id → tag names Cloudflare doesn't hold for it. */
   local: Record<string, string[]>;
+  /** resource id → what Cloudflare said when it refused a write, until a write takes. */
+  refused?: Record<string, string>;
 }
 
 interface CfTagged {
@@ -56,6 +58,19 @@ interface CfTagged {
   tags: Record<string, string>;
   etag?: string;
 }
+
+/**
+ * For a "Try anyway" on a product Cloudflare's Tagging API lists no type for: the type it would most
+ * likely have, so Cloudflare's own answer says whether it takes it.
+ */
+const TRY_TYPE: Partial<Record<ProductId, string>> = {
+  workflows: 'workflow',
+  containers: 'container',
+  hyperdrive: 'hyperdrive_config',
+  ai: 'ai_model',
+  builds: 'build',
+  basin: 'pipeline',
+};
 
 const PRODUCT_BY_TYPE = new Map(Object.entries(CF_TAG_TYPE).map(([p, t]) => [t, p as ProductId]));
 
@@ -270,6 +285,7 @@ export async function readTags(
     tags,
     assign,
     local: stored.local,
+    refused: stored.refused ?? {},
     access: state,
     readAt,
     cf: cfAll,
@@ -321,31 +337,47 @@ const ifMatch = (etag?: string) =>
  * hold them, else here. A change is applied to what the resource has now (in Cloudflare and here),
  * never to an older copy the page read, so a tag added or removed in the Cloudflare dashboard in
  * between stays as it is there. With `push`, tags kept here for a resource Cloudflare can hold
- * move there too.
+ * move there too. `force` tries the resources Cloudflare can't take (no tag type, deleted, or refused
+ * before) anyway, and keeps what Cloudflare answers.
  */
 export async function saveTags(
   env: Env,
   meta: Tag[],
   changes: Record<string, TagChange>,
   push: boolean,
+  force: string[] = [],
 ): Promise<TagsState> {
   const cur = await readTags(env, true, false);
   const local = { ...cur.local };
+  const refused = { ...cur.refused };
+  const forced = new Set(force);
   const failed: { id: string; error: string }[] = [];
   const written = new Map<string, CfTagged[]>();
   const todo = { ...changes };
   const writable = (id: string) => {
     const [acct = '', product] = id.split(':') as [string, ProductId];
-    return !!CF_TAG_TYPE[product] && cur.readable.has(acct);
+    return (!!CF_TAG_TYPE[product] || forced.has(id)) && cur.readable.has(acct);
   };
-  if (push) for (const id of Object.keys(local)) if (writable(id)) todo[id] ??= { add: [], remove: [] };
+  // Only resources that still exist move: Cloudflare can't tag a deleted one, so it keeps its tags here.
+  const live = (id: string) => {
+    const r = cur.known.get(id);
+    return !!r && r.state !== 'deleted';
+  };
+  if (push)
+    for (const id of Object.keys(local))
+      if (writable(id) && live(id) && !refused[id]) todo[id] ??= { add: [], remove: [] };
+  for (const id of forced) {
+    todo[id] ??= { add: [], remove: [] };
+    if (!cur.readable.has(acctOf(id)))
+      failed.push({ id, error: "No token that writes tags reaches this resource's account" });
+  }
   let writes = 0;
   let left = 0;
   const tokens = new Map<string, string | null>();
   for (const [id, ch] of Object.entries(todo)) {
     const next = uniq([...(cur.assign[id] ?? []).filter((n) => !ch.remove.includes(n)), ...ch.add]);
     const [acct = '', product] = id.split(':') as [string, ProductId];
-    const type = CF_TAG_TYPE[product];
+    const type = CF_TAG_TYPE[product] ?? (forced.has(id) ? (TRY_TYPE[product] ?? product) : undefined);
     const secret = cur.raw[acct]?.secret;
     const keepHere = () => {
       if (next.length) local[id] = next;
@@ -363,7 +395,12 @@ export async function saveTags(
     const r = cur.known.get(id);
     const ids = item
       ? [item.id]
-      : uniq([r?.cfId ?? '', product === 'workers' ? (r?.name ?? '') : ''].filter(Boolean));
+      : uniq(
+          [
+            r?.cfId ?? '',
+            product === 'workers' || forced.has(id) ? (r?.name ?? id.split(':').slice(2).join(':')) : '',
+          ].filter(Boolean),
+        );
     if (!tokens.has(secret)) tokens.set(secret, await revealSecret(env, secret));
     const token = tokens.get(secret);
     // Cloudflare's id isn't known until the account is read again: keep the tags here meanwhile.
@@ -422,10 +459,16 @@ export async function saveTags(
         if (changed) break;
       }
     }
-    if (!error) delete local[id];
-    else failed.push({ id, error });
+    if (!error) {
+      delete local[id];
+      delete refused[id];
+    } else {
+      failed.push({ id, error });
+      // A changed resource (412) is read again; anything else is Cloudflare saying no.
+      if (!error.startsWith('Changed in Cloudflare')) refused[id] = error;
+    }
   }
-  await env.KV.put(KEY, JSON.stringify({ tags: meta, local } satisfies Stored));
+  await env.KV.put(KEY, JSON.stringify({ tags: meta, local, refused } satisfies Stored));
   // The written resources go into each account's cached list, so the answer needs no second read.
   await Promise.all(
     [...written].map(async ([acct, items]) => {

@@ -150,10 +150,20 @@ export function tagChanges(from: Record<string, string[]>, to: Record<string, st
 export function useSaveTags() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ doc, base, push }: { doc: TagsDoc; base: TagsDoc; push?: boolean }) => {
+    mutationFn: async ({
+      doc,
+      base,
+      push,
+      force,
+    }: {
+      doc: TagsDoc;
+      base: TagsDoc;
+      push?: boolean;
+      force?: string[];
+    }) => {
       const changes = tagChanges(base.assign, doc.assign);
       const put = () =>
-        apiJson<TagsState>('/api/tags', json('PUT', { tags: doc.tags, changes, push }), 'tags.put');
+        apiJson<TagsState>('/api/tags', json('PUT', { tags: doc.tags, changes, push, force }), 'tags.put');
       let out = await put();
       const failed = new Map((out.failed ?? []).map((f) => [f.id, f]));
       for (let i = 0; i < 25 && out.left; i++) {

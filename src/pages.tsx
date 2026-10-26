@@ -84,7 +84,7 @@ import {
 import { hitting, PaceList } from './pace';
 import { CATEGORY_ICON, ProductIcon } from './products';
 import { meterName, quotaDomain, quotaRows } from './quotas';
-import { MoveToCloudflare, TagBulkBar, tagAccessLine, tagDomain, tagRows } from './tag-manager';
+import { MoveToCloudflare, stayShort, TagBulkBar, tagAccessLine, tagDomain, tagRows } from './tag-manager';
 import { BulkBar, TagForm, TagMark } from './tags';
 
 // ---------- Saved page layouts ----------
@@ -1217,7 +1217,7 @@ export function TagsPage({ acct }: { acct?: string }) {
             <Tile
               label="Only in usageflare"
               value={local}
-              caption="Not saved in Cloudflare"
+              caption={stayShort(m, acct) ?? 'Not saved in Cloudflare'}
               valueClassName={local ? 'text-warning' : undefined}
             />
             {acct ? (

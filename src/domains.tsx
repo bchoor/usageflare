@@ -95,7 +95,7 @@ import {
   shareNote,
 } from './pace';
 import { ProductIcon } from './products';
-import { setTags, TagPicker, TagSource } from './tags';
+import { notTaggable, setTags, TagPicker, TagSource } from './tags';
 
 /** A view config with its defaults filled; the schema leaves the name to the caller. */
 export const view = (c: Partial<CustomViewConfig> & { name: string }) =>
@@ -330,9 +330,29 @@ export function resourceDomain(
         edit: {
           many: async (r, values) => setTags(m, [r.id], values),
           options: () => ({ inUse: tagNames(m.tags, only ? [only] : undefined), unused: [] }),
-          note: (r) =>
-            `Tags of ${acct(r)?.name ?? 'this account'}; the same name in another account filters with it.`,
+          note: (r) => {
+            const why = notTaggable(m, r.id);
+            return `Tags of ${acct(r)?.name ?? 'this account'}; the same name in another account filters with it.${why ? ` Kept in usageflare: ${why}.` : ''}`;
+          },
         },
+      },
+      {
+        // Where its tags are kept: Cloudflare, usageflare until moved, or here for good (not taggable).
+        key: 'tagHome',
+        label: 'Tags kept in',
+        icon: Tag,
+        format: 'text',
+        value: (r) =>
+          notTaggable(m, r.id)
+            ? 'Not taggable'
+            : m.tags.local[r.id]?.length
+              ? 'usageflare'
+              : m.tags.assign[r.id]?.length
+                ? 'Cloudflare'
+                : null,
+        filterable: true,
+        groupable: true,
+        hideOnPhone: true,
       },
       {
         // Deleted (gone from its list) or Unbound (nothing binds it); a chip after the name shows it.

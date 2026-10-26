@@ -296,7 +296,7 @@ function Shell() {
   const me = useQuery({ queryKey: ['me'], queryFn: api.me });
   const m = useModel();
   const saveTags = useSaveTags();
-  registerTagSaver((doc, base, push) => saveTags.mutateAsync({ doc, base, push }));
+  registerTagSaver((doc, base, push, force) => saveTags.mutateAsync({ doc, base, push, force }));
   const synced = m.accounts.map((a) => a.syncedAt).sort()[0];
   const ago = useAgo(synced);
   const refreshing = useRefreshing();
