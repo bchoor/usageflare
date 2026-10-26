@@ -2,7 +2,7 @@
  * Tags: Cloudflare's own resource tags (its Tagging API) wherever a token with Account › Tag reaches
  * the account, and kept in usageflare for the rest (no such token yet, or a product Cloudflare
  * can't tag). A project
- * tag `mailcellar` is the key `project.mailcellar` with no value, so a resource holds as many as it
+ * tag `newsletter` is the key `project.newsletter` with no value, so a resource holds as many as it
  * likes; any other Cloudflare tag shows as `key=value`. Colours and icons stay here: Cloudflare
  * tags hold text only. Each account keeps its own tags, as Cloudflare does: one name in two
  * accounts is two tags (its own colour in each), and a filter by name still finds both.
