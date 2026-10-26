@@ -15,6 +15,7 @@ import { type QueryClient, useMutation, useQueries, useQuery, useQueryClient } f
 import { useMemo, useSyncExternalStore } from 'react';
 import {
   type Account,
+  acctOf,
   type Billed,
   CF_TAG_TYPE,
   HOURLY_SLOTS,
@@ -604,10 +605,13 @@ export function useModel(): Model {
     const raw = tagsQ.data ?? EMPTY_TAGS;
     const doc: TagsState = {
       ...raw,
-      tags: [...raw.tags].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })),
+      tags: [...raw.tags].sort(
+        (a, b) =>
+          a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) || a.acct.localeCompare(b.acct),
+      ),
     };
-    const known = new Set(doc.tags.map((l) => l.name));
-    const own = (id: string) => (doc.assign[id] ?? []).filter((n) => known.has(n));
+    const known = new Set(doc.tags.map((l) => tagKey(l.acct, l.name)));
+    const own = (id: string) => (doc.assign[id] ?? []).filter((n) => known.has(tagKey(acctOf(id), n)));
     const fromWorkers = new Map<string, Set<string>>();
     for (const w of resources)
       for (const id of w.binds ?? []) {
@@ -811,8 +815,18 @@ export const TAG_COLORS = [
   'var(--chart-10)',
   'var(--chart-7)',
 ];
-export const tagColor = (doc: TagsDoc, name: string) =>
-  TAG_COLORS[(doc.tags.find((l) => l.name === name)?.c ?? 0) % TAG_COLORS.length] as string;
+/** The tag `name` in `acct`; with no account (a list across accounts), the first account's. */
+export const findTag = (doc: TagsDoc, name: string, acct?: string) =>
+  (acct && doc.tags.find((l) => l.name === name && l.acct === acct)) || doc.tags.find((l) => l.name === name);
+export const tagColor = (doc: TagsDoc, name: string, acct?: string) =>
+  TAG_COLORS[(findTag(doc, name, acct)?.c ?? 0) % TAG_COLORS.length] as string;
+/** Tag names, each once and A to Z: a name in several accounts filters them all together. */
+export const tagNames = (doc: TagsDoc, accts?: string[]) =>
+  [...new Set(doc.tags.filter((l) => !accts || accts.includes(l.acct)).map((l) => l.name))].sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: 'base' }),
+  );
+/** A tag's key in tables and selections: one name in two accounts is two tags. */
+export const tagKey = (acct: string, name: string) => `${acct}|${name}`;
 
 /** `Billing Prod` → `billing-prod`: a tag's name. */
 export const tagSlug = (q: string) =>

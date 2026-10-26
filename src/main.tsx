@@ -37,6 +37,7 @@ import {
   SEVERITY,
   skipCacheOnce,
   tagColor,
+  tagNames,
   useModel,
   useRefreshing,
   useSavePrefs,
@@ -112,7 +113,7 @@ function AccountNav({ m }: { m: Model }) {
       {m.accounts.map((a) => {
         const us = m.usage.filter((u) => u.a.id === a.id);
         const rs = m.resources.filter((r) => r.acct === a.id && !r.total);
-        const tags = m.tags.tags.filter((l) => rs.some((r) => m.tagsOf(r).includes(l.name)));
+        const tags = m.tags.tags.filter((l) => l.acct === a.id);
         const items: SectionItem[] = [
           { id: 'overview', title: 'Overview', to: `/a/${a.id}`, icon: LayoutDashboard, fixed: true },
           {
@@ -134,7 +135,7 @@ function AccountNav({ m }: { m: Model }) {
           {
             id: 'tags',
             title: 'Tags',
-            to: `/a/${a.id}/resources`,
+            to: `/a/${a.id}/tags`,
             icon: Tag,
             badge: tags.length || undefined,
             fixed: true,
@@ -143,7 +144,7 @@ function AccountNav({ m }: { m: Model }) {
               title: l.name,
               to: `/a/${a.id}/resources?tag=${encodeURIComponent(l.name)}`,
               icon: l.icon ? iconOf(l.icon, Tag) : undefined,
-              color: tagColor(m.tags, l.name),
+              color: tagColor(m.tags, l.name, a.id),
               badge: rs.filter((r) => m.tagsOf(r).includes(l.name)).length,
             })),
           },
@@ -154,7 +155,7 @@ function AccountNav({ m }: { m: Model }) {
             label={`${a.name}${us.length ? ` · ${planText(m.plan(a).share)}` : ''}`}
             items={items}
           >
-            <TagForm m={m}>
+            <TagForm m={m} acct={a.id}>
               <button
                 type="button"
                 className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-muted-foreground text-xs hover:bg-sidebar-accent"
@@ -257,12 +258,12 @@ function FinderRows({ m }: { m: Model }) {
         icon: Building2,
         detail: a.plan === 'paid' ? 'Paid' : 'Free',
       })),
-      ...m.tags.tags.map((l) => ({
-        value: `tag:${l.name}`,
-        label: l.name,
+      ...tagNames(m.tags).map((name) => ({
+        value: `tag:${name}`,
+        label: name,
         group: 'Tags',
         scope: 'Tags',
-        href: `/resources?tag=${encodeURIComponent(l.name)}`,
+        href: `/resources?tag=${encodeURIComponent(name)}`,
         icon: Tag,
       })),
       ...PRODUCTS.map((p) => ({
@@ -316,7 +317,7 @@ function Shell() {
                 icon: Rows3,
                 badge: m.resources.filter((r) => !r.total && !m.archived(r)).length || undefined,
               },
-              { title: 'Tags', to: '/tags', icon: Tag, badge: m.tags.tags.length || undefined },
+              { title: 'Tags', to: '/tags', icon: Tag, badge: tagNames(m.tags).length || undefined },
             ]}
           />
           <AccountNav m={m} />
@@ -434,9 +435,18 @@ const routes = [
       return <AccountLimitsPage key={acct} acct={acct} />;
     },
   }),
-  createRoute({ getParentRoute: () => root, path: '/tags', component: TagsPage }),
+  createRoute({ getParentRoute: () => root, path: '/tags', component: () => <TagsPage /> }),
+  createRoute({
+    getParentRoute: () => root,
+    path: '/a/$acct/tags',
+    component: function AccountTags() {
+      const { acct } = accountTagsRoute.useParams();
+      return <TagsPage key={acct} acct={acct} />;
+    },
+  }),
 ] as const;
-const [, , resourcesRoute, accountRoute, accountResourcesRoute, accountLimitsRoute] = routes;
+const [, , resourcesRoute, accountRoute, accountResourcesRoute, accountLimitsRoute, , accountTagsRoute] =
+  routes;
 
 // The public landing page owns `/`; the app is served under /app (wrangler.jsonc).
 const router = createRouter({ routeTree: root.addChildren([...routes]), basepath: '/app' });
