@@ -7,7 +7,7 @@ This file is a deploy guide for AI agents. Follow the steps in order. Every step
 ## What gets created
 
 - One Worker (default name `usageflare`), serving a public landing page at `/`, the app at `/app` and its API at `/api`.
-- One KV namespace bound as `KV` (settings, labels, saved views, encrypted API tokens). `wrangler deploy` creates it on first deploy.
+- One KV namespace bound as `KV` (settings, tag colours, saved views, encrypted API tokens). `wrangler deploy` creates it on first deploy.
 - One secret, `SETTINGS_KEY`: 32 random bytes in base64, the AES-GCM key for tokens stored in KV.
 - Two vars, `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD`: the Cloudflare Access application that protects `/app` and `/api`. Until both are set, `/api` answers 503 (except on localhost).
 
@@ -61,11 +61,11 @@ Open https://deploy.workers.cloudflare.com/?url=https://github.com/bchoor/usagef
    bun run build && bunx wrangler deploy
    ```
 
-6. Create a read-only API token for each Cloudflare account to watch. This pre-filled link sets the permissions (Account Analytics, Account Settings, Workers Scripts, Workers KV Storage, Workers R2 Storage, D1, Queues, Billing, all Read):
+6. Create one API token for each Cloudflare account to watch. This pre-filled link sets the permissions: Account Analytics, Account Settings, Workers Scripts, Workers KV Storage, Workers R2 Storage, D1, Queues and Billing (all Read), plus Account › Tag › Edit:
 
-   https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=%5B%7B%22key%22%3A%22account_analytics%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22account_settings%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22workers_scripts%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22workers_kv_storage%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22workers_r2%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22d1%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22queues%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22billing%22%2C%22type%22%3A%22read%22%7D%5D&accountId=*&zoneId=all&name=usageflare+%28read-only%29
+   https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=%5B%7B%22key%22%3A%22account_analytics%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22account_settings%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22workers_scripts%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22workers_kv_storage%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22workers_r2%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22d1%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22queues%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22billing%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22tag%22%2C%22type%22%3A%22edit%22%7D%5D&accountId=*&zoneId=all&name=usageflare
 
-   For Containers, Vectorize, Hyperdrive and Workers AI, add their Read permissions by hand. Billing Read is optional: it detects the plan and shows what Cloudflare actually billed (its Billable Usage API) beside the estimates. Without it the plan is assumed Free and only estimates show.
+   Tag Edit is the only write: it lets usageflare save tags as Cloudflare resource tags (`project.<name>`), so they also show in the Cloudflare dashboard. Leave it out to keep the token read-only; tags then stay in usageflare. For Containers, Vectorize, Hyperdrive and Workers AI usage, add their Read permissions by hand.
 
 7. Hand over to the person: they open `https://<host>/app`, sign in through Access, and paste each token in Settings, Cloudflare API tokens. The token is entered by the person in the browser, never through a command or a file: the API is write-only and only shows the last four characters.
 

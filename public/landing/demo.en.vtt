@@ -1,43 +1,55 @@
 WEBVTT
 
-00:00:00.500 --> 00:00:06.362
+00:00:00.500 --> 00:00:05.460
 If you build on Cloudflare, your usage is spread across products, plans and accounts.
 
-00:00:06.512 --> 00:00:08.600
+00:00:05.610 --> 00:00:07.710
 usageflare brings it into one place.
 
-00:00:08.700 --> 00:00:17.004
+00:00:08.700 --> 00:00:17.009
 It connects to each of your Cloudflare accounts, and reads usage across the four areas you pay for: compute, storage and databases, AI, and messaging.
 
-00:00:17.154 --> 00:00:22.303
+00:00:17.159 --> 00:00:22.310
 Every number is measured against your plan's allowance, and forecast to the end of the month.
 
-00:00:22.453 --> 00:00:28.100
+00:00:22.460 --> 00:00:28.110
 So you can see what's blocked, what's already billing, and what's about to run out, before it happens.
 
-00:00:30.400 --> 00:00:34.262
+00:00:30.400 --> 00:00:33.749
 Cloudflare bills by resource, but you think in projects.
 
-00:00:34.412 --> 00:00:41.102
-Filter for anything without a label, pick resources from any account, and tag them all in one go.
+00:00:33.899 --> 00:00:39.340
+Filter for anything without a tag, pick resources from any account, and tag them in one go.
 
-00:00:43.800 --> 00:00:49.662
-Then group by account and product, open the groups you care about, and save the view.
+00:00:41.600 --> 00:00:44.754
+The tags land on the resources in Cloudflare too.
 
-00:00:54.000 --> 00:00:56.069
+00:00:44.904 --> 00:00:48.830
+Then group by tag and product, to see what each project uses.
+
+00:00:54.000 --> 00:00:55.760
 Now, where is the money going?
 
-00:00:56.219 --> 00:00:59.943
+00:00:55.910 --> 00:00:59.079
 Ask it as a column: each resource's share of the bill.
 
-00:01:00.093 --> 00:01:04.231
+00:00:59.229 --> 00:01:02.750
 It's checked as you type, and the answer lands on every row.
 
-00:01:05.600 --> 00:01:07.738
+00:01:05.600 --> 00:01:07.347
 Then keep that answer in sight.
 
-00:01:07.888 --> 00:01:14.853
+00:01:07.497 --> 00:01:13.190
 Put the chart or number you check every day on your dashboard, and it's there every time you open it.
 
-00:01:26.900 --> 00:01:30.348
-usageflare. Every account. Every limit. One gauge.
+00:01:26.900 --> 00:01:27.604
+usageflare.
+
+00:01:27.754 --> 00:01:28.651
+Every account.
+
+00:01:28.801 --> 00:01:29.570
+Every limit.
+
+00:01:29.720 --> 00:01:30.360
+One gauge.
