@@ -5,33 +5,23 @@
     "takeaways": [
       {
         "text": "**Tags are now saved in Cloudflare**: On the Resources page and the Tags page, use Move to Cloudflare to store your tags on the resources themselves (as `project.<name>`), so they also show up in the Cloudflare dashboard.",
-        "types": [
-          "feature"
-        ]
+        "types": ["feature"]
       },
       {
         "text": "**Limits for each account, by product or by tag**: Under each account in the sidebar, open Limits to see pooled quotas by product or by tag, and click a tag row to open a drawer with its resources, shared quota and pace.",
-        "types": [
-          "feature"
-        ]
+        "types": ["feature"]
       },
       {
         "text": "**One token per account**: In Settings ▸ Cloudflare API tokens, a single token now reads usage and, if it has Account › Tag › Edit, writes tags, and the token list fits on one line per token.",
-        "types": [
-          "improvement"
-        ]
+        "types": ["improvement"]
       },
       {
         "text": "**Tags belong to an account**: In the sidebar, Account ▸ Tags now opens that account's own tag manager, and the global Tags page lists every account's tags grouped by account.",
-        "types": [
-          "feature"
-        ]
+        "types": ["feature"]
       },
       {
         "text": "**Ticking rows no longer jumps pages**: On the Resources page, ticking a row on page 2 or later keeps you on that page, and the tag picker near the bottom of the screen opens upward with Done always in view.",
-        "types": [
-          "fix"
-        ]
+        "types": ["fix"]
       }
     ]
   },
@@ -41,33 +31,23 @@
     "takeaways": [
       {
         "text": "**Pace: time to each cap**: On the Overview, Limits, Resources and Account pages, choose a Pace window (6h, 12h, 24h or 7d) in the header to see how soon each meter will hit its cap at the current rate.",
-        "types": [
-          "feature"
-        ]
+        "types": ["feature"]
       },
       {
         "text": "**Billed column**: In the Accounts card on the Overview page, you can now compare what Cloudflare actually billed with the dashboard's estimate for each account and product.",
-        "types": [
-          "feature"
-        ]
+        "types": ["feature"]
       },
       {
         "text": "**Deleted and unbound resources**: On the Resources page, resources that no longer exist in Cloudflare are marked Deleted, and listed resources that no Worker uses are marked Unbound, so you can filter them with the new Status field.",
-        "types": [
-          "feature"
-        ]
+        "types": ["feature"]
       },
       {
         "text": "**No more false \"At cap\" or huge trend numbers**: On the Resources page, a resource only shows its account's time to the cap when it actually drives that usage, and Trend 7d no longer shows figures like 18688% when last week was nearly empty.",
-        "types": [
-          "fix"
-        ]
+        "types": ["fix"]
       },
       {
         "text": "**Editable Overview numbers**: On the Overview and each account's Overview, the top row of numbers (Bill so far, Forecast, Watch for and so on) is now a card you can edit, move or remove like any other.",
-        "types": [
-          "improvement"
-        ]
+        "types": ["improvement"]
       }
     ]
   },
@@ -77,33 +57,23 @@
     "takeaways": [
       {
         "text": "**Usage and Watch for on both Overview pages**: On the Overview page and each account's Overview, you can now see how much of your allotment you've used and which meter is closest to its cap, with the Accounts card showing both for every account side by side.",
-        "types": [
-          "feature"
-        ]
+        "types": ["feature"]
       },
       {
         "text": "**Usage and Watch for on Resources**: On the Resources page's All tab, every resource now has Usage, Watch for and Trend 7d columns, so you can compare resources and spot the one nearest a limit.",
-        "types": [
-          "feature"
-        ]
+        "types": ["feature"]
       },
       {
         "text": "**Opens instantly from cache**: When you reopen usageflare, the dashboard now draws right away from your last visit and quietly refreshes in the background, and the status bar shows \"Synced just now\" once the numbers update.",
-        "types": [
-          "performance"
-        ]
+        "types": ["performance"]
       },
       {
         "text": "**Public landing page, dashboard at /app**: Visiting the site root now shows a landing page, the dashboard lives under /app, and old links like /limits and /resources redirect there.",
-        "types": [
-          "feature"
-        ]
+        "types": ["feature"]
       },
       {
         "text": "**Bulk labels**: On the Resources page, select rows, groups or every row and use the floating bar's **Labels…** button to add or remove labels on many resources at once, with Undo.",
-        "types": [
-          "feature"
-        ]
+        "types": ["feature"]
       }
     ]
   },
@@ -113,33 +83,23 @@
     "takeaways": [
       {
         "text": "**Usage dashboard on real Cloudflare data**: On the Overview page and under each account in the sidebar, you can now see bill so far, forecast, limits at risk and a resource breakdown for every account your tokens reach.",
-        "types": [
-          "feature"
-        ]
+        "types": ["feature"]
       },
       {
         "text": "**Bulk labels**: On any Resources page, select rows, groups or everything, then use **Labels…** in the floating bar to stage label changes, apply them in one go and undo from the toast.",
-        "types": [
-          "feature"
-        ]
+        "types": ["feature"]
       },
       {
         "text": "**Storage forecast in GB-months**: In the Forecast cost column on the Resources and Limits pages, storage is now billed on the month's average size, with the free allowance applied once per account, instead of an inflated month-end projection.",
-        "types": [
-          "improvement"
-        ]
+        "types": ["improvement"]
       },
       {
         "text": "**Saving a token works again**: In Settings ▸ Cloudflare API tokens, Save now stores the token, it appears in the list immediately, and any refusal shows a readable message instead of \"[object Object]\".",
-        "types": [
-          "fix"
-        ]
+        "types": ["fix"]
       },
       {
         "text": "**Encrypted tokens behind Access**: In Settings ▸ Cloudflare API tokens, you can add, replace, test and delete tokens that are stored encrypted and only ever shown as their last four characters.",
-        "types": [
-          "security"
-        ]
+        "types": ["security"]
       }
     ]
   }

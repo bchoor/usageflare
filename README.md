@@ -6,7 +6,6 @@
 
 Using an AI agent? Point it at **https://usageflare.icaruslab.dev/llms.txt** and it can deploy this for you.
 
-![usageflare overview across three Cloudflare accounts](public/landing/overview.jpg)
 
 ## Deploy in five steps
 
@@ -39,13 +38,6 @@ bun run build && bunx wrangler deploy
 - **Projects.** Cloudflare bills by resource; tags turn resources into projects across accounts. Filter for anything without a tag, tag many resources in one go, group by account and product, and save the view. When the token also has Account › Tag › Edit, tags are saved as [Cloudflare resource tags](https://developers.cloudflare.com/resource-tagging/) (`project.<name>`), so they show in the Cloudflare dashboard too; tags made there show here. The Tags page renames, merges, recolours and deletes them. Products Cloudflare can't tag yet (Workflows, Containers, Hyperdrive, Workers AI) keep their tags in usageflare, or show the tags of the Worker that binds them.
 - **Your own views.** Formula columns checked as you type, plus cards, charts and widgets you can drag around and save.
 
-| Limits | Grouping |
-|---|---|
-| ![Limits: every allowance with forecast and status](public/landing/limits.jpg) | ![Resources grouped by account and product](public/landing/group.jpg) |
-| **Formula columns** | **Widgets** |
-| ![Adding a formula column](public/landing/formula.jpg) | ![Adding a widget to the dashboard](public/landing/widgets.jpg) |
-
-The landing page at `/` plays the full narrated demo (`public/landing/demo.mp4`).
 
 ## Stack
 
