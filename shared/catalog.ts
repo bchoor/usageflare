@@ -75,6 +75,12 @@ export interface Metric {
   tier?: string;
   /** Billed, but Cloudflare offers no usage API for it: shown as "No usage API", never 0. */
   noApi?: boolean;
+  /**
+   * The billing unit an overage rounds up to, where Cloudflare's pricing docs say usage rounds
+   * up: R2 (whole millions of ops, whole GB-months) and Durable Objects compute (whole millions
+   * of requests and GB-s). So 1.58M R2 Class A ops past a 1M allowance bills 1M, not 0.58M.
+   */
+  block?: number;
   paid: Allowance | null;
   free: Allowance | null;
 }
@@ -272,6 +278,7 @@ export const METRICS: Metric[] = [
   },
   {
     key: 'r2.stor',
+    block: 1,
     family: 'stor',
     product: 'r2',
     label: 'Storage',
@@ -282,6 +289,7 @@ export const METRICS: Metric[] = [
   },
   {
     key: 'r2.a',
+    block: 1e6,
     family: 'write',
     product: 'r2',
     label: 'Class A ops',
@@ -292,6 +300,7 @@ export const METRICS: Metric[] = [
   },
   {
     key: 'r2.b',
+    block: 1e6,
     family: 'read',
     product: 'r2',
     label: 'Class B ops',
@@ -303,6 +312,7 @@ export const METRICS: Metric[] = [
   // Infrequent Access buckets: no free tier, so every unit is billed (pay as you go).
   {
     key: 'r2.ia.stor',
+    block: 1,
     family: 'stor',
     product: 'r2',
     label: 'Storage · IA',
@@ -314,6 +324,7 @@ export const METRICS: Metric[] = [
   },
   {
     key: 'r2.ia.a',
+    block: 1e6,
     family: 'write',
     product: 'r2',
     label: 'Class A ops · IA',
@@ -325,6 +336,7 @@ export const METRICS: Metric[] = [
   },
   {
     key: 'r2.ia.b',
+    block: 1e6,
     family: 'read',
     product: 'r2',
     label: 'Class B ops · IA',
@@ -358,6 +370,7 @@ export const METRICS: Metric[] = [
   },
   {
     key: 'do.req',
+    block: 1e6,
     family: 'req',
     product: 'do',
     label: 'Requests',
@@ -368,6 +381,7 @@ export const METRICS: Metric[] = [
   },
   {
     key: 'do.dur',
+    block: 1e6,
     family: 'mem',
     product: 'do',
     label: 'Duration',
@@ -669,6 +683,8 @@ export interface Prefs {
   warn: number;
   /** Per-account plan override. */
   plans: Record<string, Plan>;
+  /** A meter's own icon (a lucide name or an emoji) by metric key; else its family's. */
+  meterIcons?: Record<string, string>;
 }
 
 /**

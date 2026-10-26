@@ -2,6 +2,7 @@ import './index.css';
 import {
   configureLumen,
   createDeskQueryClient,
+  IconPicker,
   iconOf,
   type LumenFinderRow,
   LumenSelector,
@@ -25,11 +26,11 @@ import {
   RouterProvider,
   redirect,
 } from '@tanstack/react-router';
-import { Bell, Building2, Gauge, KeyRound, LayoutDashboard, Plus, Rows3, Tag } from 'lucide-react';
+import { Bell, Building2, Gauge, KeyRound, LayoutDashboard, Plus, Rows3, Shapes, Tag } from 'lucide-react';
 import { StrictMode, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { z } from 'zod';
-import { CATEGORIES, type CategoryId, PRODUCTS, type ProductId } from '../shared/catalog';
+import { CATEGORIES, type CategoryId, METRICS, PRODUCT, PRODUCTS, type ProductId } from '../shared/catalog';
 import { api } from './api';
 import { planText } from './meters';
 import {
@@ -44,7 +45,7 @@ import {
   useSaveTags,
 } from './model';
 import { AccountLimitsPage, AccountPage, OverviewPage, ResourcesPage, TagsPage } from './pages';
-import { PRODUCT_ICON } from './products';
+import { FAMILY_ICON, PRODUCT_ICON } from './products';
 import { TokensSettings } from './settings';
 import { registerTagSaver, TagForm } from './tags';
 
@@ -245,6 +246,35 @@ function LimitsSettings() {
   );
 }
 
+/** Settings ▸ Meter icons: each meter's icon, its family's unless the person picks one. */
+function MeterIconsSettings() {
+  const m = useModel();
+  const save = useSavePrefs();
+  const icons = m.prefs.meterIcons ?? {};
+  // The meters the accounts use, else every meter (before the first token).
+  const used = new Set(m.usage.map((u) => u.m.key));
+  const meters = METRICS.filter((x) => !used.size || used.has(x.key));
+  return (
+    <div className="flex flex-col gap-2">
+      {meters.map((x) => (
+        <SettingRow key={x.key} label={`${PRODUCT[x.product].label} · ${x.label}`}>
+          <IconPicker
+            value={icons[x.key]}
+            fallback={FAMILY_ICON[x.family]}
+            label={`${PRODUCT[x.product].label} ${x.label} icon`}
+            onChange={(icon) => {
+              const next = { ...icons };
+              if (icon) next[x.key] = icon;
+              else delete next[x.key];
+              save.mutate({ ...m.prefs, meterIcons: next });
+            }}
+          />
+        </SettingRow>
+      ))}
+    </div>
+  );
+}
+
 /** ⌘K rows: accounts, tags, products and resources. */
 function FinderRows({ m }: { m: Model }) {
   const rows = useMemo<LumenFinderRow[]>(
@@ -353,6 +383,13 @@ function Shell() {
           icon: Bell,
           description: 'When a metric counts as at risk.',
           content: <LimitsSettings />,
+        },
+        {
+          id: 'meter-icons',
+          title: 'Meter icons',
+          icon: Shapes,
+          description: 'Tell one product’s meters apart, like storage vs ops.',
+          content: <MeterIconsSettings />,
         },
       ]}
       onRefresh={() => {

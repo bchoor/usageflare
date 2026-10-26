@@ -7,8 +7,8 @@
   },
   "dependencies": {
     "@columenlabs/lumen-ship": "0.1.41",
-    "@columenlabs/lumen-ui": "0.1.63",
-    "@columenlabs/lumen-ui-types": "0.1.63",
+    "@columenlabs/lumen-ui": "0.1.71",
+    "@columenlabs/lumen-ui-types": "0.1.71",
     "@hono/zod-validator": "^0.9.1",
     "@tanstack/query-sync-storage-persister": "^5.104.5",
     "@tanstack/react-query": "^5.104.5",
