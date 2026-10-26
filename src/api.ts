@@ -3,7 +3,8 @@ import { apiJson } from '@columenlabs/lumen-ui';
 
 export interface SecretInfo {
   name: string;
-  kind: 'cf_api_token';
+  /** `cf_tags_token`: Tag Read + Tag Write, for saving tags in Cloudflare. */
+  kind: 'cf_api_token' | 'cf_tags_token';
   label: string;
   last4: string;
   updatedAt: string;
@@ -39,7 +40,7 @@ export const api = {
     }),
 };
 
-/** `Prod account` → `prod-account`: the KV name for a label. */
+/** `Prod account` → `prod-account`: the KV name for a token's label. */
 export const slug = (label: string) =>
   label
     .toLowerCase()

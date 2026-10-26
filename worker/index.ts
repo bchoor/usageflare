@@ -8,17 +8,16 @@ import { requireAccess, sameOrigin } from './access';
 import changelog from './changelog.json';
 import { historyDates } from './cloudflare';
 import type { AppEnv } from './env';
-import { FIXTURE_LABELS, fixtureRefs, fixturesOn, fixtureUsage } from './fixtures';
+import { FIXTURE_TAGS, fixtureRefs, fixturesOn, fixtureUsage } from './fixtures';
 import { deleteSecret, hasSecret, listSecrets, putSecret, testSecret } from './secrets';
+import { forgetTagAccess, getTagsState, saveTags } from './tags';
 import {
   accountRefs,
   accountUsage,
   type Defer,
   deleteView,
-  getLabels,
   getPrefs,
   getView,
-  putLabels,
   putPrefs,
   putView,
 } from './usage';
@@ -39,16 +38,30 @@ const zValidator = <T extends z.ZodType, Target extends 'json' | 'param' | 'quer
 
 const name = z.object({ name: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/) });
 const accountParam = z.object({ id: z.string().regex(/^[a-f0-9]{32}$/) });
-const labelName = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,31}$/);
-const labelsBody = z.object({
-  labels: z
+/**
+ * A tag name: a project tag (`billing-v2`) or any Cloudflare tag as `key=value`. Names the Worker
+ * read from Cloudflare come back as they are, so only length and line breaks are checked here;
+ * Cloudflare checks the key when it's written.
+ */
+const tagName = z
+  .string()
+  .min(1)
+  .max(1300)
+  .regex(/^[^\n]+$/);
+const tagsBody = z.object({
+  push: z.boolean().optional(),
+  tags: z
     .array(
-      z.object({ name: labelName, c: z.number().int().min(0).max(99), icon: z.string().max(32).optional() }),
+      z.object({ name: tagName, c: z.number().int().min(0).max(9999), icon: z.string().max(32).optional() }),
     )
-    .max(200),
-  assign: z
-    .record(z.string().max(300), z.array(labelName).max(50))
-    .refine((o) => Object.keys(o).length <= 5000, 'Too many labelled resources'),
+    .max(2000),
+  /** resource id → tag names to add and to take off. */
+  changes: z
+    .record(
+      z.string().max(300),
+      z.object({ add: z.array(tagName).max(100), remove: z.array(tagName).max(100) }),
+    )
+    .refine((o) => Object.keys(o).length <= 5000, 'Too many resources'),
 });
 const viewPage = z.object({
   page: z.enum([
@@ -66,6 +79,7 @@ const viewPage = z.object({
     'resources-storage',
     'resources-ai',
     'resources-messaging',
+    'tags',
   ]),
 });
 const prefsBody = z.object({
@@ -77,7 +91,7 @@ const prefsBody = z.object({
 const fresh = (q: string | undefined) => q !== undefined;
 
 const secretBody = z.object({
-  kind: z.literal('cf_api_token'),
+  kind: z.enum(['cf_api_token', 'cf_tags_token']),
   label: z.string().trim().min(1).max(80),
   value: z.string().trim().min(8).max(4096),
 });
@@ -111,7 +125,7 @@ const api = new Hono<AppEnv>()
       return c.json({ error: 'A token with that name already exists' }, 409);
     }
     const secret = await putSecret(c.env, name, c.req.valid('json'), c.get('email'));
-    await c.env.KV.delete('accounts:v1');
+    await Promise.all([c.env.KV.delete('accounts:v1'), forgetTagAccess(c.env)]);
     return c.json({ secret });
   })
   .post('/secrets/:name/test', zValidator('param', name), async (c) => {
@@ -120,7 +134,7 @@ const api = new Hono<AppEnv>()
   })
   .delete('/secrets/:name', zValidator('param', name), async (c) => {
     await deleteSecret(c.env, c.req.valid('param').name);
-    await c.env.KV.delete('accounts:v1');
+    await Promise.all([c.env.KV.delete('accounts:v1'), forgetTagAccess(c.env)]);
     return c.body(null, 204);
   })
   // Usage: the accounts the tokens reach, then one account at a time (`?fresh` skips the cache).
@@ -146,13 +160,14 @@ const api = new Hono<AppEnv>()
     await putPrefs(c.env, c.req.valid('json'));
     return c.json(await getPrefs(c.env));
   })
-  .get('/labels', async (c) => {
-    const labels = await getLabels(c.env);
-    return c.json(fixturesOn(c.env, c.req.url) && !labels.labels.length ? FIXTURE_LABELS : labels);
+  // Tags: Cloudflare's where a tags token reaches the account, else kept here (`?fresh` re-reads).
+  .get('/tags', async (c) => {
+    const tags = await getTagsState(c.env, fresh(c.req.query('fresh')));
+    return c.json(fixturesOn(c.env, c.req.url) && !tags.tags.length ? FIXTURE_TAGS : tags);
   })
-  .put('/labels', zValidator('json', labelsBody), async (c) => {
-    await putLabels(c.env, c.req.valid('json'));
-    return c.json(await getLabels(c.env));
+  .put('/tags', zValidator('json', tagsBody), async (c) => {
+    const { push, tags, changes } = c.req.valid('json');
+    return c.json(await saveTags(c.env, tags, changes, !!push));
   })
   // A page's saved layout (LumenLayout's view config): cards, widths, columns, sort and grouping.
   .get('/views/:page', zValidator('param', viewPage), async (c) =>

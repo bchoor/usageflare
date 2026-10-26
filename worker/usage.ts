@@ -6,16 +6,17 @@
  * well inside the Worker's subrequest limit.
  *
  * KV: `accounts:v1` → AccountRef[] (10 min), `usage:v2:<account>` → { account, resources } (10 min),
- * `prefs:v1`, `labels:v1`, `view:v1:<page>` → the person's settings, labels and saved page layouts.
+ * `prefs:v1`, `view:v1:<page>` → the person's settings and saved page layouts (tags: worker/tags.ts).
  * `seen:v1:<account>` → each listed resource's last day in its list (no expiry), to tell deleted ones.
  */
-import type { LabelsDoc, Prefs } from '../shared/catalog';
+import type { Prefs } from '../shared/catalog';
 import { historyDates, listAccounts, readAccount, type Seen } from './cloudflare';
 import type { Env } from './env';
 import { listSecrets, revealSecret } from './secrets';
+import { taggedIds } from './tags';
 
 const TTL_MS = 10 * 60_000;
-/** A remembered resource gone this long is forgotten, unless a label still points at it. */
+/** A remembered resource gone this long is forgotten, unless a tag still points at it. */
 const SEEN_DAYS = 90;
 
 export interface AccountRef {
@@ -70,7 +71,8 @@ export async function accountRefs(env: Env, fresh: boolean, defer?: Defer) {
     async () => {
       const accounts: AccountRef[] = [];
       const errors: { token: string; label: string; error: string }[] = [];
-      for (const s of await listSecrets(env)) {
+      // Tags tokens only write tags; usage is read with the read-only ones.
+      for (const s of (await listSecrets(env)).filter((x) => x.kind !== 'cf_tags_token')) {
         try {
           const token = await revealSecret(env, s.name);
           if (!token) continue;
@@ -107,14 +109,13 @@ export async function accountUsage(env: Env, accountId: string, fresh: boolean, 
   const token = await revealSecret(env, ref.token);
   if (!token) throw new Error('Token missing');
   const seenKey = `seen:v1:${accountId}`;
-  const [seen, labels] = await Promise.all([env.KV.get<Seen>(seenKey, 'json'), getLabels(env)]);
-  const labelled = Object.keys(labels.assign).filter((id) => labels.assign[id]?.length);
+  const [seen, tagged] = await Promise.all([env.KV.get<Seen>(seenKey, 'json'), taggedIds(env, accountId)]);
   const { seen: next, ...read } = await readAccount(token, { ...ref, planOverride: want }, historyDates(), {
     seen: seen ?? {},
-    labelled,
+    tagged,
   });
   const cutoff = new Date(Date.now() - SEEN_DAYS * 86_400_000).toISOString().slice(0, 10);
-  const keep = new Set(labelled);
+  const keep = new Set(tagged);
   await env.KV.put(
     seenKey,
     JSON.stringify(
@@ -138,7 +139,7 @@ const publicUsage = (v: Read) => ({
   account: { ...v.account, token: '' },
 });
 
-// ---------- The person's settings, labels and layouts ----------
+// ---------- The person's settings and layouts ----------
 
 const DEFAULT_PREFS: Prefs = { warn: 75, plans: {} };
 
@@ -147,12 +148,44 @@ export async function getPrefs(env: Env): Promise<Prefs> {
 }
 export const putPrefs = (env: Env, p: Prefs) => env.KV.put('prefs:v1', JSON.stringify(p));
 
-export async function getLabels(env: Env): Promise<LabelsDoc> {
-  return (await env.KV.get<LabelsDoc>('labels:v1', 'json')) ?? { labels: [], assign: {} };
-}
-export const putLabels = (env: Env, l: LabelsDoc) => env.KV.put('labels:v1', JSON.stringify(l));
+/** Field keys renamed since a layout could have been saved: labels became tags. */
+const RENAMED: Record<string, string> = { label: 'tag', labels: 'tags' };
+const rename = (k: unknown) => (typeof k === 'string' ? (RENAMED[k] ?? k) : k);
+const renameKeys = (o: unknown) =>
+  o && typeof o === 'object' ? Object.fromEntries(Object.entries(o).map(([k, v]) => [rename(k), v])) : o;
 
-export const getView = (env: Env, page: string) => env.KV.get<unknown>(`view:v1:${page}`, 'json');
+/** Only the places a view config names fields; the person's own words (names, filter values) stay. */
+// biome-ignore lint/suspicious/noExplicitAny: a saved view from any version of the app.
+function renameFields(v: any): unknown {
+  if (!v || typeof v !== 'object') return v;
+  const out = { ...v };
+  for (const k of ['columns', 'hidden']) if (Array.isArray(out[k])) out[k] = out[k].map(rename);
+  for (const k of ['formats', 'aggs', 'shows']) if (out[k]) out[k] = renameKeys(out[k]);
+  if (out.group)
+    out.group = { ...out.group, fields: out.group.fields?.map(rename), default: rename(out.group.default) };
+  if ('subgroup' in out) out.subgroup = rename(out.subgroup);
+  if (out.sort?.key) out.sort = { ...out.sort, key: rename(out.sort.key) };
+  if (Array.isArray(out.chips))
+    out.chips = out.chips.map((c: { key?: string }) => ({ ...c, key: rename(c.key) }));
+  if (out.filters)
+    out.filters = {
+      ...out.filters,
+      fields: out.filters.fields?.map(rename),
+      default: out.filters.default?.map((t: { key?: string }) => ({ ...t, key: rename(t.key) })),
+    };
+  if (Array.isArray(out.cards)) out.cards = out.cards.map((c: unknown) => renameFields(c));
+  if (out.config) out.config = renameFields(out.config);
+  return out;
+}
+
+/** A page's saved layout, its field keys brought up to date (and saved back when they changed). */
+export async function getView(env: Env, page: string) {
+  const raw = await env.KV.get(`view:v1:${page}`);
+  if (!raw) return null;
+  const view = renameFields(JSON.parse(raw));
+  if (JSON.stringify(view) !== raw) await env.KV.put(`view:v1:${page}`, JSON.stringify(view));
+  return view;
+}
 export const putView = (env: Env, page: string, config: unknown) =>
   env.KV.put(`view:v1:${page}`, JSON.stringify(config));
 export const deleteView = (env: Env, page: string) => env.KV.delete(`view:v1:${page}`);

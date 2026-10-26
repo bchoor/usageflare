@@ -53,7 +53,6 @@ import {
   PRODUCTS,
   type Resource,
 } from '../shared/catalog';
-import { LabelPicker, setLabels } from './labels';
 import {
   MetersCard,
   MetricChip,
@@ -70,7 +69,6 @@ import {
 import {
   fmt,
   gbUnit,
-  labelColor,
   type Model,
   partNote,
   pctText,
@@ -80,6 +78,7 @@ import {
   sevColor,
   shareOf,
   statusText,
+  tagColor,
   type Usage,
   usd,
 } from './model';
@@ -94,6 +93,7 @@ import {
   shareNote,
 } from './pace';
 import { ProductIcon } from './products';
+import { setTags, TagPicker, TagSource } from './tags';
 
 /** A view config with its defaults filled; the schema leaves the name to the caller. */
 export const view = (c: Partial<CustomViewConfig> & { name: string }) =>
@@ -251,7 +251,7 @@ export function resourceDomain(
   return {
     id: 'resources',
     rowKey: (r) => r.id,
-    text: (r) => [r.name, acct(r)?.name ?? '', PRODUCT[r.product].label, ...m.labelsOf(r)],
+    text: (r) => [r.name, acct(r)?.name ?? '', PRODUCT[r.product].label, ...m.tagsOf(r)],
     fields: [
       {
         key: 'name',
@@ -309,24 +309,24 @@ export function resourceDomain(
         hideOnPhone: true,
       },
       {
-        key: 'label',
-        label: 'Labels',
+        key: 'tag',
+        label: 'Tags',
         icon: Tag,
         format: 'text',
-        value: (r) => m.labelsOf(r).join(', ') || null,
-        values: (r) => m.labelsOf(r),
-        color: (v) => labelColor(m.labels, v),
+        value: (r) => m.tagsOf(r).join(', ') || null,
+        values: (r) => m.tagsOf(r),
+        color: (v) => tagColor(m.tags, v),
         hideOnPhone: true,
         iconOf: (v) => {
-          const icon = m.labels.labels.find((l) => l.name === v)?.icon;
+          const icon = m.tags.tags.find((l) => l.name === v)?.icon;
           return icon ? iconOf(icon, Tag) : undefined;
         },
         filterable: true,
         groupable: true,
         edit: {
-          many: async (r, values) => setLabels(m, [r.id], values),
-          options: () => ({ inUse: m.labels.labels.map((l) => l.name), unused: [] }),
-          note: () => 'Labels group resources into projects across accounts.',
+          many: async (r, values) => setTags(m, [r.id], values),
+          options: () => ({ inUse: m.tags.tags.map((l) => l.name), unused: [] }),
+          note: () => 'Tags group resources into projects across accounts.',
         },
       },
       {
@@ -549,12 +549,17 @@ export function resourceDomain(
     ],
     details: [
       {
-        id: 'labels',
-        label: 'Labels',
+        id: 'tags',
+        label: 'Tags',
         icon: Tag,
         open: true,
-        count: (r) => m.labelsOf(r).length || null,
-        render: (r) => <LabelPicker m={m} ids={[r.id]} />,
+        count: (r) => m.tagsOf(r).length || null,
+        render: (r) => (
+          <div className="flex flex-col gap-1.5">
+            <TagPicker m={m} ids={[r.id]} />
+            <TagSource m={m} r={r} />
+          </div>
+        ),
       },
       {
         id: 'usage',

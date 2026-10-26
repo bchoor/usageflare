@@ -2,6 +2,7 @@ import {
   ErrorLine,
   KeyTestLine,
   LumenConfirm,
+  LumenSelector,
   lumenToast,
   SettingRow,
   TestBadge,
@@ -36,6 +37,13 @@ const CREATE_TOKEN_URL = `https://dash.cloudflare.com/profile/api-tokens?${new U
   zoneId: 'all',
   name: 'usageflare (read-only)',
 })}`;
+/** The tags token is a custom token: Account › Tag › Edit (Tag Read + Tag Write), every account. */
+const CREATE_TAGS_TOKEN_URL = 'https://dash.cloudflare.com/profile/api-tokens';
+
+const KINDS = [
+  { value: 'cf_api_token', label: 'Usage (read-only)' },
+  { value: 'cf_tags_token', label: 'Tags (Tag Read + Write)' },
+] as const;
 
 /** Settings ▸ Cloudflare API tokens: write-only, the API shows only the last four characters. */
 export function TokensSettings() {
@@ -43,8 +51,10 @@ export function TokensSettings() {
   return (
     <div className="flex flex-col gap-6">
       <p className="text-muted-foreground text-sm">
-        Tokens for metrics the Worker's bindings can't read (GraphQL Analytics, account usage). They are
-        encrypted before they're stored and can't be read back here: replace or delete them instead.
+        Usage tokens read metrics the Worker's bindings can't (GraphQL Analytics, account usage) and stay
+        read-only. An optional tags token (Account › Tag › Edit) lets usageflare save tags as Cloudflare
+        resource tags. Tokens are encrypted before they're stored and can't be read back here: replace or
+        delete them instead.
       </p>
       <ErrorLine error={q.error} />
       {q.data?.secrets.map((s) => (
@@ -73,7 +83,13 @@ function TokenRow({ secret }: { secret: SecretInfo }) {
       label={secret.label}
       description={
         <span className="flex flex-col gap-1">
-          <span className="font-mono">••••{secret.last4}</span>
+          <span>
+            <span className="font-mono">••••{secret.last4}</span>
+            <span className="text-muted-foreground">
+              {' '}
+              · {secret.kind === 'cf_tags_token' ? 'Tags' : 'Usage, read-only'}
+            </span>
+          </span>
           <KeyTestLine test={secret.test} run={() => api.testSecret(secret.name).then(refresh)} />
         </span>
       }
@@ -114,11 +130,11 @@ function AddToken({ taken }: { taken: string[] }) {
   const qc = useQueryClient();
   const [label, setLabel] = useState('');
   const [value, setValue] = useState('');
+  const [kind, setKind] = useState<SecretInfo['kind']>('cf_api_token');
   const name = slug(label);
   const exists = taken.includes(name);
   const add = useMutation({
-    mutationFn: () =>
-      api.putSecret(name, { kind: 'cf_api_token', label: label.trim(), value }, { create: true }),
+    mutationFn: () => api.putSecret(name, { kind, label: label.trim(), value }, { create: true }),
     onSuccess: async ({ secret }) => {
       setLabel('');
       setValue('');
@@ -138,12 +154,25 @@ function AddToken({ taken }: { taken: string[] }) {
       <div className="flex items-center justify-between gap-2">
         <h3 className="font-medium text-sm">Add a token</h3>
         <Button variant="link" size="sm" asChild>
-          <a href={CREATE_TOKEN_URL} target="_blank" rel="noreferrer">
-            Create a read-only token in Cloudflare ↗
-          </a>
+          {kind === 'cf_tags_token' ? (
+            <a href={CREATE_TAGS_TOKEN_URL} target="_blank" rel="noreferrer">
+              Create a custom token with Account › Tag › Edit ↗
+            </a>
+          ) : (
+            <a href={CREATE_TOKEN_URL} target="_blank" rel="noreferrer">
+              Create a read-only token in Cloudflare ↗
+            </a>
+          )}
         </Button>
       </div>
       <div className="flex flex-wrap gap-2">
+        <LumenSelector
+          size="sm"
+          label="Token kind"
+          options={KINDS.map((k) => ({ value: k.value, label: k.label }))}
+          value={kind}
+          onChange={(v) => setKind((v || 'cf_api_token') as SecretInfo['kind'])}
+        />
         <Input
           placeholder="Label (e.g. Personal account)"
           value={label}

@@ -486,7 +486,11 @@ async function inventory(token: string, acct: string, missing: string[]): Promis
     }
   };
   const [allScripts, domains, kvs, d1s, r2, dos, queues, workflows, hyper, vec] = await Promise.all([
-    tryList('Workers scripts', () => restList<{ id: string }>(token, `${a}/workers/scripts`), 'workers'),
+    tryList(
+      'Workers scripts',
+      () => restList<{ id: string; tag?: string }>(token, `${a}/workers/scripts`),
+      'workers',
+    ),
     tryList('Workers custom domains', () =>
       restList<{ hostname: string; service: string }>(token, `${a}/workers/domains`),
     ),
@@ -541,22 +545,25 @@ async function inventory(token: string, acct: string, missing: string[]): Promis
   const doByClass = new Map(dos.map((d) => [d.class, d]));
   const hdById = new Map(hyper.map((h) => [norm(h.id), h.name]));
 
-  for (const k of kvs) add(inv, acct, 'kv', k.title, [norm(k.id)]);
-  for (const d of d1s) add(inv, acct, 'd1', d.name, [norm(d.uuid)]);
+  for (const k of kvs) add(inv, acct, 'kv', k.title, [norm(k.id)], { cfId: k.id });
+  for (const d of d1s) add(inv, acct, 'd1', d.name, [norm(d.uuid)], { cfId: d.uuid });
   for (const b of r2)
     add(inv, acct, 'r2', b.name, [b.name], {
+      cfId: b.name,
       type: b.storage_class === 'InfrequentAccess' ? 'Infrequent Access' : 'Standard',
     });
   for (const d of dos)
     add(inv, acct, 'do', d.class || d.name, [norm(d.id)], {
+      cfId: d.id,
       type: d.use_sqlite ? 'SQLite' : 'KV storage',
       detail: d.script ? `Worker ${d.script}` : undefined,
     });
-  for (const q of queues) add(inv, acct, 'queues', q.queue_name, [norm(q.queue_id)]);
+  for (const q of queues) add(inv, acct, 'queues', q.queue_name, [norm(q.queue_id)], { cfId: q.queue_id });
   for (const w of workflows) add(inv, acct, 'workflows', w.name, [w.name]);
   for (const h of hyper) add(inv, acct, 'hyperdrive', h.name, [norm(h.id)]);
   for (const v of vec)
     add(inv, acct, 'vectorize', v.name, [v.name], {
+      cfId: v.name,
       detail: v.config?.dimensions ? `${v.config.dimensions} dimensions` : undefined,
     });
 
@@ -593,12 +600,17 @@ async function inventory(token: string, acct: string, missing: string[]): Promis
         // Bindings are a nicety; the Worker still shows without them.
         bindsKnown = false;
       }
-      add(inv, acct, 'workers', s.id, [s.id], { routes: routes.get(s.id), binds: [...new Set(binds)] });
+      add(inv, acct, 'workers', s.id, [s.id], {
+        cfId: s.tag ?? s.id,
+        routes: routes.get(s.id),
+        binds: [...new Set(binds)],
+      });
     }),
   );
   if (scripts.length > 60) missing.push(`Bindings for ${scripts.length - 60} more Workers`);
   // Past the cap a Worker still counts as listed, just without its bindings.
-  for (const s of scripts.slice(60)) add(inv, acct, 'workers', s.id, [s.id], { routes: routes.get(s.id) });
+  for (const s of scripts.slice(60))
+    add(inv, acct, 'workers', s.id, [s.id], { cfId: s.tag ?? s.id, routes: routes.get(s.id) });
   if (bindsKnown) {
     const bound = new Set([...inv.resources.values()].flatMap((r) => r.binds ?? []));
     for (const r of inv.resources.values())
@@ -717,8 +729,8 @@ export async function readAccount(
   token: string,
   meta: { id: string; name: string; token: string; tokenLabel: string; planOverride?: Plan },
   dates: string[],
-  /** What the Worker remembers from earlier reads, and the resource ids labels point at. */
-  memory: { seen: Seen; labelled: string[] } = { seen: {}, labelled: [] },
+  /** What the Worker remembers from earlier reads, and the resource ids tags point at. */
+  memory: { seen: Seen; tagged: string[] } = { seen: {}, tagged: [] },
 ): Promise<{ account: Account; resources: Resource[]; rateLimited: boolean; seen: Seen }> {
   const missing: string[] = [];
   const from = hoursFrom();
@@ -812,8 +824,8 @@ export async function readAccount(
     }
   }
 
-  // Labels on resources that are gone and left nothing else behind still show, as deleted.
-  for (const id of memory.labelled) {
+  // Tags on resources that are gone and left nothing else behind still show, as deleted.
+  for (const id of memory.tagged) {
     const product = id.split(':')[1] as ProductId;
     const renamed = memory.seen[id]?.k.some((k) => inv.byKey.has(`${product}|${k}`));
     if (gone(id, product) && !renamed) add(inv, meta.id, product, nameOf(id), [], { state: 'deleted' });

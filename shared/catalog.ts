@@ -570,6 +570,8 @@ export interface Resource {
   name: string;
   /** Storage class, backend or instance type. */
   type?: string;
+  /** Cloudflare's own id for it, as its Tagging API names it (a Worker's script tag, a bucket's name). */
+  cfId?: string;
   /** Custom domains or routes, for Workers. */
   routes?: string[];
   /** What a Worker binds to, as resource ids. */
@@ -579,7 +581,7 @@ export interface Resource {
   /** True for the account-wide row of a metric Cloudflare doesn't split by resource. */
   total?: boolean;
   /**
-   * `deleted`: in analytics, labels or the Worker's memory, but gone from its product's list (only
+   * `deleted`: in analytics, tags or the Worker's memory, but gone from its product's list (only
    * set when that list loaded). `unbound`: listed, but no Worker binds it. Left out: live.
    */
   state?: 'deleted' | 'unbound';
@@ -603,17 +605,56 @@ export interface UsageSnapshot {
   errors: { token: string; label: string; error: string }[];
 }
 
-export interface Label {
+export interface Tag {
+  /** A project tag's name (`mailcellar`, its key in Cloudflare `project.mailcellar`), or `key=value` for any other Cloudflare tag. */
   name: string;
-  /** Index into the label palette. */
+  /** Index into the tag palette. */
   c: number;
   icon?: string;
 }
 
-export interface LabelsDoc {
-  labels: Label[];
-  /** resource id → label names. */
+export interface TagsDoc {
+  tags: Tag[];
+  /** resource id → tag names. */
   assign: Record<string, string[]>;
+}
+
+/**
+ * What `/api/tags` answers: the tags and who has them, from Cloudflare where an account has a tags
+ * token, else as kept in usageflare.
+ */
+export interface TagsState extends TagsDoc {
+  /** resource id → tag names kept only in usageflare (Cloudflare can't tag it, or no tags token yet). */
+  local: Record<string, string[]>;
+  /** account id → whether a tags token reaches it, and why not when one was tried. */
+  access: Record<string, { write: boolean; error?: string }>;
+  /** When Cloudflare's tags were read (ISO); absent when no account has a tags token. */
+  readAt?: string;
+  /** Resources Cloudflare refused a write for, with why (a 412 means it changed there: read again). */
+  failed?: { id: string; error: string }[];
+  /** Writes still to do: the client sends the same doc again until this is 0. */
+  left?: number;
+}
+
+/** Cloudflare's Tagging API resource type per product; the rest can't be tagged there yet. */
+export const CF_TAG_TYPE: Partial<Record<ProductId, string>> = {
+  workers: 'worker',
+  kv: 'kv_namespace',
+  d1: 'd1_database',
+  r2: 'r2_bucket',
+  do: 'durable_object_namespace',
+  queues: 'queue',
+  vectorize: 'vectorize_index',
+};
+
+/** A project tag `mailcellar` is the key `project.mailcellar` (no value); others are `key=value`. */
+export const PROJECT_PREFIX = 'project.';
+export function tagToCf(name: string): [string, string] {
+  const i = name.indexOf('=');
+  return i < 0 ? [PROJECT_PREFIX + name, ''] : [name.slice(0, i), name.slice(i + 1)];
+}
+export function tagFromCf(key: string, value: string): string {
+  return key.startsWith(PROJECT_PREFIX) && !value ? key.slice(PROJECT_PREFIX.length) : `${key}=${value}`;
 }
 
 export interface Prefs {
