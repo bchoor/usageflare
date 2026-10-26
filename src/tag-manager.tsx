@@ -1,24 +1,27 @@
 /**
- * The Tags page: every tag with how many resources and accounts carry it and where it's kept
- * (Cloudflare, usageflare or both), as a kit table. Ticked tags take a bulk bar: edit one (name,
- * colour, icon), merge several into one, or delete them. Tags still kept here for resources
- * Cloudflare can hold move there with one confirmed step.
+ * The Tags page, for one account or all of them: each account's own tags with how many resources
+ * carry them and where they're kept (Cloudflare, usageflare or both), as a kit table. Ticked tags
+ * take a bulk bar: edit one (name, colour, icon), merge several into one, or delete them, each in
+ * its own account. Tags still kept here for resources Cloudflare can hold move there with one
+ * confirmed step.
  */
 import { LumenConfirm, LumenSelector, lumenToast, type ViewDomain } from '@columenlabs/lumen-ui';
 import { Button } from '@columenlabs/lumen-ui/ui/button';
 import { Building2, CloudUpload, Combine, MapPin, Palette, Rows3, Tag, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
-import { CF_TAG_TYPE, PROJECT_PREFIX, type Resource, type TagsDoc } from '../shared/catalog';
-import type { Model } from './model';
-import { saveTagDoc, TagForm, TagMark, undoTags } from './tags';
+import { acctOf, CF_TAG_TYPE, PROJECT_PREFIX, type Resource, type TagsDoc } from '../shared/catalog';
+import { type Model, tagKey } from './model';
+import { ensureTag, saveTagDoc, TagForm, TagMark, undoTags } from './tags';
 
 export interface TagRow {
+  /** `<account>|<name>`: one name in two accounts is two rows. */
+  key: string;
+  acct: string;
   name: string;
   /** `Project` for usageflare's own tags, `Cloudflare tag` for a `key=value` made elsewhere. */
   kind: 'Project' | 'Cloudflare tag';
   /** Resources that carry it (their own tag, not one shown from a Worker that binds them). */
   ids: string[];
-  accts: string[];
   /** Of those, how many keep it in Cloudflare and how many only here. */
   inCf: number;
   local: number;
@@ -28,21 +31,27 @@ export interface TagRow {
 
 export const tagKind = (name: string): TagRow['kind'] => (name.includes('=') ? 'Cloudflare tag' : 'Project');
 
-export function tagRows(m: Model): TagRow[] {
+/** One row per tag of `acct`, or of every account. */
+export function tagRows(m: Model, acct?: string): TagRow[] {
   const live = m.resources.filter((r) => !r.total);
-  return m.tags.tags.map((t) => {
-    const ids = Object.keys(m.tags.assign).filter((id) => m.tags.assign[id]?.includes(t.name));
-    const local = ids.filter((id) => m.tags.local[id]?.includes(t.name)).length;
-    return {
-      name: t.name,
-      kind: tagKind(t.name),
-      ids,
-      accts: [...new Set(ids.map((id) => id.split(':')[0] ?? ''))],
-      inCf: ids.length - local,
-      local,
-      inherited: live.filter((r) => m.inherited(r).includes(t.name)).length,
-    };
-  });
+  return m.tags.tags
+    .filter((t) => !acct || t.acct === acct)
+    .map((t) => {
+      const ids = Object.keys(m.tags.assign).filter(
+        (id) => acctOf(id) === t.acct && m.tags.assign[id]?.includes(t.name),
+      );
+      const local = ids.filter((id) => m.tags.local[id]?.includes(t.name)).length;
+      return {
+        key: tagKey(t.acct, t.name),
+        acct: t.acct,
+        name: t.name,
+        kind: tagKind(t.name),
+        ids,
+        inCf: ids.length - local,
+        local,
+        inherited: live.filter((r) => r.acct === t.acct && m.inherited(r).includes(t.name)).length,
+      };
+    });
 }
 
 const whereOf = (t: TagRow) =>
@@ -57,8 +66,8 @@ const WHERE_NOTE: Record<string, string> = {
 export function tagDomain(m: Model): ViewDomain<TagRow> {
   return {
     id: 'tags',
-    rowKey: (t) => t.name,
-    text: (t) => [t.name, t.kind],
+    rowKey: (t) => t.key,
+    text: (t) => [t.name, t.kind, m.account[t.acct]?.name ?? ''],
     fields: [
       {
         key: 'name',
@@ -66,7 +75,17 @@ export function tagDomain(m: Model): ViewDomain<TagRow> {
         icon: Tag,
         format: 'text',
         value: (t) => t.name,
-        render: (t) => <TagMark m={m} name={t.name} withName />,
+        render: (t) => <TagMark m={m} name={t.name} acct={t.acct} withName />,
+      },
+      {
+        key: 'account',
+        label: 'Account',
+        icon: Building2,
+        format: 'text',
+        value: (t) => m.account[t.acct]?.name ?? t.acct,
+        filterable: true,
+        groupable: true,
+        hideOnPhone: true,
       },
       {
         key: 'key',
@@ -98,15 +117,6 @@ export function tagDomain(m: Model): ViewDomain<TagRow> {
         format: 'integer',
         value: (t) => t.ids.length,
         aggregate: 'sum',
-      },
-      {
-        key: 'accounts',
-        label: 'Accounts',
-        icon: Building2,
-        format: 'integer',
-        value: (t) => t.accts.length,
-        aggregate: 'max',
-        hideOnPhone: true,
       },
       {
         key: 'where',
@@ -155,10 +165,39 @@ export function movable(m: Model): string[] {
   });
 }
 
-/** Moves tags kept here to Cloudflare, after a preview of how many per account. */
-export function MoveToCloudflare({ m }: { m: Model }) {
-  const ids = movable(m);
-  if (!ids.length) return null;
+/** Resources of `acct` (or any account) whose tags Cloudflare could hold once a tags token reaches it. */
+const waiting = (m: Model, acct?: string) =>
+  Object.keys(m.tags.local).filter((id) => {
+    const [a = '', product] = id.split(':') as [string, Resource['product']];
+    return (
+      (!acct || a === acct) &&
+      !!m.tags.local[id]?.length &&
+      !!CF_TAG_TYPE[product] &&
+      !m.tags.access[a]?.write
+    );
+  });
+
+/**
+ * Moves tags kept here to Cloudflare, after a preview of how many per account. Until a tags token
+ * reaches the account it shows greyed out, saying what to add.
+ */
+export function MoveToCloudflare({ m, acct }: { m: Model; acct?: string }) {
+  const ids = movable(m).filter((id) => !acct || acctOf(id) === acct);
+  if (!ids.length) {
+    const n = waiting(m, acct).length;
+    if (!n) return null;
+    return (
+      <Button
+        size="sm"
+        variant="outline"
+        disabled
+        title="Add a Tags token (Account › Tag › Edit) in Settings › Tokens to save these tags in Cloudflare"
+      >
+        <CloudUpload className="size-4" />
+        Move {n} to Cloudflare
+      </Button>
+    );
+  }
   const by = new Map<string, number>();
   for (const id of ids) by.set(id.split(':')[0] ?? '', (by.get(id.split(':')[0] ?? '') ?? 0) + 1);
   return (
@@ -193,32 +232,43 @@ export function MoveToCloudflare({ m }: { m: Model }) {
   );
 }
 
-/** Drops `names` from the tags and every resource; `into` keeps their resources under that one. */
-function rewrite(doc: TagsDoc, names: string[], into?: string) {
-  const gone = new Set(names.filter((n) => n !== into));
-  doc.tags = doc.tags.filter((t) => !gone.has(t.name));
+/**
+ * Drops the tags `keys` (`<account>|<name>`) and takes them off their account's resources; `into`
+ * keeps those resources under that name, in the same account.
+ */
+function rewrite(doc: TagsDoc, keys: string[], into?: string) {
+  const gone = new Set(keys.filter((k) => !into || k !== tagKey(k.split('|')[0] ?? '', into)));
+  doc.tags = doc.tags.filter((t) => !gone.has(tagKey(t.acct, t.name)));
   for (const [id, ns] of Object.entries(doc.assign)) {
-    const next = new Set(ns.filter((n) => !gone.has(n)));
-    if (into && ns.some((n) => gone.has(n))) next.add(into);
+    const acct = acctOf(id);
+    const hit = ns.some((n) => gone.has(tagKey(acct, n)));
+    if (!hit) continue;
+    const next = new Set(ns.filter((n) => !gone.has(tagKey(acct, n))));
+    if (into) {
+      ensureTag(doc, acct, into);
+      next.add(into);
+    }
     doc.assign[id] = [...next];
   }
 }
 
-/** The floating bar while tags are ticked: edit one, merge several, delete. */
+/** The floating bar while tags are ticked (by `<account>|<name>`): edit one, merge several, delete. */
 export function TagBulkBar({
   m,
-  names,
+  keys,
   onSelect,
 }: {
   m: Model;
-  names: string[];
+  keys: string[];
   onSelect: (keys: Set<string>) => void;
 }) {
   const [into, setInto] = useState<string | null>(null);
-  if (!names.length) return null;
-  const rows = tagRows(m).filter((t) => names.includes(t.name));
+  if (!keys.length) return null;
+  const rows = tagRows(m).filter((t) => keys.includes(t.key));
   const touched = new Set(rows.flatMap((t) => t.ids)).size;
-  const projects = names.filter((n) => tagKind(n) === 'Project');
+  const projectKeys = rows.filter((t) => t.kind === 'Project').map((t) => t.key);
+  const projects = [...new Set(rows.filter((t) => t.kind === 'Project').map((t) => t.name))];
+  const first = rows[0];
   const save = async (edit: (doc: TagsDoc) => void, done: string) => {
     let saved: Awaited<ReturnType<typeof saveTagDoc>> = null;
     try {
@@ -242,14 +292,14 @@ export function TagBulkBar({
         <X className="size-4" />
       </Button>
       <span>
-        <b className="font-mono">{names.length}</b> selected{' '}
+        <b className="font-mono">{keys.length}</b> selected{' '}
         <span className="text-muted-foreground text-xs">
           on {touched} resource{touched === 1 ? '' : 's'}
         </span>
       </span>
       <span className="h-5 w-px bg-border" />
-      {names.length === 1 && (
-        <TagForm m={m} edit={names[0]} onDone={() => onSelect(new Set())}>
+      {rows.length === 1 && first && (
+        <TagForm m={m} acct={first.acct} edit={first.name} onDone={() => onSelect(new Set())}>
           <Button size="sm" variant="ghost">
             <Palette className="size-4" />
             Edit…
@@ -270,16 +320,16 @@ export function TagBulkBar({
           />
           {into && (
             <LumenConfirm
-              title={`Merge ${projects.length} tags into ${into}?`}
+              title={`Merge ${projectKeys.length} tags into ${into}?`}
               destructive={false}
               action="Merge"
               description={`Every resource with ${projects
                 .filter((n) => n !== into)
-                .join(', ')} gets ${into} instead; those tags are removed.`}
+                .join(', ')} gets ${into} instead, in its own account; those tags are removed.`}
               onConfirm={() =>
                 save(
-                  (doc) => rewrite(doc, projects, into),
-                  `Merged ${projects.length} tags into ${into}`,
+                  (doc) => rewrite(doc, projectKeys, into),
+                  `Merged ${projectKeys.length} tags into ${into}`,
                 ).then(() => setInto(null))
               }
             >
@@ -289,11 +339,11 @@ export function TagBulkBar({
         </>
       )}
       <LumenConfirm
-        title={`Delete ${names.length} tag${names.length === 1 ? '' : 's'}?`}
+        title={`Delete ${keys.length} tag${keys.length === 1 ? '' : 's'}?`}
         action="Delete"
         description={`They come off ${touched} resource${touched === 1 ? '' : 's'}, in Cloudflare too where they're kept there.`}
         onConfirm={() =>
-          save((doc) => rewrite(doc, names), `Deleted ${names.length} tag${names.length === 1 ? '' : 's'}`)
+          save((doc) => rewrite(doc, keys), `Deleted ${keys.length} tag${keys.length === 1 ? '' : 's'}`)
         }
       >
         <Button size="sm" variant="ghost">

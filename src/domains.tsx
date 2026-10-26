@@ -67,6 +67,7 @@ import {
   WatchFor,
 } from './meters';
 import {
+  findTag,
   fmt,
   gbUnit,
   type Model,
@@ -79,6 +80,7 @@ import {
   shareOf,
   statusText,
   tagColor,
+  tagNames,
   type Usage,
   usd,
 } from './model';
@@ -243,6 +245,8 @@ export function resourceDomain(
   open: (id: string) => void,
   w: PaceWindow,
   phone = false,
+  /** The account the page shows: its tag picker offers that account's own tags. */
+  only?: string,
 ): ViewDomain<Resource> {
   const acct = (r: Resource) => m.account[r.acct];
   const main = (r: Resource) => m.info(r).main;
@@ -315,18 +319,19 @@ export function resourceDomain(
         format: 'text',
         value: (r) => m.tagsOf(r).join(', ') || null,
         values: (r) => m.tagsOf(r),
-        color: (v) => tagColor(m.tags, v),
+        color: (v) => tagColor(m.tags, v, only),
         hideOnPhone: true,
         iconOf: (v) => {
-          const icon = m.tags.tags.find((l) => l.name === v)?.icon;
+          const icon = findTag(m.tags, v, only)?.icon;
           return icon ? iconOf(icon, Tag) : undefined;
         },
         filterable: true,
         groupable: true,
         edit: {
           many: async (r, values) => setTags(m, [r.id], values),
-          options: () => ({ inUse: m.tags.tags.map((l) => l.name), unused: [] }),
-          note: () => 'Tags group resources into projects across accounts.',
+          options: () => ({ inUse: tagNames(m.tags, only ? [only] : undefined), unused: [] }),
+          note: (r) =>
+            `Tags of ${acct(r)?.name ?? 'this account'}; the same name in another account filters with it.`,
         },
       },
       {

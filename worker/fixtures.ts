@@ -241,7 +241,7 @@ export function fixtureUsage(accountId: string, dates: string[]) {
 }
 
 /** Tags to start from, so the sidebar, filters and Tags settings have something to show. */
-const FIXTURE_TAG_LIST: Tag[] = [
+const FIXTURE_TAG_STYLE: Omit<Tag, 'acct'>[] = [
   { name: 'online-backup', c: 1, icon: 'archive' },
   { name: 'career', c: 2, icon: 'briefcase' },
   { name: 'edgedesk', c: 3, icon: 'zap' },
@@ -279,13 +279,26 @@ const FIXTURE_LOCAL = Object.fromEntries(
   Object.entries(FIXTURE_ASSIGN).filter(([id]) => id.startsWith('a2')),
 );
 
+const FIXTURE_ALL: Record<string, string[]> = {
+  ...FIXTURE_ASSIGN,
+  'a3000000000000000000000000000003:workers:p2e': ['env=production', 'p2e'],
+  'a3000000000000000000000000000003:workers:tools': ['env=production', 'tools'],
+};
+
+/** Each account's own tags: the styles above, in every account that uses them. */
+const FIXTURE_TAG_LIST: Tag[] = FIXTURE_TAG_STYLE.flatMap((t) =>
+  [
+    ...new Set(
+      Object.entries(FIXTURE_ALL)
+        .filter(([, ns]) => ns.includes(t.name))
+        .map(([id]) => id.split(':')[0] ?? ''),
+    ),
+  ].map((acct) => ({ ...t, acct })),
+);
+
 export const FIXTURE_TAGS: TagsState = {
   tags: FIXTURE_TAG_LIST,
-  assign: {
-    ...FIXTURE_ASSIGN,
-    'a3000000000000000000000000000003:workers:p2e': ['env=production', 'p2e'],
-    'a3000000000000000000000000000003:workers:tools': ['env=production', 'tools'],
-  },
+  assign: FIXTURE_ALL,
   local: FIXTURE_LOCAL,
   access: {
     a1000000000000000000000000000001: { write: true },

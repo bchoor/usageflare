@@ -3,7 +3,8 @@
  * kept in usageflare for the rest (no tags token yet, or a product Cloudflare can't tag). A project
  * tag `mailcellar` is the key `project.mailcellar` with no value, so a resource holds as many as it
  * likes; any other Cloudflare tag shows as `key=value`. Colours and icons stay here: Cloudflare
- * tags hold text only.
+ * tags hold text only. Each account keeps its own tags, as Cloudflare does: one name in two
+ * accounts is two tags (its own colour in each), and a filter by name still finds both.
  *
  * Cloudflare decides who has a tag. A write reads the resource's tags, changes only the tags the
  * person changed and sends the whole set back with the ETag it read (`If-Match`), so a tag made in
@@ -13,11 +14,13 @@
  * `left`; the client sends the same changes again until none are, which keeps each request inside the Worker's
  * subrequest limit.
  *
- * KV: `tags:v1` → { tags, local }; `tagaccess:v1` → which tags token reaches which account (10 min);
+ * KV: `tags:v2` → { tags (each with its account), local }; `tagaccess:v1` → which tags token reaches which account (10 min);
  * `cftags:v1:<account>` → the account's tagged resources as Cloudflare listed them (5 min).
- * `labels:v1` (before tags) is copied into `tags:v1` once and kept 30 days as a backup.
+ * The copy from before (`tags:v1`, whose tags spanned accounts, or `labels:v1` before it) moves
+ * into `tags:v2` once, each tag into every account that uses it, and is kept 30 days as a backup.
  */
 import {
+  acctOf,
   CF_TAG_TYPE,
   type ProductId,
   type Resource,
@@ -31,8 +34,8 @@ import { listSecrets, revealSecret } from './secrets';
 import { accountRefs } from './usage';
 
 const API = 'https://api.cloudflare.com/client/v4';
-const KEY = 'tags:v1';
-const BEFORE = 'labels:v1';
+const KEY = 'tags:v2';
+const BEFORE = ['tags:v1', 'labels:v1'];
 const ACCESS_KEY = 'tagaccess:v1';
 const ACCESS_TTL_MS = 10 * 60_000;
 const LIST_TTL_MS = 5 * 60_000;
@@ -84,17 +87,35 @@ const uniq = (xs: string[]) => [...new Set(xs)].sort();
 const same = (a: string[], b: string[]) => uniq(a).join('\n') === uniq(b).join('\n');
 const namesOf = (tags: Record<string, string>) => Object.entries(tags).map(([k, v]) => tagFromCf(k, v));
 
-/** The tags as kept in KV; the first read copies the labels from before tags across. */
+/** The tags as kept in KV; the first read moves the copy from before into each account. */
 export async function getStored(env: Env): Promise<Stored> {
   const hit = await env.KV.get<Stored>(KEY, 'json');
   if (hit) return hit;
-  const raw = await env.KV.get(BEFORE);
-  if (!raw) return { tags: [], local: {} };
-  const before = JSON.parse(raw) as { labels?: Tag[]; assign?: Record<string, string[]> };
-  const stored: Stored = { tags: before.labels ?? [], local: before.assign ?? {} };
-  await env.KV.put(KEY, JSON.stringify(stored));
-  await env.KV.put(BEFORE, raw, { expirationTtl: 30 * 86_400 });
-  return stored;
+  for (const key of BEFORE) {
+    const raw = await env.KV.get(key);
+    if (!raw) continue;
+    const before = JSON.parse(raw) as {
+      tags?: Omit<Tag, 'acct'>[];
+      labels?: Omit<Tag, 'acct'>[];
+      local?: Record<string, string[]>;
+      assign?: Record<string, string[]>;
+    };
+    const local = before.local ?? before.assign ?? {};
+    const tags: Tag[] = [];
+    for (const t of before.tags ?? before.labels ?? []) {
+      const accts = new Set(
+        Object.entries(local)
+          .filter(([, names]) => names.includes(t.name))
+          .map(([id]) => acctOf(id)),
+      );
+      for (const acct of accts) tags.push({ ...t, acct });
+    }
+    const stored: Stored = { tags, local };
+    await env.KV.put(KEY, JSON.stringify(stored));
+    await env.KV.put(key, raw, { expirationTtl: 30 * 86_400 });
+    return stored;
+  }
+  return { tags: [], local: {} };
 }
 
 /** Account id → the tags token (its KV name) that reaches it, or why none does. */
@@ -223,8 +244,15 @@ export async function readTags(
   );
   // A tag made in the Cloudflare dashboard gets a colour from its name until it's given one here.
   const tags = [...stored.tags];
-  for (const names of Object.values(assign))
-    for (const n of names) if (!tags.some((t) => t.name === n)) tags.push({ name: n, c: hueOf(n) });
+  const has = new Set(tags.map((t) => `${t.acct}|${t.name}`));
+  for (const [id, names] of Object.entries(assign)) {
+    const acct = acctOf(id);
+    for (const n of names)
+      if (!has.has(`${acct}|${n}`)) {
+        has.add(`${acct}|${n}`);
+        tags.push({ acct, name: n, c: hueOf(n) });
+      }
+  }
   return {
     tags,
     assign,

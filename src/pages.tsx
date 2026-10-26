@@ -76,6 +76,7 @@ import {
   pctText,
   sevColor,
   statusText,
+  tagNames,
   type Usage,
   usd,
   useModel,
@@ -98,7 +99,8 @@ type PageId =
   | 'resources'
   | 'resources-all'
   | `resources-${CategoryId}`
-  | 'tags';
+  | 'tags'
+  | 'account-tags';
 
 /**
  * A page's numbers live in a Row of numbers card of built-in tiles (`usageTile`). A layout saved
@@ -355,7 +357,18 @@ function usageTile(m: Model, w: PaceWindow) {
         const n = m.resources.filter(
           (r) => !r.total && !m.archived(r) && products.has(r.product) && as.some((a) => a.id === r.acct),
         ).length;
-        return <Tile label="Resources" value={n} caption={`${m.tags.tags.length} tags`} />;
+        return (
+          <Tile
+            label="Resources"
+            value={n}
+            caption={`${
+              tagNames(
+                m.tags,
+                as.map((a) => a.id),
+              ).length
+            } tags`}
+          />
+        );
       }
       case 'plan': {
         if (one)
@@ -972,7 +985,7 @@ export function ResourcesPage({
     navigate({ to: '.', search: (s: Record<string, unknown>) => ({ ...s, open: id }), replace: true });
   const phone = useIsMobile();
   // biome-ignore lint/correctness/useExhaustiveDependencies: openRes only navigates.
-  const domain = useMemo(() => resourceDomain(m, openRes, w, phone), [m, w, phone]);
+  const domain = useMemo(() => resourceDomain(m, openRes, w, phone, acct), [m, w, phone, acct]);
   const current = open ? m.resource[open] : undefined;
   // The drawer keeps showing the last resource while it slides shut.
   const last = useRef(current);
@@ -1138,15 +1151,24 @@ export function ResourcesPage({
 
 const TAGS = view({
   name: 'Tags',
-  columns: ['name', 'key', 'resources', 'accounts', 'where', 'local', 'inherited'],
+  columns: ['name', 'account', 'key', 'resources', 'where', 'local', 'inherited'],
+  group: { fields: ['account', 'kind', 'where'], default: 'account' },
+  sort: { key: 'resources', desc: true },
+} as Partial<CustomViewConfig> & { name: string });
+const ACCOUNT_TAGS = view({
+  name: 'Tags',
+  columns: ['name', 'key', 'resources', 'where', 'local', 'inherited'],
   group: { fields: ['kind', 'where'], default: 'kind' },
   sort: { key: 'resources', desc: true },
 } as Partial<CustomViewConfig> & { name: string });
 
-/** Every tag across accounts, where each is kept, and the bulk bar to edit, merge or delete them. */
-export function TagsPage() {
+/**
+ * One account's own tags (or every account's, by account), where each is kept, and the bulk bar
+ * to edit, merge or delete them.
+ */
+export function TagsPage({ acct }: { acct?: string }) {
   const m = useModel();
-  const saved = useSavedView('tags', TAGS);
+  const saved = useSavedView(acct ? 'account-tags' : 'tags', acct ? ACCOUNT_TAGS : TAGS);
   const selKeys = useRef(new Set<string>()).current;
   const [, bump] = useState(0);
   const setSel = useRef((next: Set<string>) => {
@@ -1157,25 +1179,29 @@ export function TagsPage() {
     bump((n) => n + 1);
   }).current;
   const selection = useRef({ keys: selKeys, onChange: setSel }).current;
-  const rows = useMemo(() => tagRows(m), [m]);
+  const rows = useMemo(() => tagRows(m, acct), [m, acct]);
   const domain = useMemo(() => tagDomain(m), [m]);
-  if (!m.accounts.length) return <Waiting m={m} crumbs={[{ label: 'Tags' }]} />;
+  const a = acct ? m.account[acct] : undefined;
+  const crumbs = a ? [{ label: a.name, to: `/a/${a.id}` }, { label: 'Tags' }] : [{ label: 'Tags' }];
+  if (!m.accounts.length || (acct && !a)) return <Waiting m={m} crumbs={crumbs} />;
   const access = tagAccessLine(m);
   const tagged = new Set(rows.flatMap((t) => t.ids)).size;
   const local = new Set(rows.flatMap((t) => t.ids.filter((id) => m.tags.local[id]?.length))).size;
+  const live = m.resources.filter((r) => !r.total && !m.archived(r) && (!acct || r.acct === acct)).length;
+  const write = acct ? m.tags.access[acct] : undefined;
   return (
     <>
       <LumenLayout
-        crumbs={[{ label: 'Tags' }]}
+        crumbs={crumbs}
         meta={
-          m.tags.readAt
+          (acct ? write?.write : m.tags.readAt) && m.tags.readAt
             ? `Cloudflare resource tags, read ${new Date(m.tags.readAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
             : 'Kept in usageflare until a tags token is added'
         }
         actions={
           <>
-            <MoveToCloudflare m={m} />
-            <TagForm m={m}>
+            <MoveToCloudflare m={m} acct={acct} />
+            <TagForm m={m} acct={acct}>
               <Button size="sm">New tag</Button>
             </TagForm>
           </>
@@ -1184,25 +1210,33 @@ export function TagsPage() {
           <TileRow fill aria-label="Tags">
             <Tile
               label="Projects"
-              value={rows.filter((t) => t.kind === 'Project').length}
-              caption={`${rows.filter((t) => t.kind !== 'Project').length} other Cloudflare tags`}
+              value={new Set(rows.filter((t) => t.kind === 'Project').map((t) => t.name)).size}
+              caption={`${new Set(rows.filter((t) => t.kind !== 'Project').map((t) => t.name)).size} other Cloudflare tags`}
             />
-            <Tile
-              label="Tagged resources"
-              value={tagged}
-              caption={`of ${m.resources.filter((r) => !r.total && !m.archived(r)).length}`}
-            />
+            <Tile label="Tagged resources" value={tagged} caption={`of ${live}`} />
             <Tile
               label="Only in usageflare"
               value={local}
               caption="Not saved in Cloudflare"
               valueClassName={local ? 'text-warning' : undefined}
             />
-            <Tile
-              label="Saved in Cloudflare"
-              value={`${access.yes} of ${access.of}`}
-              caption={access.yes ? access.names.join(' · ') : 'Add a tags token in Settings'}
-            />
+            {acct ? (
+              <Tile
+                label="Saved in Cloudflare"
+                value={write?.write ? 'Yes' : 'No'}
+                caption={
+                  write?.write
+                    ? 'A tags token reaches this account'
+                    : (write?.error ?? 'Add a tags token in Settings')
+                }
+              />
+            ) : (
+              <Tile
+                label="Saved in Cloudflare"
+                value={`${access.yes} of ${access.of}`}
+                caption={access.yes ? access.names.join(' · ') : 'Add a tags token in Settings'}
+              />
+            )}
           </TileRow>
         }
         domain={domain}
@@ -1212,7 +1246,7 @@ export function TagsPage() {
         rowTitle={(t) => t.name}
         {...saved}
       />
-      <TagBulkBar m={m} names={[...selKeys]} onSelect={setSel} />
+      <TagBulkBar m={m} keys={[...selKeys]} onSelect={setSel} />
     </>
   );
 }

@@ -52,7 +52,12 @@ const tagsBody = z.object({
   push: z.boolean().optional(),
   tags: z
     .array(
-      z.object({ name: tagName, c: z.number().int().min(0).max(9999), icon: z.string().max(32).optional() }),
+      z.object({
+        acct: z.string().regex(/^[0-9a-f]{32}$/),
+        name: tagName,
+        c: z.number().int().min(0).max(9999),
+        icon: z.string().max(32).optional(),
+      }),
     )
     .max(2000),
   /** resource id → tag names to add and to take off. */
@@ -80,6 +85,7 @@ const viewPage = z.object({
     'resources-ai',
     'resources-messaging',
     'tags',
+    'account-tags',
   ]),
 });
 const prefsBody = z.object({

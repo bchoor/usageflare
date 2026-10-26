@@ -19,7 +19,17 @@ import {
 import { Box, ChartColumn, DollarSign, Gauge, Server, Tag, Timer, TriangleAlert } from 'lucide-react';
 import { PRODUCT, PRODUCTS, type Resource } from '../shared/catalog';
 import { amountParts } from './domains';
-import { fmt, type Model, pctText, perText, STATUS_LABEL, shareOf, tagColor, type Usage } from './model';
+import {
+  findTag,
+  fmt,
+  type Model,
+  pctText,
+  perText,
+  STATUS_LABEL,
+  shareOf,
+  tagColor,
+  type Usage,
+} from './model';
 import { hitting, MeterPaceCell, PaceSection } from './pace';
 import { PRODUCT_ICON, ProductIcon } from './products';
 
@@ -77,8 +87,10 @@ export function quotaRows(m: Model, us: Usage[]): QuotaRow[] {
 
 const productOf = new Map(PRODUCTS.map((p) => [p.label, p]));
 const poolKey = (q: QuotaRow) => `${q.u.a.id}|${q.u.m.key}`;
-const colorOf = (m: Model, tag: string) =>
-  tag === NO_TAG ? 'color-mix(in oklab, var(--muted-foreground) 45%, transparent)' : tagColor(m.tags, tag);
+const colorOf = (m: Model, tag: string, acct?: string) =>
+  tag === NO_TAG
+    ? 'color-mix(in oklab, var(--muted-foreground) 45%, transparent)'
+    : tagColor(m.tags, tag, acct);
 
 /** Its share of the quota: a bar in the kit's meter colours and the number. */
 function QuotaShare({ share, payg }: { share: number; payg?: boolean }) {
@@ -104,7 +116,7 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
         value: (q) => q.tag,
         color: (v) => colorOf(m, v),
         iconOf: (v) => {
-          const icon = m.tags.tags.find((l) => l.name === v)?.icon;
+          const icon = findTag(m.tags, v)?.icon;
           return icon ? iconOf(icon, Tag) : undefined;
         },
         filterable: true,
@@ -197,7 +209,7 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
           }
           const segs = [...top.rows]
             .sort((a, b) => b.used - a.used)
-            .map((q) => ({ value: q.share, color: colorOf(m, q.tag), label: q.tag }));
+            .map((q) => ({ value: q.share, color: colorOf(m, q.tag, q.u.a.id), label: q.tag }));
           return <ShareMeter value={share} label={pctText(share)} segments={segs} />;
         },
       },
@@ -311,7 +323,11 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
                   wide
                   value={shareOf(q.u, q.u.used)}
                   label={pctText(shareOf(q.u, q.u.used))}
-                  segments={all.map((x) => ({ value: x.share, color: colorOf(m, x.tag), label: x.tag }))}
+                  segments={all.map((x) => ({
+                    value: x.share,
+                    color: colorOf(m, x.tag, x.u.a.id),
+                    label: x.tag,
+                  }))}
                 />
               )}
               <DetailsTable
@@ -327,7 +343,7 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
                       key="n"
                       className={`inline-flex items-center gap-2 ${x.tag === q.tag ? 'font-medium' : ''}`}
                     >
-                      <ColorDot color={colorOf(m, x.tag)} />
+                      <ColorDot color={colorOf(m, x.tag, x.u.a.id)} />
                       {x.tag}
                     </span>,
                     fmt(x.used, q.u.m.unit),
