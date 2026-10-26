@@ -1,5 +1,5 @@
 /**
- * The pages: Overview, Resources (every account, one account, or one label) and an
+ * The pages: Overview, Resources (every account, one account, or one tag) and an
  * account's Overview and Limits. Each is a LumenLayout: its cards, widths and table settings are a saved view
  * (Edit layout), kept per page in the Worker's KV.
  */
@@ -57,7 +57,6 @@ import {
   type Resource,
 } from '../shared/catalog';
 import { limitDomain, resourceDomain, UsageLines, view } from './domains';
-import { BulkBar, LabelForm, LabelMark } from './labels';
 import {
   AccountMetersCard,
   BilledCell,
@@ -84,6 +83,8 @@ import {
 import { hitting, PaceList } from './pace';
 import { CATEGORY_ICON, ProductIcon } from './products';
 import { meterName, quotaDomain, quotaRows } from './quotas';
+import { MoveToCloudflare, TagBulkBar, tagAccessLine, tagDomain, tagRows } from './tag-manager';
+import { BulkBar, TagForm, TagMark } from './tags';
 
 // ---------- Saved page layouts ----------
 
@@ -96,7 +97,8 @@ type PageId =
   | 'account-limits'
   | 'resources'
   | 'resources-all'
-  | `resources-${CategoryId}`;
+  | `resources-${CategoryId}`
+  | 'tags';
 
 /**
  * A page's numbers live in a Row of numbers card of built-in tiles (`usageTile`). A layout saved
@@ -353,7 +355,7 @@ function usageTile(m: Model, w: PaceWindow) {
         const n = m.resources.filter(
           (r) => !r.total && !m.archived(r) && products.has(r.product) && as.some((a) => a.id === r.acct),
         ).length;
-        return <Tile label="Resources" value={n} caption={`${m.labels.labels.length} labels`} />;
+        return <Tile label="Resources" value={n} caption={`${m.tags.tags.length} tags`} />;
       }
       case 'plan': {
         if (one)
@@ -680,15 +682,15 @@ function monthStart() {
 // ---------- Limits ----------
 
 const LIMITS = view({
-  name: 'By label',
-  columns: ['label', 'used', 'quota', 'pct', 'fpct', 'pace', 'cost', 'top'],
-  group: { fields: ['product', 'label', 'status'], default: 'product' },
+  name: 'By tag',
+  columns: ['tag', 'used', 'quota', 'pct', 'fpct', 'pace', 'cost', 'top'],
+  group: { fields: ['product', 'tag', 'status'], default: 'product' },
   subgroup: 'meter',
   sort: { key: 'pct', desc: true },
 } as Partial<CustomViewConfig> & { name: string });
 
 /**
- * An account's Limits: each pooled meter by the labels that use it. Quotas are the account's, so
+ * An account's Limits: each pooled meter by the tags that use it. Quotas are the account's, so
  * this page is per account only.
  */
 export function AccountLimitsPage({ acct }: { acct: string }) {
@@ -738,7 +740,7 @@ export function AccountLimitsPage({ acct }: { acct: string }) {
       domain={domain}
       rows={rows}
       load={m.load}
-      rowTitle={(q) => `${q.label} · ${meterName(q.u)}`}
+      rowTitle={(q) => `${q.tag} · ${meterName(q.u)}`}
       {...saved}
     />
   );
@@ -909,23 +911,23 @@ export function AccountName({ a }: { a: AccountView }) {
 
 // ---------- Resources ----------
 
-const RES_COLUMNS = ['name', 'account', 'product', 'label', 'usage', 'watch', 'pace', 'trend7', 'cost'];
+const RES_COLUMNS = ['name', 'account', 'product', 'tag', 'usage', 'watch', 'pace', 'trend7', 'cost'];
 const RESOURCES = view({
   name: 'Resources',
   columns: RES_COLUMNS,
-  group: { fields: ['account', 'category', 'product', 'type', 'label', 'pace'], default: null },
+  group: { fields: ['account', 'category', 'product', 'type', 'tag', 'pace'], default: null },
   sort: { key: 'usage', desc: true },
   width: 'scroll',
 } as Partial<CustomViewConfig> & { name: string });
 
 export function ResourcesPage({
   acct,
-  label,
+  tag,
   open,
   product,
 }: {
   acct?: string;
-  label?: string;
+  tag?: string;
   open?: string;
   /** A product link: its category tab, with a Product chip in the filter. */
   product?: ProductId;
@@ -982,7 +984,7 @@ export function ResourcesPage({
       !r.total &&
       (showDeleted || !m.archived(r)) &&
       (!acct || r.acct === acct) &&
-      (!label || m.labelsOf(r).includes(label)),
+      (!tag || m.tagsOf(r).includes(tag)),
   );
   const rows = scoped.filter((r) => tab === 'all' || PRODUCT[r.product].cat === tab);
   if (!m.accounts.length) return <Waiting m={m} crumbs={[{ label: 'Resources' }]} />;
@@ -994,7 +996,7 @@ export function ResourcesPage({
     filters: {
       ...saved.config.filters,
       default: [
-        ...(label ? [{ key: 'label', value: label }] : []),
+        ...(tag ? [{ key: 'tag', value: tag }] : []),
         ...(product && (tab === 'all' || PRODUCT[product].cat === tab)
           ? [{ key: 'product', value: PRODUCT[product].label }]
           : []),
@@ -1007,23 +1009,23 @@ export function ResourcesPage({
     ...(a
       ? [
           { label: <AccountName a={a} />, name: a.name, to: `/a/${a.id}` },
-          { label: 'Resources', to: label ? `/a/${a.id}/resources` : undefined },
+          { label: 'Resources', to: tag ? `/a/${a.id}/resources` : undefined },
         ]
-      : [{ label: 'All resources', to: label ? '/resources' : undefined }]),
-    ...(label ? [{ label: <LabelMark m={m} name={label} withName />, name: label }] : []),
+      : [{ label: 'All resources', to: tag ? '/resources' : undefined }]),
+    ...(tag ? [{ label: <TagMark m={m} name={tag} withName />, name: tag }] : []),
   ];
   const cost = rows.reduce((s, r) => s + m.info(r).cost, 0);
   const fcost = rows.reduce((s, r) => s + m.info(r).fcost, 0);
   return (
     <>
       <LumenLayout
-        key={`${acct ?? ''}|${label ?? ''}|${product ?? ''}|${tab}`}
+        key={`${acct ?? ''}|${tag ?? ''}|${product ?? ''}|${tab}`}
         crumbs={crumbs}
-        meta={label ? 'Everything with this label' : 'Main metric month to date, today on Free'}
+        meta={tag ? 'Everything with this tag' : 'Main metric month to date, today on Free'}
         intro={
           <div className="flex flex-col gap-3">
-            {label && (
-              <TileRow aria-label="Label">
+            {tag && (
+              <TileRow aria-label="Tag">
                 <Tile
                   label="Resources"
                   value={rows.length}
@@ -1080,17 +1082,17 @@ export function ResourcesPage({
         actions={
           <>
             <PaceWindowPicker />
-            {label && (
-              <LabelForm
+            {tag && (
+              <TagForm
                 m={m}
-                edit={label}
-                onDone={(n) => n !== label && navigate({ to: '.', search: { label: n } })}
+                edit={tag}
+                onDone={(n) => n !== tag && navigate({ to: '.', search: { tag: n } })}
               >
                 <Button size="sm" variant="ghost">
                   <Palette className="size-4" />
-                  Edit label
+                  Edit tag
                 </Button>
-              </LabelForm>
+              </TagForm>
             )}
           </>
         }
@@ -1128,6 +1130,89 @@ export function ResourcesPage({
             </DrawerSection>
           ))}
       </LumenDrawer>
+    </>
+  );
+}
+
+// ---------- Tags ----------
+
+const TAGS = view({
+  name: 'Tags',
+  columns: ['name', 'key', 'resources', 'accounts', 'where', 'local', 'inherited'],
+  group: { fields: ['kind', 'where'], default: 'kind' },
+  sort: { key: 'resources', desc: true },
+} as Partial<CustomViewConfig> & { name: string });
+
+/** Every tag across accounts, where each is kept, and the bulk bar to edit, merge or delete them. */
+export function TagsPage() {
+  const m = useModel();
+  const saved = useSavedView('tags', TAGS);
+  const selKeys = useRef(new Set<string>()).current;
+  const [, bump] = useState(0);
+  const setSel = useRef((next: Set<string>) => {
+    if (next !== selKeys) {
+      selKeys.clear();
+      for (const k of next) selKeys.add(k);
+    }
+    bump((n) => n + 1);
+  }).current;
+  const selection = useRef({ keys: selKeys, onChange: setSel }).current;
+  const rows = useMemo(() => tagRows(m), [m]);
+  const domain = useMemo(() => tagDomain(m), [m]);
+  if (!m.accounts.length) return <Waiting m={m} crumbs={[{ label: 'Tags' }]} />;
+  const access = tagAccessLine(m);
+  const tagged = new Set(rows.flatMap((t) => t.ids)).size;
+  const local = new Set(rows.flatMap((t) => t.ids.filter((id) => m.tags.local[id]?.length))).size;
+  return (
+    <>
+      <LumenLayout
+        crumbs={[{ label: 'Tags' }]}
+        meta={
+          m.tags.readAt
+            ? `Cloudflare resource tags, read ${new Date(m.tags.readAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+            : 'Kept in usageflare until a tags token is added'
+        }
+        actions={
+          <>
+            <MoveToCloudflare m={m} />
+            <TagForm m={m}>
+              <Button size="sm">New tag</Button>
+            </TagForm>
+          </>
+        }
+        intro={
+          <TileRow fill aria-label="Tags">
+            <Tile
+              label="Projects"
+              value={rows.filter((t) => t.kind === 'Project').length}
+              caption={`${rows.filter((t) => t.kind !== 'Project').length} other Cloudflare tags`}
+            />
+            <Tile
+              label="Tagged resources"
+              value={tagged}
+              caption={`of ${m.resources.filter((r) => !r.total && !m.archived(r)).length}`}
+            />
+            <Tile
+              label="Only in usageflare"
+              value={local}
+              caption="Not saved in Cloudflare"
+              valueClassName={local ? 'text-warning' : undefined}
+            />
+            <Tile
+              label="Saved in Cloudflare"
+              value={`${access.yes} of ${access.of}`}
+              caption={access.yes ? access.names.join(' · ') : 'Add a tags token in Settings'}
+            />
+          </TileRow>
+        }
+        domain={domain}
+        rows={rows}
+        load={m.load}
+        selection={selection}
+        rowTitle={(t) => t.name}
+        {...saved}
+      />
+      <TagBulkBar m={m} names={[...selKeys]} onSelect={setSel} />
     </>
   );
 }

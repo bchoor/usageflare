@@ -7,9 +7,10 @@ import {
   type Account,
   type Billed,
   HOURLY_SLOTS,
-  type LabelsDoc,
   type ProductId,
   type Resource,
+  type Tag,
+  type TagsState,
 } from '../shared/catalog';
 import { hoursFrom } from './cloudflare';
 import type { Env } from './env';
@@ -239,36 +240,57 @@ export function fixtureUsage(accountId: string, dates: string[]) {
   return { dates, account, resources, rateLimited: false };
 }
 
-/** Labels to start from, so the sidebar and filters have something to show. */
-export const FIXTURE_LABELS: LabelsDoc = {
-  labels: [
-    { name: 'online-backup', c: 1, icon: 'archive' },
-    { name: 'career', c: 2, icon: 'briefcase' },
-    { name: 'edgedesk', c: 3, icon: 'zap' },
-    { name: 'mailcellar', c: 4, icon: 'mail' },
-    { name: 'p2e', c: 5, icon: 'gamepad-2' },
-    { name: 'tools', c: 6, icon: 'wrench' },
-    { name: 'appflare', c: 7, icon: 'flame' },
-    { name: 'ai-bots', c: 8, icon: 'bot' },
-  ],
+/** Tags to start from, so the sidebar, filters and Tags settings have something to show. */
+const FIXTURE_TAG_LIST: Tag[] = [
+  { name: 'online-backup', c: 1, icon: 'archive' },
+  { name: 'career', c: 2, icon: 'briefcase' },
+  { name: 'edgedesk', c: 3, icon: 'zap' },
+  { name: 'mailcellar', c: 4, icon: 'mail' },
+  { name: 'p2e', c: 5, icon: 'gamepad-2' },
+  { name: 'tools', c: 6, icon: 'wrench' },
+  { name: 'appflare', c: 7, icon: 'flame' },
+  { name: 'ai-bots', c: 8, icon: 'bot' },
+  { name: 'env=production', c: 9 },
+];
+
+const FIXTURE_ASSIGN: Record<string, string[]> = {
+  'a1000000000000000000000000000001:workers:online-backup': ['online-backup'],
+  'a1000000000000000000000000000001:r2:backups': ['online-backup'],
+  'a1000000000000000000000000000001:r2:backups-archive': ['online-backup'],
+  'a1000000000000000000000000000001:workers:career-site': ['career'],
+  'a1000000000000000000000000000001:workers:edgedesk-proxy': ['edgedesk'],
+  'a1000000000000000000000000000001:workers:mailcellar-api': ['mailcellar'],
+  'a1000000000000000000000000000001:d1:mailcellar-db': ['mailcellar'],
+  'a1000000000000000000000000000001:queues:mail-out': ['mailcellar'],
+  'a1000000000000000000000000000001:r2:mailcellar-spike': ['mailcellar'],
+  'a2000000000000000000000000000002:workers:p2e-staging': ['p2e'],
+  'a2000000000000000000000000000002:d1:p2e-dev': ['p2e'],
+  'a2000000000000000000000000000002:workers:ai-bots-dev': ['ai-bots'],
+  'a3000000000000000000000000000003:workers:p2e': ['p2e'],
+  'a3000000000000000000000000000003:d1:p2e-prod': ['p2e'],
+  'a3000000000000000000000000000003:do:Rooms': ['p2e'],
+  'a3000000000000000000000000000003:workers:tools': ['tools'],
+  'a3000000000000000000000000000003:workers:appflare-web': ['appflare'],
+  'a3000000000000000000000000000003:r2:assets': ['appflare'],
+};
+
+/** Account 2 has no tags token: its tags are kept in usageflare. */
+const FIXTURE_LOCAL = Object.fromEntries(
+  Object.entries(FIXTURE_ASSIGN).filter(([id]) => id.startsWith('a2')),
+);
+
+export const FIXTURE_TAGS: TagsState = {
+  tags: FIXTURE_TAG_LIST,
   assign: {
-    'a1000000000000000000000000000001:workers:online-backup': ['online-backup'],
-    'a1000000000000000000000000000001:r2:backups': ['online-backup'],
-    'a1000000000000000000000000000001:r2:backups-archive': ['online-backup'],
-    'a1000000000000000000000000000001:workers:career-site': ['career'],
-    'a1000000000000000000000000000001:workers:edgedesk-proxy': ['edgedesk'],
-    'a1000000000000000000000000000001:workers:mailcellar-api': ['mailcellar'],
-    'a1000000000000000000000000000001:d1:mailcellar-db': ['mailcellar'],
-    'a1000000000000000000000000000001:queues:mail-out': ['mailcellar'],
-    'a1000000000000000000000000000001:r2:mailcellar-spike': ['mailcellar'],
-    'a2000000000000000000000000000002:workers:p2e-staging': ['p2e'],
-    'a2000000000000000000000000000002:d1:p2e-dev': ['p2e'],
-    'a2000000000000000000000000000002:workers:ai-bots-dev': ['ai-bots'],
-    'a3000000000000000000000000000003:workers:p2e': ['p2e'],
-    'a3000000000000000000000000000003:d1:p2e-prod': ['p2e'],
-    'a3000000000000000000000000000003:do:Rooms': ['p2e'],
-    'a3000000000000000000000000000003:workers:tools': ['tools'],
-    'a3000000000000000000000000000003:workers:appflare-web': ['appflare'],
-    'a3000000000000000000000000000003:r2:assets': ['appflare'],
+    ...FIXTURE_ASSIGN,
+    'a3000000000000000000000000000003:workers:p2e': ['env=production', 'p2e'],
+    'a3000000000000000000000000000003:workers:tools': ['env=production', 'tools'],
   },
+  local: FIXTURE_LOCAL,
+  access: {
+    a1000000000000000000000000000001: { write: true },
+    a2000000000000000000000000000002: { write: false },
+    a3000000000000000000000000000003: { write: true },
+  },
+  readAt: new Date().toISOString(),
 };

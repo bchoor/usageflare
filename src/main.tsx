@@ -31,21 +31,21 @@ import { createRoot } from 'react-dom/client';
 import { z } from 'zod';
 import { CATEGORIES, type CategoryId, PRODUCTS, type ProductId } from '../shared/catalog';
 import { api } from './api';
-import { LabelForm, registerLabelSaver } from './labels';
 import { planText } from './meters';
 import {
-  labelColor,
   type Model,
   SEVERITY,
   skipCacheOnce,
+  tagColor,
   useModel,
   useRefreshing,
-  useSaveLabels,
   useSavePrefs,
+  useSaveTags,
 } from './model';
-import { AccountLimitsPage, AccountPage, OverviewPage, ResourcesPage } from './pages';
+import { AccountLimitsPage, AccountPage, OverviewPage, ResourcesPage, TagsPage } from './pages';
 import { PRODUCT_ICON } from './products';
 import { TokensSettings } from './settings';
+import { registerTagSaver, TagForm } from './tags';
 
 configureLumen({ prefsCookie: 'usageflare_prefs' });
 const queryClient = createDeskQueryClient();
@@ -53,7 +53,7 @@ const queryClient = createDeskQueryClient();
 // The last data this browser saw is kept in localStorage, so a page opened again draws it at once
 // and reads the Worker behind it (stale while revalidate). Only the very first visit waits.
 const DAY = 86_400_000;
-const KEPT = ['accounts', 'usage', 'prefs', 'labels'];
+const KEPT = ['accounts', 'usage', 'prefs', 'tags'];
 for (const k of KEPT) queryClient.setQueryDefaults([k], { gcTime: DAY });
 const storage = (() => {
   try {
@@ -112,7 +112,7 @@ function AccountNav({ m }: { m: Model }) {
       {m.accounts.map((a) => {
         const us = m.usage.filter((u) => u.a.id === a.id);
         const rs = m.resources.filter((r) => r.acct === a.id && !r.total);
-        const labels = m.labels.labels.filter((l) => rs.some((r) => m.labelsOf(r).includes(l.name)));
+        const tags = m.tags.tags.filter((l) => rs.some((r) => m.tagsOf(r).includes(l.name)));
         const items: SectionItem[] = [
           { id: 'overview', title: 'Overview', to: `/a/${a.id}`, icon: LayoutDashboard, fixed: true },
           {
@@ -132,19 +132,19 @@ function AccountNav({ m }: { m: Model }) {
             fixed: true,
           },
           {
-            id: 'labels',
-            title: 'Labels',
+            id: 'tags',
+            title: 'Tags',
             to: `/a/${a.id}/resources`,
             icon: Tag,
-            badge: labels.length || undefined,
+            badge: tags.length || undefined,
             fixed: true,
-            items: labels.map((l) => ({
+            items: tags.map((l) => ({
               id: l.name,
               title: l.name,
-              to: `/a/${a.id}/resources?label=${encodeURIComponent(l.name)}`,
+              to: `/a/${a.id}/resources?tag=${encodeURIComponent(l.name)}`,
               icon: l.icon ? iconOf(l.icon, Tag) : undefined,
-              color: labelColor(m.labels, l.name),
-              badge: rs.filter((r) => m.labelsOf(r).includes(l.name)).length,
+              color: tagColor(m.tags, l.name),
+              badge: rs.filter((r) => m.tagsOf(r).includes(l.name)).length,
             })),
           },
         ];
@@ -154,15 +154,15 @@ function AccountNav({ m }: { m: Model }) {
             label={`${a.name}${us.length ? ` · ${planText(m.plan(a).share)}` : ''}`}
             items={items}
           >
-            <LabelForm m={m}>
+            <TagForm m={m}>
               <button
                 type="button"
                 className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-muted-foreground text-xs hover:bg-sidebar-accent"
               >
                 <Plus className="size-3.5" />
-                New label
+                New tag
               </button>
-            </LabelForm>
+            </TagForm>
           </SidebarSection>
         );
       })}
@@ -244,7 +244,7 @@ function LimitsSettings() {
   );
 }
 
-/** ⌘K rows: accounts, labels, products and resources. */
+/** ⌘K rows: accounts, tags, products and resources. */
 function FinderRows({ m }: { m: Model }) {
   const rows = useMemo<LumenFinderRow[]>(
     () => [
@@ -257,12 +257,12 @@ function FinderRows({ m }: { m: Model }) {
         icon: Building2,
         detail: a.plan === 'paid' ? 'Paid' : 'Free',
       })),
-      ...m.labels.labels.map((l) => ({
-        value: `label:${l.name}`,
+      ...m.tags.tags.map((l) => ({
+        value: `tag:${l.name}`,
         label: l.name,
-        group: 'Labels',
-        scope: 'Labels',
-        href: `/resources?label=${encodeURIComponent(l.name)}`,
+        group: 'Tags',
+        scope: 'Tags',
+        href: `/resources?tag=${encodeURIComponent(l.name)}`,
         icon: Tag,
       })),
       ...PRODUCTS.map((p) => ({
@@ -294,8 +294,8 @@ function FinderRows({ m }: { m: Model }) {
 function Shell() {
   const me = useQuery({ queryKey: ['me'], queryFn: api.me });
   const m = useModel();
-  const saveLabels = useSaveLabels();
-  registerLabelSaver((doc) => saveLabels.mutateAsync(doc));
+  const saveTags = useSaveTags();
+  registerTagSaver((doc, base, push) => saveTags.mutateAsync({ doc, base, push }));
   const synced = m.accounts.map((a) => a.syncedAt).sort()[0];
   const ago = useAgo(synced);
   const refreshing = useRefreshing();
@@ -316,6 +316,7 @@ function Shell() {
                 icon: Rows3,
                 badge: m.resources.filter((r) => !r.total && !m.archived(r)).length || undefined,
               },
+              { title: 'Tags', to: '/tags', icon: Tag, badge: m.tags.tags.length || undefined },
             ]}
           />
           <AccountNav m={m} />
@@ -333,8 +334,8 @@ function Shell() {
       releases="/api/releases"
       user={me.data ? { email: me.data.email, name: null } : null}
       finder={{
-        scopes: ['Accounts', 'Labels', 'Resources'],
-        placeholder: 'Find an account, label, resource or setting',
+        scopes: ['Accounts', 'Tags', 'Resources'],
+        placeholder: 'Find an account, tag, resource or setting',
       }}
       settings={[
         { id: 'tokens', title: 'Cloudflare API tokens', icon: KeyRound, content: <TokensSettings /> },
@@ -368,11 +369,15 @@ const root = createRootRoute({ component: Shell });
 const catSearch = z.object({
   cat: z.enum(CATEGORIES.map((c) => c.id) as [CategoryId, ...CategoryId[]]).optional(),
 });
-const resSearch = z.object({
-  label: z.coerce.string().optional(),
-  open: z.coerce.string().optional(),
-  product: z.enum(PRODUCTS.map((p) => p.id) as [ProductId, ...ProductId[]]).optional(),
-});
+const resSearch = z
+  .object({
+    tag: z.coerce.string().optional(),
+    // Links from before labels became tags.
+    label: z.coerce.string().optional(),
+    open: z.coerce.string().optional(),
+    product: z.enum(PRODUCTS.map((p) => p.id) as [ProductId, ...ProductId[]]).optional(),
+  })
+  .transform(({ label, ...s }) => ({ ...s, tag: s.tag ?? label }));
 
 const routes = [
   createRoute({ getParentRoute: () => root, path: '/', component: OverviewPage }),
@@ -390,7 +395,7 @@ const routes = [
     validateSearch: resSearch,
     component: function AllResources() {
       const s = resourcesRoute.useSearch();
-      return <ResourcesPage key={s.product ?? ''} label={s.label} open={s.open} product={s.product} />;
+      return <ResourcesPage key={s.product ?? ''} tag={s.tag} open={s.open} product={s.product} />;
     },
   }),
   createRoute({
@@ -414,7 +419,7 @@ const routes = [
         <ResourcesPage
           key={`${acct}|${s.product ?? ''}`}
           acct={acct}
-          label={s.label}
+          tag={s.tag}
           open={s.open}
           product={s.product}
         />
@@ -429,6 +434,7 @@ const routes = [
       return <AccountLimitsPage key={acct} acct={acct} />;
     },
   }),
+  createRoute({ getParentRoute: () => root, path: '/tags', component: TagsPage }),
 ] as const;
 const [, , resourcesRoute, accountRoute, accountResourcesRoute, accountLimitsRoute] = routes;
 

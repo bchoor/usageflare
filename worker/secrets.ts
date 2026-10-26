@@ -17,7 +17,8 @@ export interface KeyTest {
 
 interface StoredSecret {
   v: 1;
-  kind: 'cf_api_token';
+  /** `cf_tags_token`: Tag Read + Tag Write only, for writing tags; the usage token stays read-only. */
+  kind: 'cf_api_token' | 'cf_tags_token';
   label: string;
   iv: string;
   ct: string;

@@ -1,6 +1,6 @@
 /**
  * What the pages read: the accounts and their usage from the Worker, judged against plan allowances
- * (used, forecast, cost, status per account and metric), plus labels and prefs. Every page shares
+ * (used, forecast, cost, status per account and metric), plus tags and prefs. Every page shares
  * these hooks, so one fetch serves them all.
  */
 import {
@@ -16,14 +16,16 @@ import { useMemo, useSyncExternalStore } from 'react';
 import {
   type Account,
   type Billed,
+  CF_TAG_TYPE,
   HOURLY_SLOTS,
-  type LabelsDoc,
   METRICS,
   type Metric,
   PRODUCT,
   type Prefs,
   type ProductId,
   type Resource,
+  type TagsDoc,
+  type TagsState,
 } from '../shared/catalog';
 
 export interface AccountRef {
@@ -110,20 +112,66 @@ export function useSavePrefs() {
   });
 }
 
-export function useLabels() {
+const EMPTY_TAGS: TagsState = { tags: [], assign: {}, local: {}, access: {} };
+
+export function useTags() {
   return useQuery({
-    queryKey: ['labels'],
-    queryFn: () => apiJson<LabelsDoc>('/api/labels', undefined, 'labels'),
+    queryKey: ['tags'],
+    queryFn: () => apiJson<TagsState>('/api/tags', undefined, 'tags'),
+    staleTime: 60_000,
   });
 }
 
-export function useSaveLabels() {
+/**
+ * Saves tags. Cloudflare takes a few writes per request, so the same doc goes again while the
+ * Worker says writes are `left` (and each round made progress); `push` also moves tags kept here
+ * to Cloudflare where it can hold them.
+ */
+/** Per resource, the tag names `to` adds to `from` and the ones it takes off. */
+export function tagChanges(from: Record<string, string[]>, to: Record<string, string[]>) {
+  const out: Record<string, { add: string[]; remove: string[] }> = {};
+  for (const id of new Set([...Object.keys(from), ...Object.keys(to)])) {
+    const a = new Set(from[id] ?? []);
+    const b = new Set(to[id] ?? []);
+    const add = [...b].filter((n) => !a.has(n));
+    const remove = [...a].filter((n) => !b.has(n));
+    if (add.length || remove.length) out[id] = { add, remove };
+  }
+  return out;
+}
+
+/**
+ * Saves tags: the changes from `base` (what the page showed) to `doc`, so a tag edited in the
+ * Cloudflare dashboard meanwhile is left as it is. Cloudflare takes a few writes per request: the
+ * changes go again, less any that failed, while the Worker says writes are `left` and fewer are
+ * left each time. `push` also moves tags kept here to Cloudflare where it can hold them.
+ */
+export function useSaveTags() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (doc: LabelsDoc) => apiJson<LabelsDoc>('/api/labels', json('PUT', doc), 'labels.put'),
-    onMutate: (doc) => qc.setQueryData(['labels'], doc),
-    onSuccess: (doc) => qc.setQueryData(['labels'], doc),
-    onError: () => qc.invalidateQueries({ queryKey: ['labels'] }),
+    mutationFn: async ({ doc, base, push }: { doc: TagsDoc; base: TagsDoc; push?: boolean }) => {
+      const changes = tagChanges(base.assign, doc.assign);
+      const put = () =>
+        apiJson<TagsState>('/api/tags', json('PUT', { tags: doc.tags, changes, push }), 'tags.put');
+      let out = await put();
+      const failed = new Map((out.failed ?? []).map((f) => [f.id, f]));
+      for (let i = 0; i < 25 && out.left; i++) {
+        const before = out.left;
+        for (const id of failed.keys()) delete changes[id];
+        out = await put();
+        for (const f of out.failed ?? []) failed.set(f.id, f);
+        if ((out.left ?? 0) >= before) break;
+      }
+      return { ...out, failed: [...failed.values()] };
+    },
+    onMutate: ({ doc }) =>
+      qc.setQueryData<TagsState>(['tags'], (cur) => ({
+        ...(cur ?? EMPTY_TAGS),
+        tags: doc.tags,
+        assign: doc.assign,
+      })),
+    onSuccess: (state) => qc.setQueryData(['tags'], state),
+    onError: () => qc.invalidateQueries({ queryKey: ['tags'] }),
   });
 }
 
@@ -454,8 +502,11 @@ export interface Model {
   archived: (r: Resource) => boolean;
   /** An account's Usage, Watch for and trend, over all its meters or those `keep` passes. */
   plan: (a: AccountView, keep?: (u: Usage) => boolean) => PlanInfo;
-  labels: LabelsDoc;
-  labelsOf: (r: Resource) => string[];
+  tags: TagsState;
+  /** A resource's tags; one Cloudflare can't tag, with none of its own, shows those of the Workers that bind it. */
+  tagsOf: (r: Resource) => string[];
+  /** Tags shown on `r` only because a Worker that binds it has them. */
+  inherited: (r: Resource) => string[];
   prefs: Prefs;
   errors: { label: string; error: string }[];
   /** No token yet: the pages point to Settings. */
@@ -465,7 +516,7 @@ export interface Model {
 export function useModel(): Model {
   const accounts = useAccounts();
   const prefs = usePrefs();
-  const labels = useLabels();
+  const tagsQ = useTags();
   const qc = useQueryClient();
   const refs = accounts.data?.accounts ?? [];
   const usages = useQueries({
@@ -549,15 +600,24 @@ export function useModel(): Model {
       infoCache.set(r.id, out);
       return out;
     };
-    // Labels list A to Z everywhere (pickers, sidebar, search), whatever order they were made in.
-    const raw = labels.data ?? { labels: [], assign: {} };
-    const doc = {
+    // Tags list A to Z everywhere (pickers, sidebar, search), whatever order they were made in.
+    const raw = tagsQ.data ?? EMPTY_TAGS;
+    const doc: TagsState = {
       ...raw,
-      labels: [...raw.labels].sort((a, b) =>
-        a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
-      ),
+      tags: [...raw.tags].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })),
     };
-    const known = new Set(doc.labels.map((l) => l.name));
+    const known = new Set(doc.tags.map((l) => l.name));
+    const own = (id: string) => (doc.assign[id] ?? []).filter((n) => known.has(n));
+    const fromWorkers = new Map<string, Set<string>>();
+    for (const w of resources)
+      for (const id of w.binds ?? []) {
+        const product = id.split(':')[1] as Resource['product'];
+        if (CF_TAG_TYPE[product] || !own(w.id).length) continue;
+        const set = fromWorkers.get(id) ?? new Set<string>();
+        for (const n of own(w.id)) set.add(n);
+        fromWorkers.set(id, set);
+      }
+    const inherited = (r: Resource) => (own(r.id).length ? [] : [...(fromWorkers.get(r.id) ?? [])].sort());
     return {
       load,
       loading: accounts.isPending || usages.some((u) => u.isPending),
@@ -619,8 +679,12 @@ export function useModel(): Model {
           days,
         };
       },
-      labels: doc,
-      labelsOf: (r) => (doc.assign[r.id] ?? []).filter((n) => known.has(n)),
+      tags: doc,
+      tagsOf: (r) => {
+        const mine = own(r.id);
+        return mine.length ? mine : inherited(r);
+      },
+      inherited,
       prefs: prefs.data ?? { warn: 75, plans: {} },
       errors: accounts.data?.errors ?? [],
       empty: accounts.isSuccess && refs.length === 0,
@@ -631,7 +695,7 @@ export function useModel(): Model {
     accounts.isFetching,
     accounts.error,
     stamp,
-    labels.data,
+    tagsQ.data,
     prefs.data,
     warn,
   ]);
@@ -735,7 +799,7 @@ export function monthEnd(): string {
   });
 }
 
-export const LABEL_COLORS = [
+export const TAG_COLORS = [
   'var(--chart-1)',
   'var(--chart-4)',
   'var(--chart-6)',
@@ -747,11 +811,11 @@ export const LABEL_COLORS = [
   'var(--chart-10)',
   'var(--chart-7)',
 ];
-export const labelColor = (doc: LabelsDoc, name: string) =>
-  LABEL_COLORS[(doc.labels.find((l) => l.name === name)?.c ?? 0) % LABEL_COLORS.length] as string;
+export const tagColor = (doc: TagsDoc, name: string) =>
+  TAG_COLORS[(doc.tags.find((l) => l.name === name)?.c ?? 0) % TAG_COLORS.length] as string;
 
-/** `Billing Prod` → `billing-prod`: a label's name. */
-export const labelSlug = (q: string) =>
+/** `Billing Prod` → `billing-prod`: a tag's name. */
+export const tagSlug = (q: string) =>
   q
     .trim()
     .toLowerCase()
