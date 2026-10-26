@@ -4,6 +4,7 @@ import { zValidator as zv } from '@hono/zod-validator';
 import { Hono } from 'hono';
 import { secureHeaders } from 'hono/secure-headers';
 import { z } from 'zod';
+import { METRIC } from '../shared/catalog';
 import { requireAccess, sameOrigin } from './access';
 import changelog from './changelog.json';
 import { historyDates } from './cloudflare';
@@ -95,6 +96,12 @@ const prefsBody = z.object({
   plans: z
     .record(z.string().regex(/^[a-f0-9]{32}$/), z.enum(['free', 'paid']))
     .refine((o) => Object.keys(o).length <= 200, 'Too many accounts'),
+  meterIcons: z
+    .record(
+      z.string().refine((k) => Object.hasOwn(METRIC, k), 'Unknown meter'),
+      z.string().trim().min(1).max(64),
+    )
+    .optional(),
 });
 const fresh = (q: string | undefined) => q !== undefined;
 

@@ -369,7 +369,9 @@ export function PaceChart({ u, w, height = 180 }: { u: Usage; w: PaceWindow; hei
   const t = useChartTokens();
   const p = paceOf(u, w);
   if (!p) return <p className="text-muted-foreground text-sm">Pay as you go: no cap to reach.</p>;
-  const now = Date.now();
+  // To the minute, so a re-render (a hover, a refetch) hands the chart the same option and it
+  // doesn't redraw and replay its animation under the tooltip.
+  const now = Math.floor(Date.now() / 60_000) * 60_000;
   const reset = resetAt(u, now);
   const d = new Date(now);
   const midnight = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
@@ -424,6 +426,9 @@ export function PaceChart({ u, w, height = 180 }: { u: Usage; w: PaceWindow; hei
             type: 'line',
             data: past,
             symbol: 'none',
+            // No hover state: redrawing the line in it lost the line and its fill under the tooltip.
+            emphasis: { disabled: true },
+            itemStyle: { color: u.a.color },
             lineStyle: { width: 2, color: u.a.color },
             areaStyle: { color: u.a.color, opacity: 0.12 },
             markArea: {
@@ -447,6 +452,8 @@ export function PaceChart({ u, w, height = 180 }: { u: Usage; w: PaceWindow; hei
               [reset, end],
             ],
             symbol: 'none',
+            emphasis: { disabled: true },
+            itemStyle: { color: level },
             lineStyle: { width: 2, type: 'dashed', color: level },
             ...(capAt
               ? {

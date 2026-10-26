@@ -31,7 +31,7 @@ import {
   type Usage,
 } from './model';
 import { hitting, MeterPaceCell, PaceSection } from './pace';
-import { PRODUCT_ICON, ProductIcon } from './products';
+import { MeterIcon, PRODUCT_ICON, ProductIcon } from './products';
 
 export const NO_TAG = 'No tag';
 
@@ -40,8 +40,10 @@ export interface QuotaRow {
   u: Usage;
   tag: string;
   used: number;
-  /** Its share of the account's whole quota (0 to 1; the tags of a meter add up to the meter). */
+  /** Its slice of the meter's quota (0 to 1): the meter line's stacked bar, never a tag's own %. */
   share: number;
+  /** Its share of the meter's use (0 to 1; a meter's tags add up to 1). A tag has no quota. */
+  ofUse: number;
   /** Its share of the forecast, on the same quota. */
   fshare: number;
   fcost: number;
@@ -76,6 +78,7 @@ export function quotaRows(m: Model, us: Usage[]): QuotaRow[] {
         tag,
         used: e.v,
         share: u.payg ? 0 : shareOf(u, e.v),
+        ofUse: of,
         fshare: u.payg ? 0 : u.fpct * of,
         fcost: u.hard ? 0 : u.fcost * of,
         parts: e.parts.sort((a, b) => b.v - a.v),
@@ -91,6 +94,32 @@ const colorOf = (m: Model, tag: string, acct?: string) =>
   tag === NO_TAG
     ? 'color-mix(in oklab, var(--muted-foreground) 45%, transparent)'
     : tagColor(m.tags, tag, acct);
+
+/**
+ * Whether `qs` hold every tag of each meter they touch. A slice (a tag's group, or a tag filter)
+ * has no quota of its own, so its lines leave quota, %, forecast and pace blank.
+ */
+function whole(qs: QuotaRow[]): boolean {
+  const by = new Map<string, { u: Usage; v: number }>();
+  for (const q of qs) {
+    const e = by.get(poolKey(q)) ?? { u: q.u, v: 0 };
+    e.v += q.used;
+    by.set(poolKey(q), e);
+  }
+  return [...by.values()].every((e) => e.v >= e.u.used * 0.999);
+}
+
+/** A tag's share of its meter's use, plain: no bar or meter colours, since a tag has no cap. */
+function UseShare({ q }: { q: QuotaRow }) {
+  return (
+    <span
+      className="num text-muted-foreground text-xs"
+      title={`${pctText(q.ofUse)} of ${meterName(q.u)} use`}
+    >
+      {pctText(q.ofUse)}
+    </span>
+  );
+}
 
 /** Its share of the quota: a bar in the kit's meter colours and the number. */
 function QuotaShare({ share, payg }: { share: number; payg?: boolean }) {
@@ -159,10 +188,12 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
           return <UnitValue value={n} unit={unit} />;
         },
         // One meter sums with its unit; a product's meters count different things, so stay blank.
-        rollRender: (qs) => {
+        rollRender: (qs, level) => {
           const ps = pools(qs).pools;
           if (ps.length !== 1 || !qs[0]) return null;
-          const [n, unit] = amountParts(ps[0]?.used ?? 0, qs[0].u.m.unit);
+          // A meter line is the whole meter, even when a filter shows some of its tags.
+          const used = level === 'fold' ? qs[0].u.used : (ps[0]?.used ?? 0);
+          const [n, unit] = amountParts(used, qs[0].u.m.unit);
           return <UnitValue value={n} unit={unit} />;
         },
       },
@@ -175,42 +206,45 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
         empty: 'None',
         aggregate: 'max',
         hideOnPhone: true,
-        render: (q) => {
-          if (q.u.payg) return null;
-          const [n, unit] = amountParts(q.u.limit, q.u.m.unit);
-          return <UnitValue value={n} unit={`${unit}${perText(q.u)}`} />;
-        },
-        rollRender: (qs) => {
+        // The quota is the meter's: only meter lines (and a whole meter's group) show it.
+        render: () => null,
+        rollRender: (qs, level) => {
           const ps = pools(qs).pools;
           const q = qs[0];
-          if (ps.length !== 1 || !q || q.u.payg) return null;
+          if (ps.length !== 1 || !q || q.u.payg || (level !== 'fold' && !whole(qs))) return null;
           const [n, unit] = amountParts(q.u.limit, q.u.m.unit);
           return <UnitValue value={n} unit={`${unit}${perText(q.u)}`} />;
         },
       },
       {
         key: 'pct',
-        label: '% of quota',
+        label: 'Share',
         icon: Gauge,
         format: 'percent',
-        value: (q) => q.share * 100,
+        // A tag row: its share of the meter's use. Only the meter has a quota, bar and levels.
+        value: (q) => q.ofUse * 100,
         aggregate: 'max',
-        render: (q) => <QuotaShare share={q.share} payg={q.u.payg} />,
+        render: (q) => <UseShare q={q} />,
         // A meter: its tags stacked on the quota. A product: its fullest meter.
         rollRender: (qs, level) => {
+          if (level === 'fold') {
+            const u = qs[0]?.u;
+            if (!u) return null;
+            if (u.payg) return <QuotaShare share={0} payg />;
+            const segs = [...qs]
+              .sort((a, b) => b.used - a.used)
+              .map((q) => ({ value: q.share, color: colorOf(m, q.tag, q.u.a.id), label: q.tag }));
+            const share = shareOf(u, u.used);
+            return <ShareMeter value={share} label={pctText(share)} segments={segs} />;
+          }
+          if (!whole(qs)) return null;
           const { share, top } = pools(qs);
           if (!top) return null;
           if (top.cap <= 0) return <QuotaShare share={0} payg />;
-          // A product or tag (and the Total): its fullest meter's %, no bar; bars are per meter.
-          if (level !== 'fold') {
-            const t = meterValueTone(share);
-            const tone = t === 'loss' ? 'text-loss' : t === 'warning' ? 'text-warning' : '';
-            return <span className={`num text-xs ${tone}`}>{pctText(share)}</span>;
-          }
-          const segs = [...top.rows]
-            .sort((a, b) => b.used - a.used)
-            .map((q) => ({ value: q.share, color: colorOf(m, q.tag, q.u.a.id), label: q.tag }));
-          return <ShareMeter value={share} label={pctText(share)} segments={segs} />;
+          // A product (and the Total): its fullest meter's %, no bar; bars are per meter.
+          const t = meterValueTone(share);
+          const tone = t === 'loss' ? 'text-loss' : t === 'warning' ? 'text-warning' : '';
+          return <span className={`num text-xs ${tone}`}>{pctText(share)}</span>;
         },
       },
       {
@@ -221,8 +255,13 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
         value: (q) => (q.u.payg ? null : q.fshare * 100),
         aggregate: 'max',
         hideOnPhone: true,
-        render: (q) => (q.u.payg ? null : <UnitValue value={pctText(q.fshare).slice(0, -1)} unit="%" />),
-        rollRender: (qs) => {
+        // A forecast % is of the quota, so it is the meter's, never a tag's.
+        render: () => null,
+        rollRender: (qs, level) => {
+          const u = qs[0]?.u;
+          if (level === 'fold')
+            return u && !u.payg ? <UnitValue value={pctText(u.fpct).slice(0, -1)} unit="%" /> : null;
+          if (!whole(qs)) return null;
           const { share, top } = poolShare(qs, {
             pool: poolKey,
             used: (q) => q.fshare,
@@ -251,7 +290,8 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
         empty: '',
         aggregate: 'min',
         hideOnPhone: true,
-        rollRender: (qs) => {
+        rollRender: (qs, level) => {
+          if (level !== 'fold' && !whole(qs)) return null;
           const us = [...new Map(qs.map((q) => [poolKey(q), q.u])).values()];
           const first = hitting(us, w)[0]?.u ?? (us.length === 1 ? us[0] : undefined);
           return first ? <MeterPaceCell u={first} w={w} /> : null;
@@ -293,7 +333,7 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
             head={[
               { label: 'Resource', grow: true },
               { label: 'Used', right: true },
-              { label: '% of quota', right: true },
+              { label: '% of meter', right: true },
             ]}
             rows={q.parts.map((p) => ({
               key: p.r.id,
@@ -303,7 +343,7 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
                   <span className="truncate">{p.r.name}</span>
                 </span>,
                 fmt(p.v, q.u.m.unit),
-                q.u.payg ? '—' : pctText(shareOf(q.u, p.v)),
+                q.u.used > 0 ? pctText(p.v / q.u.used) : '—',
               ],
             }))}
           />
@@ -313,7 +353,7 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
         id: 'pool',
         label: 'Every tag on this quota',
         icon: Gauge,
-        open: true,
+        open: false,
         render: (q) => {
           const all = quotaRows(m, [q.u]).sort((a, b) => b.used - a.used);
           return (
@@ -334,7 +374,7 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
                 head={[
                   { label: 'Tag', grow: true },
                   { label: 'Used', right: true },
-                  { label: '% of quota', right: true },
+                  { label: '% of meter', right: true },
                 ]}
                 rows={all.map((x) => ({
                   key: x.tag,
@@ -347,7 +387,7 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
                       {x.tag}
                     </span>,
                     fmt(x.used, q.u.m.unit),
-                    q.u.payg ? '—' : pctText(x.share),
+                    pctText(x.ofUse),
                   ],
                 }))}
               />
@@ -377,7 +417,9 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
         always: true,
         open: true,
         mark: (_k, qs) =>
-          qs[0] ? <ProductIcon id={qs[0].u.m.product} className="size-3.5 shrink-0" /> : null,
+          qs[0] ? (
+            <MeterIcon metric={qs[0].u.m} icons={m.prefs.meterIcons} className="size-3.5 shrink-0" />
+          ) : null,
         flat: ['tag'],
       },
     ],
