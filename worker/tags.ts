@@ -16,7 +16,9 @@
  * subrequest limit.
  *
  * KV: `tags:v2` → { tags (each with its account), local }; `tagaccess:v1` → which tags token reaches which account (10 min);
- * `cftags:v1:<account>` → the account's tagged resources as Cloudflare listed them (5 min).
+ * `cftags:v1:<account>` → the account's tagged resources as Cloudflare listed them (5 min). A page
+ * load is served an older copy of either at once and Cloudflare is read after the reply; a save
+ * always reads it fresh.
  * The copy from before (`tags:v1`, whose tags spanned accounts, or `labels:v1` before it) moves
  * into `tags:v2` once, each tag into every account that uses it, and is kept 30 days as a backup.
  */
@@ -32,7 +34,7 @@ import {
 } from '../shared/catalog';
 import type { Env } from './env';
 import { listSecrets, revealSecret } from './secrets';
-import { accountRefs } from './usage';
+import { accountRefs, type Defer, KEEP_S } from './usage';
 
 const API = 'https://api.cloudflare.com/client/v4';
 const KEY = 'tags:v2';
@@ -145,11 +147,33 @@ export async function getStored(env: Env): Promise<Stored> {
 /** Account id → the tags token (its KV name) that reaches it, or why none does. */
 type Access = Record<string, { secret?: string; error?: string }>;
 
-async function tagAccess(env: Env, fresh: boolean): Promise<Access> {
+/**
+ * A KV copy that's fresh is used as it is; an older one too when the read can be deferred (stale
+ * while revalidate), with `load` run after the reply. Otherwise `load` runs now.
+ */
+async function swr<T>(
+  env: Env,
+  key: string,
+  ttl: number,
+  fresh: boolean,
+  load: () => Promise<T>,
+  defer?: Defer,
+) {
   if (!fresh) {
-    const hit = await env.KV.get<{ at: number; value: Access }>(ACCESS_KEY, 'json');
-    if (hit && Date.now() - hit.at < ACCESS_TTL_MS) return hit.value;
+    const hit = await env.KV.get<{ at: number; value: T }>(key, 'json');
+    if (hit && Date.now() - hit.at < ttl) return hit.value;
+    if (hit && defer) {
+      defer(load().catch((e) => console.error(e)));
+      return hit.value;
+    }
   }
+  return load();
+}
+
+const tagAccess = (env: Env, fresh: boolean, defer?: Defer) =>
+  swr(env, ACCESS_KEY, ACCESS_TTL_MS, fresh, () => probeTagAccess(env), defer);
+
+async function probeTagAccess(env: Env): Promise<Access> {
   // The usage token writes tags too when it has Account › Tag › Edit; a tags-only token saved
   // before that is tried after it.
   const secrets = (await listSecrets(env)).sort(
@@ -177,17 +201,16 @@ async function tagAccess(env: Env, fresh: boolean): Promise<Access> {
       }),
     );
   }
-  await env.KV.put(ACCESS_KEY, JSON.stringify({ at: Date.now(), value: out }), { expirationTtl: 86_400 });
+  await env.KV.put(ACCESS_KEY, JSON.stringify({ at: Date.now(), value: out }), { expirationTtl: KEEP_S });
   return out;
 }
 
 /** Every resource in the account that has a tag, of the types usageflare shows. */
-async function listTagged(env: Env, acct: string, token: string, fresh: boolean): Promise<CfTagged[]> {
+const listTagged = (env: Env, acct: string, token: string, fresh: boolean, defer?: Defer) =>
+  swr(env, `cftags:v1:${acct}`, LIST_TTL_MS, fresh, () => readTagged(env, acct, token), defer);
+
+async function readTagged(env: Env, acct: string, token: string): Promise<CfTagged[]> {
   const key = `cftags:v1:${acct}`;
-  if (!fresh) {
-    const hit = await env.KV.get<{ at: number; value: CfTagged[] }>(key, 'json');
-    if (hit && Date.now() - hit.at < LIST_TTL_MS) return hit.value;
-  }
   const out: CfTagged[] = [];
   let cursor: string | null = null;
   for (let page = 0; page < 50; page++) {
@@ -200,7 +223,7 @@ async function listTagged(env: Env, acct: string, token: string, fresh: boolean)
     cursor = r.cursor;
     if (!cursor) break;
   }
-  await env.KV.put(key, JSON.stringify({ at: Date.now(), value: out }), { expirationTtl: 86_400 });
+  await env.KV.put(key, JSON.stringify({ at: Date.now(), value: out }), { expirationTtl: KEEP_S });
   return out;
 }
 
@@ -211,8 +234,11 @@ async function knownResources(env: Env, acct: string): Promise<Resource[]> {
 }
 
 /** Cloudflare's tagged resources keyed by usageflare's resource id. */
-async function cfIndex(env: Env, acct: string, token: string, fresh: boolean) {
-  const [tagged, known] = await Promise.all([listTagged(env, acct, token, fresh), knownResources(env, acct)]);
+async function cfIndex(env: Env, acct: string, token: string, fresh: boolean, defer?: Defer) {
+  const [tagged, known] = await Promise.all([
+    listTagged(env, acct, token, fresh, defer),
+    knownResources(env, acct),
+  ]);
   const byCf = new Map<string, string>();
   for (const r of known) {
     const type = CF_TAG_TYPE[r.product];
@@ -236,10 +262,12 @@ export async function readTags(
   fresh: boolean,
   /** Probe which tags token reaches which account again (a save trusts the 10-minute copy). */
   freshAccess = fresh,
+  /** Serve older copies at once and read Cloudflare after the reply (page loads, not saves). */
+  defer?: Defer,
 ): Promise<
   TagsState & { cf: Map<string, CfTagged>; known: Map<string, Resource>; raw: Access; readable: Set<string> }
 > {
-  const [stored, access] = await Promise.all([getStored(env), tagAccess(env, freshAccess)]);
+  const [stored, access] = await Promise.all([getStored(env), tagAccess(env, freshAccess, defer)]);
   const assign: Record<string, string[]> = {};
   for (const [id, names] of Object.entries(stored.local)) if (names.length) assign[id] = [...names];
   const cfAll = new Map<string, CfTagged>();
@@ -257,7 +285,7 @@ export async function readTags(
       const token = tokens.get(a.secret);
       if (!token) return;
       try {
-        const idx = await cfIndex(env, acct, token, fresh);
+        const idx = await cfIndex(env, acct, token, fresh, defer);
         for (const [id, t] of idx.out) {
           cfAll.set(id, t);
           assign[id] = uniq([...(assign[id] ?? []), ...namesOf(t.tags)]);
@@ -310,8 +338,8 @@ const publicState = ({
   ...s
 }: Awaited<ReturnType<typeof readTags>>) => s;
 
-export async function getTagsState(env: Env, fresh: boolean): Promise<TagsState> {
-  return publicState(await readTags(env, fresh));
+export async function getTagsState(env: Env, fresh: boolean, defer?: Defer): Promise<TagsState> {
+  return publicState(await readTags(env, fresh, fresh, defer));
 }
 
 /** Resource ids that carry a tag in this account, so a deleted one is still remembered. */
@@ -479,7 +507,7 @@ export async function saveTags(
       const value = [...(hit?.value ?? []).filter((t) => !fresh.has(keyOf(t))), ...items].filter(
         (t) => Object.keys(t.tags).length,
       );
-      await env.KV.put(key, JSON.stringify({ at: hit?.at ?? Date.now(), value }), { expirationTtl: 86_400 });
+      await env.KV.put(key, JSON.stringify({ at: hit?.at ?? Date.now(), value }), { expirationTtl: KEEP_S });
     }),
   );
   return { ...(await getTagsState(env, false)), failed, left };

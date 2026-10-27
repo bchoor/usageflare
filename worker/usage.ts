@@ -5,17 +5,21 @@
  * UI reads it again with `?fresh` without anyone waiting. One account per request keeps every call
  * well inside the Worker's subrequest limit.
  *
- * KV: `accounts:v1` → AccountRef[] (10 min), `usage:v2:<account>` → { account, resources } (10 min),
+ * KV: `accounts:v1` → AccountRef[] (10 min), `usage:v2:<account>` → { account, resources } (10 min,
+ * kept 7 days for stale-while-revalidate),
  * `prefs:v1`, `view:v1:<page>` → the person's settings and saved page layouts (tags: worker/tags.ts).
  * `seen:v1:<account>` → each listed resource's last day in its list (no expiry), to tell deleted ones.
+ * `binds:v1:<account>` → each Worker's bindings at its last deploy, so only Workers deployed since are read.
  */
 import type { Prefs } from '../shared/catalog';
-import { historyDates, listAccounts, readAccount, type Seen } from './cloudflare';
+import { type BindMemo, historyDates, listAccounts, readAccount, type Seen } from './cloudflare';
 import type { Env } from './env';
 import { listSecrets, revealSecret } from './secrets';
 import { taggedIds } from './tags';
 
 const TTL_MS = 10 * 60_000;
+/** How long KV keeps a copy past its 10 minutes, so a page opened after a quiet week still draws at once. */
+export const KEEP_S = 7 * 86_400;
 /** A remembered resource gone this long is forgotten, unless a tag still points at it. */
 const SEEN_DAYS = 90;
 
@@ -27,7 +31,7 @@ export interface AccountRef {
 }
 
 /** One account's read as cached: the memory of seen resources stays in its own key. */
-type Read = Omit<Awaited<ReturnType<typeof readAccount>>, 'seen'>;
+type Read = Omit<Awaited<ReturnType<typeof readAccount>>, 'seen' | 'binds'>;
 
 interface Cached<T> {
   at: number;
@@ -47,7 +51,7 @@ async function cached<T>(
   const save = async () => {
     const value = await load();
     await env.KV.put(key, JSON.stringify({ at: Date.now(), value } satisfies Cached<T>), {
-      expirationTtl: 86_400,
+      expirationTtl: KEEP_S,
     });
     return value;
   };
@@ -109,11 +113,24 @@ export async function accountUsage(env: Env, accountId: string, fresh: boolean, 
   const token = await revealSecret(env, ref.token);
   if (!token) throw new Error('Token missing');
   const seenKey = `seen:v1:${accountId}`;
-  const [seen, tagged] = await Promise.all([env.KV.get<Seen>(seenKey, 'json'), taggedIds(env, accountId)]);
-  const { seen: next, ...read } = await readAccount(token, { ...ref, planOverride: want }, historyDates(), {
+  const bindsKey = `binds:v1:${accountId}`;
+  const [seen, tagged, binds] = await Promise.all([
+    env.KV.get<Seen>(seenKey, 'json'),
+    taggedIds(env, accountId),
+    env.KV.get<BindMemo>(bindsKey, 'json'),
+  ]);
+  const {
+    seen: next,
+    binds: nextBinds,
+    ...read
+  } = await readAccount(token, { ...ref, planOverride: want }, historyDates(), {
     seen: seen ?? {},
     tagged,
+    binds: binds ?? {},
   });
+  const bindsJson = JSON.stringify(nextBinds);
+  if (bindsJson !== JSON.stringify(binds ?? {}))
+    await env.KV.put(bindsKey, bindsJson, { expirationTtl: KEEP_S });
   const cutoff = new Date(Date.now() - SEEN_DAYS * 86_400_000).toISOString().slice(0, 10);
   const keep = new Set(tagged);
   await env.KV.put(
@@ -128,7 +145,7 @@ export async function accountUsage(env: Env, accountId: string, fresh: boolean, 
     return { dates: historyDates(new Date(prev.at)), stale: false, ...publicUsage(prev.value) };
   }
   await env.KV.put(key, JSON.stringify({ at: Date.now(), value: read } satisfies Cached<typeof read>), {
-    expirationTtl: 86_400,
+    expirationTtl: KEEP_S,
   });
   return { dates: historyDates(), stale: false, ...publicUsage(read) };
 }

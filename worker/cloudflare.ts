@@ -701,6 +701,8 @@ interface Inventory {
   listed: Set<ProductId>;
   /** Workers with a Browser Run binding. */
   browsers: Set<string>;
+  /** Each Worker's bindings as read, for the next read to reuse. */
+  binds: BindMemo;
 }
 
 /**
@@ -740,8 +742,48 @@ type ScriptBinding = {
   index_name?: string;
 };
 
-async function inventory(token: string, acct: string, missing: string[]): Promise<Inventory> {
-  const inv: Inventory = { resources: new Map(), byKey: new Map(), listed: new Set(), browsers: new Set() };
+/**
+ * Worker id → its bindings and the `modified_on` they were read at. Bindings change only with a
+ * deploy, so a Worker whose `modified_on` is the same as last time keeps them without a read.
+ */
+export type BindMemo = Record<string, { m: string; b: ScriptBinding[] }>;
+
+/** Only what the bindings are matched on is kept. */
+const slimBinding = ({
+  type,
+  name,
+  namespace_id,
+  id,
+  bucket_name,
+  class_name,
+  queue_name,
+  workflow_name,
+  index_name,
+}: ScriptBinding): ScriptBinding => ({
+  type,
+  name,
+  namespace_id,
+  id,
+  bucket_name,
+  class_name,
+  queue_name,
+  workflow_name,
+  index_name,
+});
+
+async function inventory(
+  token: string,
+  acct: string,
+  missing: string[],
+  memo: BindMemo = {},
+): Promise<Inventory> {
+  const inv: Inventory = {
+    resources: new Map(),
+    byKey: new Map(),
+    listed: new Set(),
+    browsers: new Set(),
+    binds: {},
+  };
   const a = `/accounts/${acct}`;
   const tryList = async <T>(label: string, fn: () => Promise<T[]>, product?: ProductId): Promise<T[]> => {
     try {
@@ -760,7 +802,7 @@ async function inventory(token: string, acct: string, missing: string[]): Promis
   const [allScripts, domains, kvs, d1s, r2, dos, queues, workflows, hyper, vec] = await Promise.all([
     tryList(
       'Workers scripts',
-      () => restList<{ id: string; tag?: string }>(token, `${a}/workers/scripts`),
+      () => restList<{ id: string; tag?: string; modified_on?: string }>(token, `${a}/workers/scripts`),
       'workers',
     ),
     tryList('Workers custom domains', () =>
@@ -839,21 +881,34 @@ async function inventory(token: string, acct: string, missing: string[]): Promis
       detail: v.config?.dimensions ? `${v.config.dimensions} dimensions` : undefined,
     });
 
-  // Bindings: one settings read per Worker (capped so a large account stays inside subrequest limits).
+  // Bindings: one settings read per Worker deployed since the last read (capped so a large account
+  // stays inside subrequest limits); the rest keep the bindings read before.
   const routes = new Map<string, string[]>();
   for (const d of domains) routes.set(d.service, [...(routes.get(d.service) ?? []), d.hostname]);
-  // Unbound is only said when every Worker's bindings were read.
-  let bindsKnown = inv.listed.has('workers') && scripts.length <= 60;
+  const kept = (s: (typeof scripts)[number]) => {
+    const m = memo[s.id];
+    return m && s.modified_on && m.m === s.modified_on ? m : undefined;
+  };
+  const toRead = scripts.filter((s) => !kept(s)).slice(0, 60);
+  const reading = new Set(toRead.map((s) => s.id));
+  const covered = scripts.filter((s) => kept(s) || reading.has(s.id));
+  // Unbound is only said when every Worker's bindings are known.
+  let bindsKnown = inv.listed.has('workers') && covered.length === scripts.length;
   await Promise.all(
-    scripts.slice(0, 60).map(async (s) => {
+    covered.map(async (s) => {
       let binds: string[] = [];
       try {
-        const st = await rest<{ bindings?: ScriptBinding[] }>(
-          token,
-          `${a}/workers/scripts/${encodeURIComponent(s.id)}/settings`,
-        );
-        if ((st.bindings ?? []).some((b) => b.type === 'browser')) inv.browsers.add(s.id);
-        binds = (st.bindings ?? []).flatMap((b): string[] => {
+        let bindings = kept(s)?.b;
+        if (!bindings) {
+          const st = await rest<{ bindings?: ScriptBinding[] }>(
+            token,
+            `${a}/workers/scripts/${encodeURIComponent(s.id)}/settings`,
+          );
+          bindings = (st.bindings ?? []).map(slimBinding);
+        }
+        if (s.modified_on) inv.binds[s.id] = { m: s.modified_on, b: bindings };
+        if (bindings.some((b) => b.type === 'browser')) inv.browsers.add(s.id);
+        binds = bindings.flatMap((b): string[] => {
           const kv =
             b.type === 'kv_namespace' && b.namespace_id ? kvById.get(norm(b.namespace_id)) : undefined;
           if (kv) return [rid(acct, 'kv', kv)];
@@ -880,9 +935,10 @@ async function inventory(token: string, acct: string, missing: string[]): Promis
       });
     }),
   );
-  if (scripts.length > 60) missing.push(`Bindings for ${scripts.length - 60} more Workers`);
+  const left = scripts.filter((s) => !kept(s) && !reading.has(s.id));
+  if (left.length) missing.push(`Bindings for ${left.length} more Workers`);
   // Past the cap a Worker still counts as listed, just without its bindings.
-  for (const s of scripts.slice(60))
+  for (const s of left)
     add(inv, acct, 'workers', s.id, [s.id], { cfId: s.tag ?? s.id, routes: routes.get(s.id) });
   if (bindsKnown) {
     const bound = new Set([...inv.resources.values()].flatMap((r) => r.binds ?? []));
@@ -1010,12 +1066,12 @@ export async function readAccount(
   meta: { id: string; name: string; token: string; tokenLabel: string; planOverride?: Plan },
   dates: string[],
   /** What the Worker remembers from earlier reads, and the resource ids tags point at. */
-  memory: { seen: Seen; tagged: string[] } = { seen: {}, tagged: [] },
-): Promise<{ account: Account; resources: Resource[]; rateLimited: boolean; seen: Seen }> {
+  memory: { seen: Seen; tagged: string[]; binds?: BindMemo } = { seen: {}, tagged: [] },
+): Promise<{ account: Account; resources: Resource[]; rateLimited: boolean; seen: Seen; binds: BindMemo }> {
   const missing: string[] = [];
   const from = hoursFrom();
   const [inv, detected, { rows, rateLimited }, billing, hourly, sizes] = await Promise.all([
-    inventory(token, meta.id, missing),
+    inventory(token, meta.id, missing, memory.binds),
     meta.planOverride ? Promise.resolve(null) : detectPlan(token, meta.id),
     fetchDatasets(token, meta.id, dates, missing),
     // Optional extra: whatever goes wrong there, the usage still loads.
@@ -1195,5 +1251,6 @@ export async function readAccount(
     /** Cloudflare's analytics budget ran out mid-read: the caller keeps its last good copy. */
     rateLimited,
     seen,
+    binds: inv.binds,
   };
 }

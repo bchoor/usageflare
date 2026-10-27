@@ -190,7 +190,7 @@ const api = new Hono<AppEnv>()
   })
   // Tags: Cloudflare's where a token with Account › Tag reaches the account, else kept here (`?fresh` re-reads).
   .get('/tags', async (c) => {
-    const tags = await getTagsState(c.env, fresh(c.req.query('fresh')));
+    const tags = await getTagsState(c.env, fresh(c.req.query('fresh')), (w) => c.executionCtx.waitUntil(w));
     return c.json(fixturesOn(c.env, c.req.url) && !tags.tags.length ? FIXTURE_TAGS : tags);
   })
   .put('/tags', zValidator('json', tagsBody), async (c) => {

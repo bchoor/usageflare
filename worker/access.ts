@@ -1,8 +1,27 @@
 import type { MiddlewareHandler } from 'hono';
-import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { createRemoteJWKSet, customFetch, errors, jwtVerify } from 'jose';
 import type { AppEnv } from './env';
 
-const jwks = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
+type KeySet = ReturnType<typeof createRemoteJWKSet>;
+/** Per issuer: Access's keys read through the edge cache, and read straight from Access. */
+const jwks = new Map<string, { cached: KeySet; direct: KeySet }>();
+
+const keySets = (issuer: string) => {
+  let sets = jwks.get(issuer);
+  if (!sets) {
+    const url = new URL(`${issuer}/cdn-cgi/access/certs`);
+    sets = {
+      // A new isolate reads the keys from the edge cache instead of across the network each time.
+      cached: createRemoteJWKSet(url, {
+        [customFetch]: (u: string, init: RequestInit) =>
+          fetch(u, { ...init, cf: { cacheTtl: 300, cacheEverything: true } }),
+      }),
+      direct: createRemoteJWKSet(url),
+    };
+    jwks.set(issuer, sets);
+  }
+  return sets;
+};
 
 /** The email a service token acts as: SERVICE_IDENTITIES lists `clientId=email` pairs, comma-separated. */
 const serviceTokenEmail = (raw: string | undefined, clientId: unknown) => {
@@ -35,13 +54,13 @@ export const requireAccess: MiddlewareHandler<AppEnv> = async (c, next) => {
   const token = c.req.header('Cf-Access-Jwt-Assertion');
   if (!token) return c.json({ error: 'Unauthorized' }, 401);
   const issuer = `https://${team}`;
-  let keys = jwks.get(issuer);
-  if (!keys) {
-    keys = createRemoteJWKSet(new URL(`${issuer}/cdn-cgi/access/certs`));
-    jwks.set(issuer, keys);
-  }
+  const keys = keySets(issuer);
   try {
-    const { payload } = await jwtVerify(token, keys, { issuer, audience: aud });
+    const opts = { issuer, audience: aud };
+    // Signed with a key newer than the cached copy (Access rotated): ask Access itself.
+    const { payload } = await jwtVerify(token, keys.cached, opts).catch((e) =>
+      e instanceof errors.JWKSNoMatchingKey ? jwtVerify(token, keys.direct, opts) : Promise.reject(e),
+    );
     // A service token has no email; one listed in SERVICE_IDENTITIES acts as the person it names.
     const email =
       typeof payload.email === 'string' && payload.email

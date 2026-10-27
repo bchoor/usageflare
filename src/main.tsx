@@ -54,9 +54,10 @@ configureLumen({ prefsCookie: 'usageflare_prefs' });
 const queryClient = createDeskQueryClient();
 
 // The last data this browser saw is kept in localStorage, so a page opened again draws it at once
-// and reads the Worker behind it (stale while revalidate). Only the very first visit waits.
+// and reads the Worker behind it (stale while revalidate). Only the very first visit waits. Saved
+// page layouts are kept too, so a page draws in its own layout at once instead of the default first.
 const DAY = 86_400_000;
-const KEPT = ['accounts', 'usage', 'prefs', 'tags'];
+const KEPT = ['accounts', 'usage', 'prefs', 'tags', 'view', 'me'];
 for (const k of KEPT) queryClient.setQueryDefaults([k], { gcTime: DAY });
 const storage = (() => {
   try {
