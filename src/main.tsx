@@ -94,7 +94,7 @@ function useAgo(iso: string | undefined) {
 }
 
 /** The brand: "usage" in the foreground, "flare" in the app accent. */
-function Brand({ n }: { n: number }) {
+function Brand({ n }: { n: number | null }) {
   return (
     <span className="flex items-center gap-2">
       <img src="/brand/usageflare-mark.svg" alt="" className="size-8 rounded-lg" />
@@ -103,7 +103,7 @@ function Brand({ n }: { n: number }) {
           usage<span className="text-primary">flare</span>
         </b>
         <small className="text-muted-foreground text-xs">
-          {n} Cloudflare account{n === 1 ? '' : 's'}
+          {n === null ? 'Cloudflare usage' : `${n} Cloudflare account${n === 1 ? '' : 's'}`}
         </small>
       </span>
     </span>
@@ -220,8 +220,10 @@ function AccountsSettings() {
           key={a.id}
           label={a.name}
           description={
-            <span className="flex flex-col gap-0.5">
-              <span className="font-mono text-xs">{a.id}</span>
+            <span className="flex min-w-0 flex-col gap-0.5">
+              <span className="truncate font-mono text-xs" title={a.id}>
+                {a.id}
+              </span>
               <span>
                 Read with {a.tokenLabel} ·{' '}
                 {a.planSource === 'detected'
@@ -343,7 +345,11 @@ function Shell() {
       app="usageflare"
       appLabel="usageflare"
       brand={
-        me.data?.suite?.list ? <SuiteBrand list={me.data.suite.list} /> : <Brand n={m.accounts.length} />
+        me.data?.suite?.list ? (
+          <SuiteBrand list={me.data.suite.list} />
+        ) : (
+          <Brand n={m.accounts.length || m.empty ? m.accounts.length : null} />
+        )
       }
       nav={
         <>
@@ -378,7 +384,13 @@ function Shell() {
         placeholder: 'Find an account, tag, resource or setting',
       }}
       settings={[
-        { id: 'tokens', title: 'Cloudflare API tokens', icon: KeyRound, content: <TokensSettings /> },
+        {
+          id: 'tokens',
+          title: 'Cloudflare API tokens',
+          icon: KeyRound,
+          description: 'Tokens that read usage; encrypted, never read back.',
+          content: <TokensSettings />,
+        },
         {
           id: 'accounts',
           title: 'Accounts',

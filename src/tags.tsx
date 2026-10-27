@@ -478,13 +478,14 @@ export function BulkBar({
       </Button>
       <span>
         <b className="font-mono">{ids.length}</b> selected{' '}
-        <span className="text-muted-foreground text-xs">
+        <span className="text-muted-foreground text-xs max-md:hidden">
           {accts} account{accts === 1 ? '' : 's'} · {prods} product{prods === 1 ? '' : 's'}
         </span>
       </span>
       {more > 0 && (
         <Button size="sm" variant="ghost" onClick={() => onSelect(new Set(shown))}>
-          Select all {shown.length} shown
+          <span className="max-md:hidden">Select all {shown.length} shown</span>
+          <span className="md:hidden">All {shown.length}</span>
         </Button>
       )}
       <span className="h-5 w-px bg-border" />

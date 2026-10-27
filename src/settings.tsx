@@ -67,8 +67,7 @@ export function TokensSettings() {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-muted-foreground text-sm">
-        One token per set of accounts reads usage and, with Account › Tag › Edit, saves tags in Cloudflare.
-        Encrypted at rest: replace or delete, never read back.
+        One token per set of accounts. With Account › Tag › Edit it also saves tags in Cloudflare.
       </p>
       <ErrorLine error={q.error} />
       {secrets.length > 0 && (

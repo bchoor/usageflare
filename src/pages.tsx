@@ -30,6 +30,7 @@ import {
   useShell,
 } from '@columenlabs/lumen-ui';
 import { Button } from '@columenlabs/lumen-ui/ui/button';
+import { Skeleton } from '@columenlabs/lumen-ui/ui/skeleton';
 import { type CustomViewConfig, domainTiles, type ViewCard } from '@columenlabs/lumen-ui-types/views';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
@@ -209,6 +210,7 @@ const accountBill = (m: Model, a: AccountView) => {
 /** What a page shows while data loads, or before any token exists. */
 function Waiting({ m, crumbs }: { m: Model; crumbs: { label: ReactNode }[] }) {
   const shell = useShell();
+  const qc = useQueryClient();
   return (
     <LumenLayout
       crumbs={crumbs}
@@ -229,9 +231,31 @@ function Waiting({ m, crumbs }: { m: Model; crumbs: { label: ReactNode }[] }) {
             icon={CircleAlert}
             title="Couldn't load usage"
             note={String((m.error as Error).message ?? m.error)}
+            action={
+              <Button size="sm" variant="outline" onClick={() => qc.invalidateQueries()}>
+                Try again
+              </Button>
+            }
           />
         ) : (
-          <p className="text-muted-foreground text-sm">Reading your Cloudflare accounts…</p>
+          // The page's shape while the accounts read: a row of tiles, then two cards.
+          <div
+            role="status"
+            aria-busy="true"
+            aria-label="Reading your Cloudflare accounts"
+            className="flex flex-col gap-3"
+          >
+            <div className="grid grid-cols-2 gap-3 max-md:[&>*:last-child]:col-span-2 md:grid-cols-5">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <Skeleton key={i} className="h-[5.5rem] rounded-xl" />
+              ))}
+            </div>
+            <Skeleton className="h-36 rounded-xl" />
+            <div className="grid gap-3 md:grid-cols-2">
+              <Skeleton className="h-48 rounded-xl" />
+              <Skeleton className="h-48 rounded-xl" />
+            </div>
+          </div>
         )
       }
     />
