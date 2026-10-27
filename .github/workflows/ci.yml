@@ -86,3 +86,27 @@ jobs:
           name: ui-smoke
           path: e2e/out/
           if-no-files-found: ignore
+
+  # Prod safety rule 4: the production build in a real browser, as a returning user: a fresh load, a
+  # reload with saved data while the server is slow, and a stuck, slow, broken or missing store
+  # (bun e2e/returning.ts). Each must draw data with no console error.
+  returning-user:
+    name: Returning user
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: [self-hosted, openship, linux]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+      - name: Sample data, no Access
+        run: printf 'FIXTURES=1\nACCESS_TEAM_DOMAIN=\nACCESS_AUD=\nSETTINGS_KEY=%s\n' "$(openssl rand -base64 32)" > .dev.vars
+      - run: bun run build
+      - name: Serve the production build
+        run: |
+          (bunx vite preview --port 4173 --strictPort > ../preview.log 2>&1 &)
+          timeout 90 bash -c 'until curl -sf localhost:4173/api/accounts >/dev/null; do sleep 2; done'
+      - run: bun e2e/returning.ts
