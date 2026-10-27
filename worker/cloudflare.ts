@@ -14,6 +14,9 @@ import {
 } from '../shared/catalog';
 
 const API = 'https://api.cloudflare.com/client/v4';
+/** How long one call to Cloudflare may take before it gives up (ms): a REST read, an analytics query. */
+export const REST_MS = 8_000;
+const GRAPHQL_MS = 12_000;
 
 class CfError extends Error {
   constructor(
@@ -29,7 +32,10 @@ class CfError extends Error {
 const NOT_ENABLED = new Set([10042]);
 
 async function rest<T>(token: string, path: string): Promise<T> {
-  const res = await fetch(API + path, { headers: { Authorization: `Bearer ${token}` } });
+  const res = await fetch(API + path, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(REST_MS),
+  });
   const body = (await res.json().catch(() => null)) as {
     success?: boolean;
     result?: T;
@@ -601,6 +607,7 @@ async function fetchDatasets(token: string, accountId: string, dates: string[], 
     return `query($a: string!, $to: Date!${from.join('')}) { viewer { accounts(filter: { accountTag: $a }) { ${fields} } } }`;
   };
   const vars = { a: accountId, from: dates[0], to: dates.at(-1), recent: dates.at(-RECENT_DAYS) ?? dates[0] };
+  // A query that doesn't answer in time counts as none: the split below asks for each dataset alone.
   const run = async (query: string) => {
     const res = await fetch(`${API}/graphql`, {
       method: 'POST',
@@ -609,15 +616,27 @@ async function fetchDatasets(token: string, accountId: string, dates: string[], 
         query,
         variables: Object.fromEntries(Object.entries(vars).filter(([k]) => query.includes(`$${k}:`))),
       }),
-    });
+      signal: AbortSignal.timeout(GRAPHQL_MS),
+    }).catch(() => null);
+    if (!res) {
+      timedOut = true;
+      return null;
+    }
     return (await res.json().catch(() => null)) as {
       data?: { viewer?: { accounts?: Record<string, Row[] | null>[] } } | null;
       errors?: { message: string; path?: (string | number)[] }[] | null;
     } | null;
   };
   let rateLimited = false;
+  let timedOut = false;
   const out: Row[][] = DATASETS.map(() => []);
   const body = await run(ask(DATASETS.map(field).join('\n')));
+  // Analytics too slow to answer: the read is marked like an exhausted budget, so the last whole
+  // copy is served instead of one full of gaps, and nothing waits on a second round.
+  if (timedOut) {
+    for (const d of DATASETS) if (!d.optional) missing.push(d.name);
+    return { rows: out, rateLimited: true };
+  }
   const acct = body?.data?.viewer?.accounts?.[0];
   if (acct) {
     const failed = new Set((body?.errors ?? []).map((e) => String(e.path?.at(-1) ?? '')));
@@ -671,6 +690,7 @@ async function fetchHourly(token: string, accountId: string, from: number) {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ query, variables: { a: accountId, from: new Date(from).toISOString() } }),
+      signal: AbortSignal.timeout(GRAPHQL_MS),
     });
     const body = (await res.json().catch(() => null)) as {
       data?: { viewer?: { accounts?: Record<string, Row[] | null>[] } } | null;

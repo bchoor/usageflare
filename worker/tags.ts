@@ -32,6 +32,7 @@ import {
   tagFromCf,
   tagToCf,
 } from '../shared/catalog';
+import { REST_MS } from './cloudflare';
 import type { Env } from './env';
 import { listSecrets, revealSecret } from './secrets';
 import { accountRefs, type Defer, KEEP_S } from './usage';
@@ -87,6 +88,7 @@ class TagError extends Error {
 
 async function cf<T>(token: string, path: string, init?: RequestInit) {
   const res = await fetch(API + path, {
+    signal: AbortSignal.timeout(REST_MS),
     ...init,
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...init?.headers },
   });
@@ -159,15 +161,20 @@ async function swr<T>(
   load: () => Promise<T>,
   defer?: Defer,
 ) {
+  const hit = await env.KV.get<{ at: number; value: T }>(key, 'json');
   if (!fresh) {
-    const hit = await env.KV.get<{ at: number; value: T }>(key, 'json');
     if (hit && Date.now() - hit.at < ttl) return hit.value;
     if (hit && defer) {
       defer(load().catch((e) => console.error(e)));
       return hit.value;
     }
   }
-  return load();
+  // A read that fails (Cloudflare slow or down) serves the last copy rather than an error.
+  return load().catch((e) => {
+    if (!hit) throw e;
+    console.error(e);
+    return hit.value;
+  });
 }
 
 const tagAccess = (env: Env, fresh: boolean, defer?: Defer) =>

@@ -55,15 +55,20 @@ async function cached<T>(
     });
     return value;
   };
+  const hit = await env.KV.get<Cached<T>>(key, 'json');
   if (!fresh) {
-    const hit = await env.KV.get<Cached<T>>(key, 'json');
     if (hit && Date.now() - hit.at < TTL_MS) return hit.value;
     if (hit && defer) {
       defer(save().catch((e) => console.error(e)));
       return hit.value;
     }
   }
-  return save();
+  // A read that fails (Cloudflare slow or down) serves the last copy rather than an error.
+  return save().catch((e) => {
+    if (!hit) throw e;
+    console.error(e);
+    return hit.value;
+  });
 }
 
 /** Every account any token can read; the first token (by label) that reaches an account reads it. */
@@ -119,15 +124,21 @@ export async function accountUsage(env: Env, accountId: string, fresh: boolean, 
     taggedIds(env, accountId),
     env.KV.get<BindMemo>(bindsKey, 'json'),
   ]);
-  const {
-    seen: next,
-    binds: nextBinds,
-    ...read
-  } = await readAccount(token, { ...ref, planOverride: want }, historyDates(), {
-    seen: seen ?? {},
-    tagged,
-    binds: binds ?? {},
-  });
+  const prev = hit ?? (await env.KV.get<Cached<Read>>(key, 'json'));
+  let result: Awaited<ReturnType<typeof readAccount>>;
+  try {
+    result = await readAccount(token, { ...ref, planOverride: want }, historyDates(), {
+      seen: seen ?? {},
+      tagged,
+      binds: binds ?? {},
+    });
+  } catch (e) {
+    // Cloudflare failed or was too slow: the last copy, marked stale so it's read again later.
+    if (!prev) throw e;
+    console.error(e);
+    return { dates: historyDates(new Date(prev.at)), stale: true, ...publicUsage(prev.value) };
+  }
+  const { seen: next, binds: nextBinds, ...read } = result;
   const bindsJson = JSON.stringify(nextBinds);
   if (bindsJson !== JSON.stringify(binds ?? {}))
     await env.KV.put(bindsKey, bindsJson, { expirationTtl: KEEP_S });
@@ -139,8 +150,7 @@ export async function accountUsage(env: Env, accountId: string, fresh: boolean, 
       Object.fromEntries(Object.entries(next).filter(([id, x]) => x.d >= cutoff || keep.has(id))),
     ),
   );
-  // Out of analytics budget: a stale but whole copy beats a fresh one full of gaps.
-  const prev = hit ?? (await env.KV.get<Cached<Read>>(key, 'json'));
+  // Out of analytics budget (or too slow to answer): a stale but whole copy beats a fresh one full of gaps.
   if (read.rateLimited && prev) {
     return { dates: historyDates(new Date(prev.at)), stale: false, ...publicUsage(prev.value) };
   }
@@ -198,11 +208,12 @@ function renameFields(v: any): unknown {
 }
 
 /** A page's saved layout, its field keys brought up to date (and saved back when they changed). */
-export async function getView(env: Env, page: string) {
+export async function getView(env: Env, page: string, defer: Defer) {
   const raw = await env.KV.get(`view:v1:${page}`);
   if (!raw) return null;
   const view = renameFields(JSON.parse(raw));
-  if (JSON.stringify(view) !== raw) await env.KV.put(`view:v1:${page}`, JSON.stringify(view));
+  // Saved back after the reply: the fix-up never holds the request.
+  if (JSON.stringify(view) !== raw) defer(env.KV.put(`view:v1:${page}`, JSON.stringify(view)));
   return view;
 }
 export const putView = (env: Env, page: string, config: unknown) =>

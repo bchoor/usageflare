@@ -6,7 +6,7 @@
  * KV layout: `secret:<name>` → StoredSecret (JSON); `test:<name>` → KeyTest, kept apart so a slow
  * test can never write an old ciphertext back over a replace or a delete.
  */
-import { listAccounts } from './cloudflare';
+import { listAccounts, REST_MS } from './cloudflare';
 import type { Env } from './env';
 
 export interface KeyTest {
@@ -155,6 +155,7 @@ export async function testSecret(env: Env, name: string): Promise<SecretInfo | n
     const token = await revealSecret(env, name);
     const res = await fetch('https://api.cloudflare.com/client/v4/user/tokens/verify', {
       headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(REST_MS),
     });
     const body = (await res.json()) as {
       success?: boolean;
@@ -173,6 +174,7 @@ export async function testSecret(env: Env, name: string): Promise<SecretInfo | n
         accounts.map((a) =>
           fetch(`https://api.cloudflare.com/client/v4/accounts/${a.id}/tags/keys`, {
             headers: { Authorization: `Bearer ${token}` },
+            signal: AbortSignal.timeout(REST_MS),
           })
             .then((r) => r.ok)
             .catch(() => false),
