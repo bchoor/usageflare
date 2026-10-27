@@ -1,5 +1,41 @@
 [
   {
+    "tag": "v0.0.6",
+    "published_at": "2026-10-27T09:05:33Z",
+    "takeaways": [
+      {
+        "text": "**Newer Cloudflare meters show up again**: On the Limits page, meters such as Browser Run now appear, because the usage query no longer fails as a whole when a newer meter allows a shorter date range.",
+        "types": [
+          "fix"
+        ]
+      },
+      {
+        "text": "**Shares past 10× read correctly in Forecast**: In the Forecast column on the Limits page and in the share cells on the Resources page, a value like 39× no longer shows as \"39 %\".",
+        "types": [
+          "fix"
+        ]
+      },
+      {
+        "text": "**Limits opens folded, and Meter icons is a one-line table**: On the Limits page, meters start folded, and in Settings ▸ Meter icons you can filter meters and pick each icon in place.",
+        "types": [
+          "improvement"
+        ]
+      },
+      {
+        "text": "**Phone and loading polish**: On phones, the Settings account list, bulk selection bar, status bar and landing table now fit the screen, and every page shows skeleton placeholders while loading and a Try again button on errors.",
+        "types": [
+          "improvement"
+        ]
+      },
+      {
+        "text": "**Faster loads**: On every page, repeat visits reuse downloaded files and the app downloads about 28% less JavaScript up front (423 → 310 KB gzipped).",
+        "types": [
+          "performance"
+        ]
+      }
+    ]
+  },
+  {
     "tag": "v0.0.5",
     "published_at": "2026-10-27T05:56:48Z",
     "takeaways": [
