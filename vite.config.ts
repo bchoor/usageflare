@@ -10,6 +10,9 @@ if (process.env.USAGEFLARE_ENV && !process.env.CLOUDFLARE_ENV) {
 }
 
 export default defineConfig({
+  // The commit this build is from (Workers Builds sets it), answered by /api/health so a deploy can
+  // tell when it is live (scripts/deploy.ts).
+  define: { __BUILD_SHA__: JSON.stringify(process.env.WORKERS_CI_COMMIT_SHA ?? 'dev') },
   plugins: [react(), tailwindcss(), cloudflare()],
   // Two pages: the public landing page at `/` and the app under /app.
   environments: {

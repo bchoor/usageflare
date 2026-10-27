@@ -1,3 +1,8 @@
+/** The commit this build is from (vite.config.ts `define`), `dev` outside Workers Builds. */
+declare global {
+  const __BUILD_SHA__: string;
+}
+
 import type { TelemetryEnv } from './telemetry';
 
 export interface Env extends TelemetryEnv {

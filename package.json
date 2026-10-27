@@ -49,6 +49,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "deploy": "vite build && wrangler deploy",
+    "deploy:verified": "bun scripts/deploy.ts",
     "lint": "biome check .",
     "type-check": "tsc && tsc -p e2e"
   },
