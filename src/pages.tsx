@@ -189,7 +189,11 @@ export function StatusPill({ u, dates }: { u: Usage; dates: string[] }) {
   return (
     <span
       className="inline-flex h-5 items-center gap-1 whitespace-nowrap rounded-full px-2 font-semibold text-[11px]"
-      style={{ color: sevColor(u.st), background: `color-mix(in oklab, ${sevColor(u.st)} 14%, transparent)` }}
+      // The text leans toward the foreground so it reads at 4.5:1 on its own tint; the dot keeps the hue.
+      style={{
+        color: `color-mix(in oklab, ${sevColor(u.st)} 75%, var(--foreground))`,
+        background: `color-mix(in oklab, ${sevColor(u.st)} 14%, transparent)`,
+      }}
     >
       <ColorDot color={sevColor(u.st)} className="size-1.5" />
       {statusText(u, dates)}

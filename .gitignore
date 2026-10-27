@@ -34,3 +34,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .DS_Store
 .wrangler
 .dev.vars
+
+# Interaction smoke output (bun e2e/smoke.ts)
+e2e/out

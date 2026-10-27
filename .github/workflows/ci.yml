@@ -45,3 +45,44 @@ jobs:
         with:
           path: ~/.bun/install/cache
           key: ${{ steps.bun-cache.outputs.cache-primary-key }}
+
+  # The UI gate (e2e, not unit tests): drives every page, Settings section and control on a phone and a
+  # desktop, light and dark, against sample data (`FIXTURES=1`), and fails on any broken interaction,
+  # cut-off or overlapping content, low contrast, small tap target, console error or failed call.
+  # Screenshots that differ from main's are listed in the summary for review (bun e2e/smoke.ts).
+  ui-smoke:
+    name: UI smoke
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: [self-hosted, openship, linux]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+      - name: Sample data, no Access
+        run: printf 'FIXTURES=1\nACCESS_TEAM_DOMAIN=\nACCESS_AUD=\nSETTINGS_KEY=%s\n' "$(openssl rand -base64 32)" > .dev.vars
+      - name: Baseline screenshots from main
+        if: github.event_name == 'pull_request'
+        run: |
+          git worktree add ../base origin/${{ github.base_ref }}
+          cp .dev.vars ../base/
+          (cd ../base && bun install --frozen-lockfile && (bunx vite --port 5174 --strictPort > ../base-vite.log 2>&1 &))
+          timeout 90 bash -c 'until curl -sf localhost:5174/api/accounts >/dev/null; do sleep 2; done'
+          bun e2e/smoke.ts --base http://localhost:5174 --shots --save ../base-shots
+      - name: Start this build
+        run: |
+          (bunx vite --port 5173 --strictPort > ../vite.log 2>&1 &)
+          timeout 90 bash -c 'until curl -sf localhost:5173/api/accounts >/dev/null; do sleep 2; done'
+      - name: Smoke
+        run: bun e2e/smoke.ts $([ -d ../base-shots ] && echo --baseline ../base-shots)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-smoke
+          path: e2e/out/
+          if-no-files-found: ignore

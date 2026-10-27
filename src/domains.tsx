@@ -278,7 +278,7 @@ export function resourceDomain(
           <ResourceCard model={m} r={r}>
             <span className="inline-flex min-w-0 items-center gap-2">
               <ProductIcon id={r.product} />
-              <span className="truncate font-medium max-md:max-w-20">{r.name}</span>
+              <span className="truncate font-medium">{r.name}</span>
               {r.type && (
                 <span className="shrink-0 max-md:hidden rounded bg-muted px-1.5 text-muted-foreground text-xs">
                   {r.type}
@@ -726,7 +726,8 @@ function ResourceUsage({ m, r }: { m: Model; r: Resource }) {
       <DetailsTable
         head={[
           { label: 'Metric', grow: true },
-          { label: '30 days' },
+          // A phone drawer has room for the figures, not the spark; the chart below draws it.
+          { label: '30 days', hideOnPhone: true },
           { label: 'This period', right: true },
           { label: 'Of limit', right: true },
         ]}

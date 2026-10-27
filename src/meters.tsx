@@ -64,7 +64,7 @@ export function MetricChip({ m }: { m: Metric }) {
       style={{
         background: `color-mix(in oklab, ${c} 12%, var(--card))`,
         borderColor: `color-mix(in oklab, ${c} 30%, var(--card))`,
-        color: `color-mix(in oklab, ${c} 70%, var(--foreground))`,
+        color: `color-mix(in oklab, ${c} 55%, var(--foreground))`,
       }}
     >
       <span aria-hidden className="size-1.5 rounded-[2px]" style={{ background: c }} />
@@ -317,7 +317,10 @@ export function AccountMetersCard({
           {children}
         </span>
       </HoverCardTrigger>
-      <HoverCardContent align="start" className="max-h-96 w-auto min-w-72 max-w-md overflow-y-auto p-0">
+      <HoverCardContent
+        align="start"
+        className="max-h-96 w-auto min-w-72 max-w-[min(28rem,calc(100vw-1rem))] overflow-y-auto p-0"
+      >
         <div className="flex items-center gap-2 border-b px-3 py-2">
           <b className="truncate font-medium text-sm">{title}</b>
           <span className="ml-auto text-muted-foreground text-xs">
@@ -330,7 +333,10 @@ export function AccountMetersCard({
               <tr key={u.m.key} className={u.m.key === hl ? 'bg-muted/60' : undefined}>
                 <td className="py-1 pr-2 pl-3 whitespace-nowrap">
                   <span className="inline-flex items-center gap-1.5">
-                    <ProductIcon id={u.m.product} />
+                    {/* On a phone the chip's colour names the product; the icon gives the room back. */}
+                    <span className="contents max-sm:hidden">
+                      <ProductIcon id={u.m.product} />
+                    </span>
                     <MetricChip m={u.m} />
                   </span>
                 </td>
