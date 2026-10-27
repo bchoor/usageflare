@@ -197,7 +197,7 @@ const api = new Hono<AppEnv>()
   })
   // A page's saved layout (LumenLayout's view config): cards, widths, columns, sort and grouping.
   .get('/views/:page', zValidator('param', viewPage), async (c) =>
-    c.json({ config: await getView(c.env, c.req.valid('param').page) }),
+    c.json({ config: await getView(c.env, c.req.valid('param').page, (w) => c.executionCtx.waitUntil(w)) }),
   )
   .put(
     '/views/:page',
