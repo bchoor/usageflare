@@ -378,7 +378,7 @@ async function exercise(p: Page, ctx: Ctx, url: string, where: string) {
   }
   await fresh();
 
-  // Sort: every header button, twice; the first row must change for at least one of them.
+  // Sort: every header button, twice; the row order must change for at least one of them.
   const heads = main.locator('thead th button');
   const hn = Math.min(await heads.count(), 12);
   let sorted = hn === 0;
@@ -388,13 +388,21 @@ async function exercise(p: Page, ctx: Ctx, url: string, where: string) {
       .first()
       .innerText()
       .catch(() => '');
-  const row0 = await firstRow();
+  // The order of every row, roll-ups included: a table that is all groups (Limits by tag)
+  // still shows a sort as its groups and sub-groups trade places.
+  const order = () =>
+    main
+      .locator('tbody tr')
+      .allInnerTexts()
+      .then((t) => t.slice(0, 40).join('\n'))
+      .catch(() => '');
+  const row0 = await order();
   for (let i = 0; i < hn; i++) {
     const h = heads.nth(i);
     if (!(await h.isVisible().catch(() => false))) continue;
     await h.click({ timeout: 3000 }).catch(() => {});
     await p.waitForTimeout(150);
-    if ((await firstRow()) !== row0) sorted = true;
+    if ((await order()) !== row0) sorted = true;
     await h.click({ timeout: 3000 }).catch(() => {});
     await p.waitForTimeout(150);
   }
@@ -414,12 +422,12 @@ async function exercise(p: Page, ctx: Ctx, url: string, where: string) {
         .click({ timeout: 3000 })
         .catch(() => {});
       await p.waitForTimeout(250);
-      if ((await firstRow()) !== row0) sorted = true;
+      if ((await order()) !== row0) sorted = true;
       const dir = cardSort.getByRole('button', { name: /high to low|low to high/i });
       if (!sorted && (await visible(dir))) {
         await dir.click();
         await p.waitForTimeout(250);
-        if ((await firstRow()) !== row0) sorted = true;
+        if ((await order()) !== row0) sorted = true;
       }
     }
   }
