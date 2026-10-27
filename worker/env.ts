@@ -1,4 +1,6 @@
-export interface Env {
+import type { TelemetryEnv } from './telemetry';
+
+export interface Env extends TelemetryEnv {
   KV: KVNamespace;
   /** Static assets: the landing page at `/` and the app shell at `/app/`. */
   ASSETS: Fetcher;
