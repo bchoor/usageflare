@@ -2,7 +2,6 @@ import './index.css';
 import {
   configureLumen,
   createDeskQueryClient,
-  IconPicker,
   iconOf,
   type LumenFinderRow,
   LumenSelector,
@@ -31,8 +30,9 @@ import { Bell, Building2, Gauge, KeyRound, LayoutDashboard, Plus, Rows3, Shapes,
 import { StrictMode, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { z } from 'zod';
-import { CATEGORIES, type CategoryId, METRICS, PRODUCT, PRODUCTS, type ProductId } from '../shared/catalog';
+import { CATEGORIES, type CategoryId, PRODUCTS, type ProductId } from '../shared/catalog';
 import { api, type Me } from './api';
+import { MeterIconsSettings } from './meter-icons';
 import { planText } from './meters';
 import {
   type Model,
@@ -46,7 +46,7 @@ import {
   useSaveTags,
 } from './model';
 import { AccountLimitsPage, AccountPage, OverviewPage, ResourcesPage, TagsPage } from './pages';
-import { FAMILY_ICON, PRODUCT_ICON } from './products';
+import { PRODUCT_ICON } from './products';
 import { TokensSettings } from './settings';
 import { registerTagSaver, TagForm } from './tags';
 
@@ -278,35 +278,6 @@ function LimitsSettings() {
         <span className="w-10 text-right font-mono text-sm">{warn}%</span>
       </div>
     </SettingRow>
-  );
-}
-
-/** Settings ▸ Meter icons: each meter's icon, its family's unless the person picks one. */
-function MeterIconsSettings() {
-  const m = useModel();
-  const save = useSavePrefs();
-  const icons = m.prefs.meterIcons ?? {};
-  // The meters the accounts use, else every meter (before the first token).
-  const used = new Set(m.usage.map((u) => u.m.key));
-  const meters = METRICS.filter((x) => !used.size || used.has(x.key));
-  return (
-    <div className="flex flex-col gap-2">
-      {meters.map((x) => (
-        <SettingRow key={x.key} label={`${PRODUCT[x.product].label} · ${x.label}`}>
-          <IconPicker
-            value={icons[x.key]}
-            fallback={FAMILY_ICON[x.family]}
-            label={`${PRODUCT[x.product].label} ${x.label} icon`}
-            onChange={(icon) => {
-              const next = { ...icons };
-              if (icon) next[x.key] = icon;
-              else delete next[x.key];
-              save.mutate({ ...m.prefs, meterIcons: next });
-            }}
-          />
-        </SettingRow>
-      ))}
-    </div>
   );
 }
 
