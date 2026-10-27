@@ -7,4 +7,6 @@
 /* Cloudflare orange accent (LumenShell sets data-app on <html>) */
 :root[data-app="usageflare"] {
   --primary: oklch(0.7 0.18 50);
+  /* Dark ink on the orange: white on it reads at 2.7:1, this at 7:1 (WCAG AA is 4.5). */
+  --primary-foreground: oklch(0.2 0.03 50);
 }

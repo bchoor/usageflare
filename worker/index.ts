@@ -4,7 +4,7 @@ import { zValidator as zv } from '@hono/zod-validator';
 import { Hono } from 'hono';
 import { secureHeaders } from 'hono/secure-headers';
 import { z } from 'zod';
-import { METRIC } from '../shared/catalog';
+import { CATEGORIES, METRIC } from '../shared/catalog';
 import { requireAccess, sameOrigin } from './access';
 import changelog from './changelog.json';
 import { historyDates } from './cloudflare';
@@ -84,10 +84,8 @@ const viewPage = z.object({
     'resources',
     // The All tab since Usage + Watch for (v17): a fresh default, older saved columns left behind.
     'resources-all',
-    'resources-compute',
-    'resources-storage',
-    'resources-ai',
-    'resources-messaging',
+    // One saved view per category tab, from the catalog, so a new category never answers 400.
+    ...CATEGORIES.map((c) => `resources-${c.id}` as const),
     'tags',
     'account-tags',
   ]),

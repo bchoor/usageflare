@@ -250,7 +250,8 @@ function AddToken({ taken }: { taken: string[] }) {
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="font-medium text-sm">Add a token</h3>
-        <Button variant="link" size="sm" asChild>
+        {/* The foreground, underlined: orange text on the page reads at 2.8:1. */}
+        <Button variant="link" size="sm" className="text-foreground underline" asChild>
           <a href={CREATE_TOKEN_URL} target="_blank" rel="noreferrer">
             Create one in Cloudflare ↗
           </a>
