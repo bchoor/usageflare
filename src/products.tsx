@@ -1,6 +1,7 @@
 import { iconOf } from '@columenlabs/lumen-ui';
 import {
   Activity,
+  AppWindow,
   Archive,
   ArrowLeftRight,
   BookOpen,
@@ -8,19 +9,30 @@ import {
   Container,
   Cpu,
   Database,
+  Film,
   Hammer,
   HardDrive,
+  Images,
   KeyRound,
+  Layers,
   ListOrdered,
   type LucideIcon,
+  Mail,
   MemoryStick,
   Orbit,
   PenLine,
+  Radio,
   ScatterChart,
+  ScrollText,
   Search,
+  Send,
   Server,
+  Shield,
+  ShieldCheck,
   Sparkles,
   Table2,
+  Users,
+  Video,
   Workflow,
   Zap,
 } from 'lucide-react';
@@ -47,13 +59,23 @@ export const PRODUCT_ICON: Record<ProductId, LucideIcon> = {
   vectorize: ScatterChart,
   queues: ListOrdered,
   basin: Table2,
+  browser: AppWindow,
+  images: Images,
+  stream: Video,
+  realtime: Radio,
+  email: Mail,
+  logpush: ScrollText,
+  zt: ShieldCheck,
 };
 
 export const CATEGORY_ICON: Record<CategoryId, LucideIcon> = {
   compute: Cpu,
   storage: Database,
   ai: BrainCircuit,
+  media: Film,
   messaging: ListOrdered,
+  logs: ScrollText,
+  zerotrust: Shield,
 };
 
 /** A meter's default icon, by its family, so one product's meters look apart (R2 Storage vs ops). */
@@ -67,6 +89,11 @@ export const FAMILY_ICON: Record<FamilyId, LucideIcon> = {
   read: BookOpen,
   write: PenLine,
   stor: Archive,
+  conc: Layers,
+  egress: Send,
+  msg: Mail,
+  logs: ScrollText,
+  seats: Users,
 };
 
 /** A meter's icon in its product's colour: the person's pick (`icons`, by metric key), else its family's. */

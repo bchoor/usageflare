@@ -4,7 +4,7 @@
  * judge it). Allowances and prices are Workers Free / Workers Paid list prices.
  */
 
-export type CategoryId = 'compute' | 'storage' | 'ai' | 'messaging';
+export type CategoryId = 'compute' | 'storage' | 'ai' | 'media' | 'messaging' | 'logs' | 'zerotrust';
 export type ProductId =
   | 'workers'
   | 'workflows'
@@ -18,7 +18,14 @@ export type ProductId =
   | 'ai'
   | 'vectorize'
   | 'queues'
-  | 'basin';
+  | 'basin'
+  | 'browser'
+  | 'images'
+  | 'stream'
+  | 'realtime'
+  | 'email'
+  | 'logpush'
+  | 'zt';
 
 export interface Category {
   id: CategoryId;
@@ -56,6 +63,11 @@ export const FAMILIES = [
   { id: 'read', label: 'Reads', color: '#14b8a6' },
   { id: 'write', label: 'Writes', color: '#a855f7' },
   { id: 'stor', label: 'Stored', color: '#22c55e' },
+  { id: 'conc', label: 'Concurrency', color: '#ec4899' },
+  { id: 'egress', label: 'Delivered', color: '#0ea5e9' },
+  { id: 'msg', label: 'Messages', color: '#10b981' },
+  { id: 'logs', label: 'Log events', color: '#64748b' },
+  { id: 'seats', label: 'Seats', color: '#f43f5e' },
 ] as const;
 export type FamilyId = (typeof FAMILIES)[number]['id'];
 export const FAMILY = Object.fromEntries(FAMILIES.map((f) => [f.id, f])) as Record<
@@ -68,7 +80,7 @@ export interface Metric {
   family: FamilyId;
   product: ProductId;
   label: string;
-  unit: '' | 'ms' | 'GB' | 'GB-s' | 'GB-h' | 'GiB-h' | 'vCPU-min' | 'min';
+  unit: '' | 'ms' | 'GB' | 'GB-s' | 'GB-h' | 'GiB-h' | 'vCPU-min' | 'min' | 'h';
   /** `sum`: a count per day; `gauge`: a size at a point in time (latest day counts). */
   kind: 'sum' | 'gauge';
   /** A storage tier with its own allowance (R2 Infrequent Access); its label ends `· IA`. */
@@ -81,6 +93,11 @@ export interface Metric {
    * of requests and GB-s). So 1.58M R2 Class A ops past a 1M allowance bills 1M, not 0.58M.
    */
   block?: number;
+  /**
+   * `nearest`: the month's total rounds to the nearest `block`, not up (Browser Run hours: 30
+   * minutes or more is a whole hour, less is none).
+   */
+  round?: 'nearest';
   paid: Allowance | null;
   free: Allowance | null;
 }
@@ -89,7 +106,10 @@ export const CATEGORIES: Category[] = [
   { id: 'compute', label: 'Compute', color: '#f38020' },
   { id: 'storage', label: 'Storage & databases', color: '#1c7ed6' },
   { id: 'ai', label: 'AI', color: '#7048e8' },
+  { id: 'media', label: 'Media', color: '#d6336c' },
   { id: 'messaging', label: 'Messaging', color: '#37b24d' },
+  { id: 'logs', label: 'Logs', color: '#495057' },
+  { id: 'zerotrust', label: 'Zero Trust', color: '#f76707' },
 ];
 
 export const PRODUCTS: Product[] = [
@@ -172,6 +192,56 @@ export const PRODUCTS: Product[] = [
     label: 'Queues',
     color: '#37b24d',
     source: 'queueMessageOperationsAdaptiveGroups',
+  },
+  {
+    id: 'browser',
+    cat: 'compute',
+    label: 'Browser Run',
+    color: '#5c7cfa',
+    source:
+      'browserRenderingBrowserTimeUsageAdaptiveGroups · browserRenderingBindingSessionsAdaptiveGroups · browserRenderingEventsAdaptiveGroups (the calling Worker)',
+  },
+  {
+    id: 'images',
+    cat: 'media',
+    label: 'Images',
+    color: '#e64980',
+    source: 'imagesTransformationsAdaptiveGroups · imagesRequestsAdaptiveGroups · REST images/v1/stats',
+  },
+  {
+    id: 'stream',
+    cat: 'media',
+    label: 'Stream',
+    color: '#be4bdb',
+    source: 'streamMinutesViewedAdaptiveGroups · REST stream/storage-usage',
+  },
+  {
+    id: 'realtime',
+    cat: 'media',
+    label: 'Realtime',
+    color: '#f06595',
+    source: 'callsUsageAdaptiveGroups · callsTurnUsageAdaptiveGroups',
+  },
+  {
+    id: 'email',
+    cat: 'messaging',
+    label: 'Email Sending',
+    color: '#2f9e44',
+    source: 'emailSendingAdaptiveGroups',
+  },
+  {
+    id: 'logpush',
+    cat: 'logs',
+    label: 'Logpush',
+    color: '#495057',
+    source: 'logpushHealthAdaptiveGroups (records delivered, per job)',
+  },
+  {
+    id: 'zt',
+    cat: 'zerotrust',
+    label: 'Zero Trust',
+    color: '#f76707',
+    source: 'REST access/users (seated users)',
   },
 ];
 
@@ -520,6 +590,142 @@ export const METRICS: Metric[] = [
     paid: [6000, 'mo', 0.005],
     free: [3000, 'mo'],
   },
+  // Workers Logs: billed per log event, but Cloudflare's only way to count them is a query API that
+  // needs a Write permission, so this read-only token can't.
+  {
+    key: 'workers.logs',
+    family: 'logs',
+    product: 'workers',
+    label: 'Log events',
+    unit: '',
+    kind: 'sum',
+    noApi: true,
+    paid: [20e6, 'mo', 0.6 / 1e6],
+    free: [2e5, 'day'],
+  },
+  // Browser Run (https://developers.cloudflare.com/browser-run/pricing/): hours from every session,
+  // concurrency from Worker bindings only (each day's peak, averaged over the month).
+  {
+    key: 'br.hours',
+    block: 1,
+    round: 'nearest',
+    family: 'cpu',
+    product: 'browser',
+    label: 'Browser hours',
+    unit: 'h',
+    kind: 'sum',
+    paid: [10, 'mo', 0.09],
+    free: [10 / 60, 'day'],
+  },
+  {
+    key: 'br.conc',
+    family: 'conc',
+    product: 'browser',
+    label: 'Concurrent browsers',
+    unit: '',
+    kind: 'gauge',
+    paid: [10, 'mo', 2],
+    free: [3, 'mo'],
+  },
+  // Images (https://developers.cloudflare.com/images/pricing/): storage is bought in $5 blocks.
+  {
+    key: 'img.tx',
+    family: 'ops',
+    product: 'images',
+    label: 'Transformations',
+    unit: '',
+    kind: 'sum',
+    paid: [5000, 'mo', 0.5 / 1000],
+    free: [5000, 'mo'],
+  },
+  {
+    key: 'img.stor',
+    block: 1e5,
+    family: 'stor',
+    product: 'images',
+    label: 'Images stored',
+    unit: '',
+    kind: 'gauge',
+    paid: [0, 'mo', 5 / 1e5],
+    free: null,
+  },
+  {
+    key: 'img.del',
+    family: 'egress',
+    product: 'images',
+    label: 'Images delivered',
+    unit: '',
+    kind: 'sum',
+    paid: [0, 'mo', 1 / 1e5],
+    free: null,
+  },
+  // Stream (https://developers.cloudflare.com/stream/pricing/): no free tier; storage is prepaid
+  // per 1,000 minutes.
+  {
+    key: 'stream.stor',
+    block: 1000,
+    family: 'stor',
+    product: 'stream',
+    label: 'Minutes stored',
+    unit: 'min',
+    kind: 'gauge',
+    paid: [0, 'mo', 5 / 1000],
+    free: [0, 'mo', 5 / 1000],
+  },
+  {
+    key: 'stream.del',
+    family: 'egress',
+    product: 'stream',
+    label: 'Minutes delivered',
+    unit: 'min',
+    kind: 'sum',
+    paid: [0, 'mo', 1 / 1000],
+    free: [0, 'mo', 1 / 1000],
+  },
+  // Realtime SFU and TURN share one egress allowance (https://developers.cloudflare.com/realtime/sfu/pricing/).
+  {
+    key: 'rt.egress',
+    family: 'egress',
+    product: 'realtime',
+    label: 'Egress (SFU + TURN)',
+    unit: 'GB',
+    kind: 'sum',
+    paid: [1000, 'mo', 0.05],
+    free: [1000, 'mo', 0.05],
+  },
+  // Email Sending: Workers Paid only (https://developers.cloudflare.com/email-service/platform/pricing/).
+  {
+    key: 'email.sent',
+    family: 'msg',
+    product: 'email',
+    label: 'Emails sent',
+    unit: '',
+    kind: 'sum',
+    paid: [3000, 'mo', 0.35 / 1000],
+    free: null,
+  },
+  // Workers Logpush bills each record that reaches its destination (Workers Paid only).
+  {
+    key: 'logpush.rec',
+    family: 'logs',
+    product: 'logpush',
+    label: 'Records pushed',
+    unit: '',
+    kind: 'sum',
+    paid: [10e6, 'mo', 0.05 / 1e6],
+    free: null,
+  },
+  // Zero Trust Free covers 50 users; a paid Zero Trust plan is bought apart from Workers.
+  {
+    key: 'zt.seats',
+    family: 'seats',
+    product: 'zt',
+    label: 'Seats',
+    unit: '',
+    kind: 'gauge',
+    paid: [50, 'mo'],
+    free: [50, 'mo'],
+  },
 ];
 
 export const CATEGORY = Object.fromEntries(CATEGORIES.map((c) => [c.id, c])) as Record<CategoryId, Category>;
@@ -702,6 +908,9 @@ const PERMISSION_BY_PREFIX: [RegExp, string][] = [
   [/^Hyperdrive/, 'Hyperdrive'],
   [/^Vectorize/, 'Vectorize'],
   [/^Containers/, 'Workers Containers'],
+  [/^Images/, 'Images'],
+  [/^Stream/, 'Stream'],
+  [/^Zero Trust/, 'Access: Audit Logs'],
 ];
 export function permissionsFor(missing: string[]): string[] {
   const out = new Set<string>();

@@ -139,7 +139,11 @@ export function Spark({ values, color }: { values: number[]; color: string }) {
 const UNIT_SHORT: Record<string, string> = { 'vCPU-min': 'vCPU-m' };
 /** A meter's amount as number and unit, for `UnitValue`. */
 export const amountParts = (v: number, unit: string): [string, string] =>
-  unit === 'GB' ? (fmt(v, 'GB').split(' ') as [string, string]) : [fmt(v), UNIT_SHORT[unit] ?? unit];
+  unit === 'GB'
+    ? (fmt(v, 'GB').split(' ') as [string, string])
+    : unit === 'h' && v > 0 && v < 1
+      ? [v.toFixed(2), 'h']
+      : [fmt(v), UNIT_SHORT[unit] ?? unit];
 const toneOf = (share: number, payg?: boolean) => (payg ? undefined : meterValueTone(share));
 
 /** Sizes (storage, memory-time) read as amounts by default; counts against a cap as a share. */

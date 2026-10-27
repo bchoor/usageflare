@@ -40,6 +40,9 @@ function series(seed: number, base: number, days: number, gauge = false): number
   });
 }
 
+const DEV = 'a2000000000000000000000000000002';
+const PROD = 'a3000000000000000000000000000003';
+
 /** The last item, for a deleted resource: how many days ago it was last seen. */
 type Spec = [ProductId, string, Record<string, number>, Partial<Resource>?, number?];
 
@@ -81,10 +84,19 @@ const SPECS: Record<string, Spec[]> = {
     ['ai', '@cf/meta/llama-3.1-8b-instruct', { 'ai.neurons': 5.1e3 }],
     ['workflows', 'nightly-export', { 'wf.req': 1.2e3 }],
     ['builds', 'Workers Builds', { 'builds.min': 160 }, { total: true }],
+    ['email', 'mail.example.dev', { 'email.sent': 85 }, { detail: 'Sending domain' }],
+    ['realtime', 'Whole account', { 'rt.egress': 1.6 }, { total: true }],
   ],
   a2000000000000000000000000000002: [
     ['workers', 'quizgame-staging', { 'workers.req': 38e3, 'workers.cpu': 200e3 }],
-    ['workers', 'chatbot-dev', { 'workers.req': 14e3, 'workers.cpu': 90e3 }],
+    [
+      'workers',
+      'chatbot-dev',
+      { 'workers.req': 14e3, 'workers.cpu': 90e3 },
+      { binds: [`${DEV}:browser:chatbot-dev`] },
+    ],
+    ['browser', 'chatbot-dev', { 'br.hours': 0.11 }, { detail: 'Opened by Worker chatbot-dev' }],
+    ['browser', 'Whole account', { 'br.conc': 2 }, { total: true }],
     ['kv', 'CACHE', { 'kv.read': 64e3, 'kv.write': 640, 'kv.stor': 0.2 }],
     ['d1', 'quizgame-dev', { 'd1.read': 3.1e6, 'd1.write': 45e3, 'd1.stor': 0.6 }],
     ['ai', '@cf/baai/bge-base-en-v1.5', { 'ai.neurons': 6.8e3 }],
@@ -99,7 +111,19 @@ const SPECS: Record<string, Spec[]> = {
       { routes: ['quizgame.example.com'] },
     ],
     ['workers', 'admin', { 'workers.req': 30e3, 'workers.cpu': 90e3 }],
-    ['workers', 'storefront-web', { 'workers.req': 110e3, 'workers.cpu': 300e3 }],
+    [
+      'workers',
+      'storefront-web',
+      { 'workers.req': 110e3, 'workers.cpu': 300e3 },
+      { binds: [`${PROD}:browser:storefront-web`] },
+    ],
+    ['browser', 'storefront-web', { 'br.hours': 0.28 }, { detail: 'Opened by Worker storefront-web' }],
+    ['browser', 'REST API', { 'br.hours': 0.05 }, { detail: 'Quick Actions called from outside a Worker' }],
+    ['browser', 'Whole account', { 'br.conc': 7 }, { total: true }],
+    ['images', 'Whole account', { 'img.tx': 190, 'img.del': 8e3, 'img.stor': 1800 }, { total: true }],
+    ['stream', 'Whole account', { 'stream.del': 260, 'stream.stor': 420 }, { total: true }],
+    ['logpush', 'Job 412', { 'logpush.rec': 220e3 }, { detail: 'Logpush job' }],
+    ['zt', 'Whole account', { 'zt.seats': 12 }, { total: true }],
     [
       'containers',
       'renderer',
@@ -131,7 +155,7 @@ const BILLED: Record<string, [string, ProductId | null, number][] | 'no-access'>
   a3000000000000000000000000000003: [
     ['Workers Standard', 'workers', 0],
     ['D1 Rows Read', 'd1', 0],
-    ['Images Transformations', null, 1.2],
+    ['Images Transformations', 'images', 1.2],
   ],
 };
 
@@ -186,7 +210,21 @@ function withHourly(r: Resource, from: number, dates: string[]) {
   }
 }
 
-const GAUGES = new Set(['kv.stor', 'd1.stor', 'r2.stor', 'r2.ia.stor', 'do.stor', 'vec.stor']);
+const GAUGES = new Set([
+  'kv.stor',
+  'd1.stor',
+  'r2.stor',
+  'r2.ia.stor',
+  'do.stor',
+  'vec.stor',
+  'br.conc',
+  'img.stor',
+  'stream.stor',
+  'zt.seats',
+]);
+
+/** Counted in whole units: browsers, images, seats. */
+const WHOLE = new Set(['br.conc', 'img.stor', 'zt.seats']);
 
 export function fixtureRefs() {
   return {
@@ -236,7 +274,9 @@ export function fixtureUsage(accountId: string, dates: string[]) {
       series: Object.fromEntries(
         Object.entries(base).map(([k, v], j) => [
           k,
-          series(i * 31 + j + 7, v, dates.length, GAUGES.has(k)).map((x, d) => (d < end ? x : 0)),
+          series(i * 31 + j + 7, v, dates.length, GAUGES.has(k)).map((x, d) =>
+            d < end ? (WHOLE.has(k) ? Math.round(x) : x) : 0,
+          ),
         ]),
       ),
     };

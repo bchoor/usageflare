@@ -259,9 +259,11 @@ export function partShare(u: Usage, r: Resource, v: number): number {
   return u.forecast ? monthAvg(r.series[u.m.key] ?? [], u.a) / u.forecast : 0;
 }
 
-/** An overage as billed: rounded up to the meter's billing unit, when it has one. */
+/** An overage as billed: rounded up to the meter's billing unit (or to the nearest one), when it has one. */
 export const billed = (m: Metric, x: number) =>
-  m.block && x > 0 ? Math.ceil(x / m.block - 1e-9) * m.block : x;
+  m.block && x > 0
+    ? (m.round === 'nearest' ? Math.round(x / m.block) : Math.ceil(x / m.block - 1e-9)) * m.block
+    : x;
 
 function judge(a: AccountView, m: Metric, rs: Resource[], warn: number): Usage | null {
   const plan = a.plan === 'paid' ? m.paid : m.free;
@@ -733,6 +735,8 @@ export function fmt(v: number, unit = ''): string {
     return `${a === 0 ? '0' : a < 10 ? +x.toFixed(2) : a < 100 ? +x.toFixed(1) : Math.round(x)} ${u}`;
   }
   if (unit === 'min') return `${Math.round(v).toLocaleString('en-US')} min`;
+  // Under an hour reads in minutes (10 min a day free), never 0.2 h.
+  if (unit === 'h' && Math.abs(v) < 1) return `${Math.round(v * 60)} min`;
   const a = Math.abs(v);
   let s: string;
   if (a >= 1e9) s = `${(v / 1e9).toFixed(a >= 1e10 ? 1 : 2)}B`;
