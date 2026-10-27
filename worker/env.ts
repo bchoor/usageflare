@@ -8,6 +8,8 @@ export interface Env {
   ACCESS_TEAM_DOMAIN: string;
   /** The Access application's audience tag. */
   ACCESS_AUD: string;
+  /** Access service tokens and the person each acts as, `clientId=email` comma-separated (headless page checks). */
+  SERVICE_IDENTITIES?: string;
   /** A suite of Lumen apps this deployment joins (all optional): the address its app switcher reads,
    *  and the Lumen prefs cookie and its domain shared across the suite's apps. */
   SUITE_LIST_URL?: string;

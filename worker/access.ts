@@ -4,6 +4,16 @@ import type { AppEnv } from './env';
 
 const jwks = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
+/** The email a service token acts as: SERVICE_IDENTITIES lists `clientId=email` pairs, comma-separated. */
+const serviceTokenEmail = (raw: string | undefined, clientId: unknown) => {
+  if (typeof clientId !== 'string' || !clientId) return '';
+  for (const pair of (raw ?? '').split(',')) {
+    const [id, email] = pair.split('=').map((x) => x.trim().toLowerCase());
+    if (id && id === clientId.toLowerCase() && email?.includes('@')) return email;
+  }
+  return '';
+};
+
 const isLocal = (url: string) => {
   const host = new URL(url).hostname;
   return host === 'localhost' || host === '127.0.0.1';
@@ -32,7 +42,12 @@ export const requireAccess: MiddlewareHandler<AppEnv> = async (c, next) => {
   }
   try {
     const { payload } = await jwtVerify(token, keys, { issuer, audience: aud });
-    c.set('email', typeof payload.email === 'string' ? payload.email : '');
+    // A service token has no email; one listed in SERVICE_IDENTITIES acts as the person it names.
+    const email =
+      typeof payload.email === 'string' && payload.email
+        ? payload.email
+        : serviceTokenEmail(c.env.SERVICE_IDENTITIES, payload.common_name);
+    c.set('email', email);
   } catch {
     return c.json({ error: 'Unauthorized' }, 401);
   }

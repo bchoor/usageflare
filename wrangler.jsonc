@@ -37,7 +37,9 @@
         // The hub's app switcher and its shared prefs cookie (theme mode, font, size).
         "SUITE_LIST_URL": "https://hub.icaruslab.dev/hub/api/switcher",
         "SUITE_PREFS_COOKIE": "icaruslab_prefs",
-        "SUITE_PREFS_DOMAIN": ".icaruslab.dev"
+        "SUITE_PREFS_DOMAIN": ".icaruslab.dev",
+        // The suite's "hub-verify" Access service token acts as bchoor, so agents can check pages after a deploy.
+        "SERVICE_IDENTITIES": "13d57f4e23086a8c2ca52cdce677ba8c.access=bchoor@gmail.com"
       },
       "routes": [{ "pattern": "usageflare.icaruslab.dev", "custom_domain": true }],
       "workers_dev": true,
