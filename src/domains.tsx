@@ -72,6 +72,7 @@ import {
   gbUnit,
   type Model,
   partNote,
+  pctParts,
   pctText,
   perText,
   SEVERITY,
@@ -146,6 +147,12 @@ export const amountParts = (v: number, unit: string): [string, string] =>
       : [fmt(v), UNIT_SHORT[unit] ?? unit];
 const toneOf = (share: number, payg?: boolean) => (payg ? undefined : meterValueTone(share));
 
+/** A share as one number in its unit slot: `%`, or `×` from ten times the cap (`pctText`). */
+export function PctValue({ p, tone }: { p: number; tone?: ReturnType<typeof meterValueTone> }) {
+  const [n, unit] = pctParts(p);
+  return <UnitValue value={n} unit={unit} tone={tone} />;
+}
+
 /** Sizes (storage, memory-time) read as amounts by default; counts against a cap as a share. */
 const AMOUNT_FIRST = new Set<string>(['stor', 'mem']);
 
@@ -154,7 +161,7 @@ function FamilyCell({ v, u, share, as }: { v: number; u: Usage; share: number; a
   const tone = toneOf(share, u.payg);
   if (as === 'share') {
     if (u.payg) return <UnitValue value={<span className="text-muted-foreground">PAYG</span>} />;
-    return <UnitValue value={pctText(share).slice(0, -1)} unit="%" tone={tone} />;
+    return <PctValue p={share} tone={tone} />;
   }
   const [n, unit] = amountParts(v, u.m.unit);
   return <UnitValue value={n} unit={unit} tone={tone} />;
@@ -181,7 +188,7 @@ function familyRoll(m: Model, family: string, as: 'amount' | 'share') {
     );
     if (!allowance) return null;
     const share = total / allowance;
-    return <UnitValue value={pctText(share).slice(0, -1)} unit="%" tone={toneOf(share)} />;
+    return <PctValue p={share} tone={toneOf(share)} />;
   };
 }
 

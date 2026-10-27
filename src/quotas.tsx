@@ -18,7 +18,7 @@ import {
 } from '@columenlabs/lumen-ui';
 import { Box, ChartColumn, DollarSign, Gauge, Server, Tag, Timer, TriangleAlert } from 'lucide-react';
 import { PRODUCT, PRODUCTS, type Resource } from '../shared/catalog';
-import { amountParts } from './domains';
+import { amountParts, PctValue } from './domains';
 import {
   findTag,
   fmt,
@@ -259,15 +259,14 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
         render: () => null,
         rollRender: (qs, level) => {
           const u = qs[0]?.u;
-          if (level === 'fold')
-            return u && !u.payg ? <UnitValue value={pctText(u.fpct).slice(0, -1)} unit="%" /> : null;
+          if (level === 'fold') return u && !u.payg ? <PctValue p={u.fpct} /> : null;
           if (!whole(qs)) return null;
           const { share, top } = poolShare(qs, {
             pool: poolKey,
             used: (q) => q.fshare,
             cap: (q) => (q.u.payg ? 0 : 1),
           });
-          return top && top.cap > 0 ? <UnitValue value={pctText(share).slice(0, -1)} unit="%" /> : null;
+          return top && top.cap > 0 ? <PctValue p={share} /> : null;
         },
       },
       {
