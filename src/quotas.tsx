@@ -414,8 +414,10 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
         label: 'Meter',
         icon: Gauge,
         under: (q) => meterName(q.u),
+        // Under its product's group a meter says only its own name.
+        title: (key, qs, groupBy) => (groupBy === 'product' && qs[0] ? qs[0].u.m.label : key),
         always: true,
-        open: true,
+        // Meters start folded: their tags open on a click.
         mark: (_k, qs) =>
           qs[0] ? (
             <MeterIcon metric={qs[0].u.m} icons={m.prefs.meterIcons} className="size-3.5 shrink-0" />
