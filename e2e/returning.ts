@@ -112,7 +112,13 @@ function watch(p: Page, where: string) {
   const errors: string[] = [];
   p.on('pageerror', (e) => errors.push(e.message));
   p.on('console', (m) => {
-    if (m.type() === 'error' && !/Failed to load resource.*(net::ERR_FAILED|ERR_ABORTED)/.test(m.text()))
+    // Live, the tester token opens this app only: another suite app's Access login (the app
+    // switcher's hub) answers it with a CORS error a signed-in person never sees.
+    if (
+      m.type() === 'error' &&
+      !/Failed to load resource.*(net::ERR_FAILED|ERR_ABORTED)/.test(m.text()) &&
+      !(LIVE && /cloudflareaccess\.com\/cdn-cgi\/access\/login/.test(m.text()))
+    )
       errors.push(m.text());
   });
   return () => {

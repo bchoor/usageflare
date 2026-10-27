@@ -126,7 +126,7 @@ const api = new Hono<AppEnv>()
     if (!c.res.headers.has('Cache-Control')) c.header('Cache-Control', 'no-store');
   })
   .use(requireAccess, sameOrigin)
-  .get('/health', (c) => c.json({ ok: true }))
+  .get('/health', (c) => c.json({ ok: true, sha: __BUILD_SHA__ }))
   .get('/me', (c) => c.json({ email: c.get('email'), suite: suiteOf(c.env) }))
   // What's new in the status bar: the Key takeaways lumen-ship commits on each release.
   .get('/releases', (c) =>
