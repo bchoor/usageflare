@@ -356,6 +356,17 @@ const DATASETS: Dataset[] = [
     values: () => ({}),
   },
   {
+    name: 'Browser Run REST sessions',
+    field: 'browserRenderingApiAdaptiveGroups',
+    select: 'count',
+    dims: ['sessionId'],
+    product: 'browser',
+    optional: true,
+    daily: true,
+    key: () => null,
+    values: () => ({}),
+  },
+  {
     // Bindings only: Quick Actions (REST) don't count towards concurrency.
     name: 'Browser Run concurrency',
     field: 'browserRenderingBindingSessionsAdaptiveGroups',
@@ -462,18 +473,24 @@ const UNLISTED_DETAIL: Partial<Record<ProductId, string>> = {
   logpush: 'Logpush job',
 };
 
+const REST_ROW = 'REST API';
+const BINDINGS_ROW = 'Worker bindings';
+
 /** A dataset by name, for the reads that join two of them. */
 const DS = (name: string) => DATASETS.findIndex((d) => d.name === name);
 
 /**
  * Browser Run reports hours per session, and which Worker opened a session in another dataset:
- * each day's account total is split by the sessions' hours per calling Worker. Sessions with no
- * Worker came through the REST API. A day without session rows stays on the account row.
+ * each day's account total is split by the sessions' hours per caller. Cloudflare often leaves a
+ * binding session's Worker blank: it goes to the one Worker with a Browser binding when there is
+ * only one (`sole`), else to a Worker bindings row. Sessions the REST API opened get their own row.
+ * A day without session rows stays on the account row.
  */
 function splitBrowserHours(
   rows: Row[][],
   dayIndex: Map<string, number>,
   whole: Resource | undefined,
+  sole: string | undefined,
   rowFor: (name: string, worker: boolean) => Resource,
 ) {
   const total = whole?.series['br.hours'];
@@ -482,13 +499,17 @@ function splitBrowserHours(
   for (const r of rows[DS('Browser Run callers')] ?? [])
     if (r.dimensions.sessionId && r.dimensions.scriptName)
       caller.set(r.dimensions.sessionId, r.dimensions.scriptName);
+  const viaRest = new Set(
+    (rows[DS('Browser Run REST sessions')] ?? []).map((r) => r.dimensions.sessionId).filter(Boolean),
+  );
   // Per day: hours per caller, from the sessions.
   const byDay = new Map<number, Map<string, number>>();
   for (const r of rows[DS('Browser Run sessions')] ?? []) {
     const day = dayIndex.get(r.dimensions.date ?? '');
     const ms = r.sum?.totalSessionDurationMs ?? 0;
     if (day === undefined || !ms) continue;
-    const who = caller.get(r.dimensions.sessionId ?? '') ?? '';
+    const sid = r.dimensions.sessionId ?? '';
+    const who = caller.get(sid) ?? (viaRest.has(sid) ? REST_ROW : (sole ?? BINDINGS_ROW));
     const m = byDay.get(day) ?? new Map<string, number>();
     m.set(who, (m.get(who) ?? 0) + ms);
     byDay.set(day, m);
@@ -498,7 +519,7 @@ function splitBrowserHours(
     const t = total[day] ?? 0;
     if (!all || !t) continue;
     for (const [who, ms] of m) {
-      const res = rowFor(who || 'REST API', !!who);
+      const res = rowFor(who, who !== REST_ROW && who !== BINDINGS_ROW);
       const s = res.series['br.hours'] ?? new Array<number>(total.length).fill(0);
       s[day] = (s[day] ?? 0) + (t * ms) / all;
       res.series['br.hours'] = s;
@@ -655,6 +676,8 @@ interface Inventory {
   byKey: Map<string, string>;
   /** Products whose list loaded, so a resource missing from it is really gone. */
   listed: Set<ProductId>;
+  /** Workers with a Browser Run binding. */
+  browsers: Set<string>;
 }
 
 /**
@@ -695,7 +718,7 @@ type ScriptBinding = {
 };
 
 async function inventory(token: string, acct: string, missing: string[]): Promise<Inventory> {
-  const inv: Inventory = { resources: new Map(), byKey: new Map(), listed: new Set() };
+  const inv: Inventory = { resources: new Map(), byKey: new Map(), listed: new Set(), browsers: new Set() };
   const a = `/accounts/${acct}`;
   const tryList = async <T>(label: string, fn: () => Promise<T[]>, product?: ProductId): Promise<T[]> => {
     try {
@@ -806,6 +829,7 @@ async function inventory(token: string, acct: string, missing: string[]): Promis
           token,
           `${a}/workers/scripts/${encodeURIComponent(s.id)}/settings`,
         );
+        if ((st.bindings ?? []).some((b) => b.type === 'browser')) inv.browsers.add(s.id);
         binds = (st.bindings ?? []).flatMap((b): string[] => {
           const kv =
             b.type === 'kv_namespace' && b.namespace_id ? kvById.get(norm(b.namespace_id)) : undefined;
@@ -1046,7 +1070,13 @@ export async function readAccount(
     const id = rid(meta.id, 'browser', name);
     if (!inv.resources.has(id)) {
       add(inv, meta.id, 'browser', name, [], {
-        detail: worker ? `Opened by Worker ${name}` : 'Quick Actions called from outside a Worker',
+        detail: !worker
+          ? name === REST_ROW
+            ? 'Quick Actions called through the REST API'
+            : 'Worker sessions Cloudflare doesn’t name a Worker for'
+          : inv.browsers.size === 1 && inv.browsers.has(name)
+            ? `Opened by Worker ${name}, the one Worker with a Browser binding`
+            : `Opened by Worker ${name}`,
       });
       const w = inv.resources.get(rid(meta.id, 'workers', name));
       if (worker && w) w.binds = [...(w.binds ?? []), id];
@@ -1054,7 +1084,8 @@ export async function readAccount(
     return inv.resources.get(id) as Resource;
   };
   const browserWhole = rid(meta.id, 'browser', 'Whole account');
-  splitBrowserHours(rows, dayIndex, inv.resources.get(browserWhole), browserOf);
+  const sole = inv.browsers.size === 1 ? [...inv.browsers][0] : undefined;
+  splitBrowserHours(rows, dayIndex, inv.resources.get(browserWhole), sole, browserOf);
   if (!Object.keys(inv.resources.get(browserWhole)?.series ?? { x: 1 }).length)
     inv.resources.delete(browserWhole);
 
