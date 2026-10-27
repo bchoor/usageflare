@@ -94,6 +94,7 @@ export function MetersCard({
 }) {
   const rows = metersOf(model, r);
   const a = model.account[r.acct];
+  const info = model.info(r);
   return (
     <HoverCard openDelay={150} closeDelay={80}>
       <HoverCardTrigger asChild>
@@ -106,7 +107,11 @@ export function MetersCard({
         <div className="flex items-center gap-2 border-b px-3 py-2">
           <ProductIcon id={r.product} />
           <b className="truncate font-medium text-sm">{r.name}</b>
-          <span className="ml-auto text-muted-foreground text-xs">
+          {/* The main meter's change over the last 7 days (tables leave it to this card). */}
+          <span className="ml-auto flex items-center gap-1 text-muted-foreground text-xs">
+            7d <Trend7 change={info.change} unit={info.main?.u.m.unit} />
+          </span>
+          <span className="text-muted-foreground text-xs">
             {rows.length} meter{rows.length === 1 ? '' : 's'}
           </span>
         </div>
