@@ -35,7 +35,11 @@ export function wireTelemetry(env: TelemetryEnv): void {
 export const metered = <E extends object>(env: E): E =>
   meteredBindings(env, { kinds: { KV: 'kv', ASSETS: 'assets' }, skip: ['METRICS'] });
 
-/** The request meter: first, so every route is metered; hashed files are one route. */
+/**
+ * The request meter: first, so every route is metered; hashed files are one route. A `?fresh`
+ * read is the page's background revalidation (it already shows the cached copy), so it is its own
+ * surface, `refresh`, and its provider wait never counts as what a person waits for.
+ */
 export const usageRequestMeter = () =>
   requestMeter({
     app: 'usageflare',
@@ -45,7 +49,7 @@ export const usageRequestMeter = () =>
     },
     serverTiming: true,
     describe: (c: Context) => ({
-      surface: new URL(c.req.url).pathname.startsWith('/api/') ? 'api' : 'site',
+      surface: surfaceOf(new URL(c.req.url)),
       callerKind: c.req.header('cf-access-client-id')
         ? 'service'
         : c.req.header('cf-access-jwt-assertion')
@@ -53,3 +57,6 @@ export const usageRequestMeter = () =>
           : 'anon',
     }),
   });
+
+const surfaceOf = (u: URL) =>
+  !u.pathname.startsWith('/api/') ? 'site' : u.searchParams.has('fresh') ? 'refresh' : 'api';
