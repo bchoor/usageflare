@@ -12,12 +12,12 @@ import {
   SettingRow,
   SidebarSection,
   StatusItem,
+  savedAnswers,
   useLumenFinderRows,
 } from '@columenlabs/lumen-ui';
 import { Slider } from '@columenlabs/lumen-ui/ui/slider';
-import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister';
 import { useQuery } from '@tanstack/react-query';
-import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
+import { type PersistedClient, PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import {
   createRootRoute,
   createRoute,
@@ -53,20 +53,18 @@ import { registerTagSaver, TagForm } from './tags';
 configureLumen({ prefsCookie: 'usageflare_prefs' });
 const queryClient = createDeskQueryClient();
 
-// The last data this browser saw is kept in localStorage, so a page opened again draws it at once
-// and reads the Worker behind it (stale while revalidate). Only the very first visit waits. Saved
-// page layouts are kept too, so a page draws in its own layout at once instead of the default first.
+// The last data this browser saw is kept on the device (IndexedDB, lumen savedAnswers), so a page
+// opened again draws it at once and reads the Worker behind it (stale while revalidate). Only the
+// very first visit waits, and a store that doesn't answer within 1.5 s is skipped for the server.
+// Saved page layouts are kept too, so a page draws in its own layout at once instead of the default.
 const DAY = 86_400_000;
 const KEPT = ['accounts', 'usage', 'prefs', 'tags', 'view', 'me'];
 for (const k of KEPT) queryClient.setQueryDefaults([k], { gcTime: DAY });
-const storage = (() => {
-  try {
-    return window.localStorage;
-  } catch {
-    return undefined;
-  }
-})();
-const persister = createSyncStoragePersister({ storage, key: 'usageflare:cache' });
+const persister = savedAnswers<PersistedClient>({ name: 'usageflare' });
+// The localStorage copy from before: parsed on the main thread at every load, so it goes.
+try {
+  window.localStorage.removeItem('usageflare:cache');
+} catch {}
 const persistOptions = {
   persister,
   maxAge: DAY,

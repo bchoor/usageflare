@@ -83,11 +83,12 @@ export const useRefreshing = () => useSyncExternalStore(subscribe, () => refresh
  * runs behind it and swaps the new numbers in quietly when it lands.
  */
 async function readUsage(qc: QueryClient, id: string) {
-  const d = await apiJson<AccountUsage>(`/api/accounts/${id}/usage${q()}`, undefined, 'usage');
+  // A read that has to go to Cloudflare can take longer than the kit's 15 s for reads.
+  const d = await apiJson<AccountUsage>(`/api/accounts/${id}/usage${q()}`, { timeoutMs: 30_000 }, 'usage');
   if (d.stale && !refreshing.has(id)) {
     refreshing.add(id);
     ping();
-    apiJson<AccountUsage>(`/api/accounts/${id}/usage?fresh`, undefined, 'usage')
+    apiJson<AccountUsage>(`/api/accounts/${id}/usage?fresh`, { timeoutMs: 30_000 }, 'usage')
       .then((f) => qc.setQueryData(['usage', id], f))
       .catch(() => {})
       .finally(() => {
