@@ -21,7 +21,7 @@ jobs:
   check:
     name: Lint + type + build
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    runs-on: [self-hosted, openship, linux, arm64]
+    runs-on: [self-hosted, openship, linux]
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
