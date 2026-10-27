@@ -14,5 +14,7 @@ export default defineConfig({
   // Two pages: the public landing page at `/` and the app under /app.
   environments: {
     client: { build: { rollupOptions: { input: { landing: 'index.html', app: 'app/index.html' } } } },
+    // The Worker minified: a smaller script parses faster when a new isolate starts.
+    usageflare: { build: { minify: true } },
   },
 });
