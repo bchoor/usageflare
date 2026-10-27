@@ -93,7 +93,15 @@ interface Dataset {
   optional?: boolean;
   /** Left out of the hourly read (pace): Cloudflare reports it by day only. */
   daily?: boolean;
+  /**
+   * Cloudflare answers it for 30 days at most (a wider range fails the whole request), so it's
+   * read from `RECENT_DAYS` ago.
+   */
+  recent?: boolean;
 }
+
+/** The widest range the newer datasets take: 30 days (`4w2d`), counted from the first day's midnight. */
+const RECENT_DAYS = 30;
 
 const GB = 1e9;
 const NONE: Record<string, number> = {};
@@ -330,6 +338,7 @@ const DATASETS: Dataset[] = [
     product: 'browser',
     optional: true,
     daily: true,
+    recent: true,
     key: () => '*',
     values: (r) => ({ 'br.hours': (r.sum?.totalSessionDurationMs ?? 0) / 3.6e6 }),
   },
@@ -341,6 +350,7 @@ const DATASETS: Dataset[] = [
     product: 'browser',
     optional: true,
     daily: true,
+    recent: true,
     key: () => null,
     values: () => ({}),
   },
@@ -352,6 +362,7 @@ const DATASETS: Dataset[] = [
     product: 'browser',
     optional: true,
     daily: true,
+    recent: true,
     key: () => null,
     values: () => ({}),
   },
@@ -363,6 +374,7 @@ const DATASETS: Dataset[] = [
     product: 'browser',
     optional: true,
     daily: true,
+    recent: true,
     key: () => null,
     values: () => ({}),
   },
@@ -376,6 +388,7 @@ const DATASETS: Dataset[] = [
     product: 'browser',
     optional: true,
     daily: true,
+    recent: true,
     key: () => '*',
     values: (r) => ({ 'br.conc': r.max?.maxConcurrentSessions ?? 0 }),
   },
@@ -387,6 +400,7 @@ const DATASETS: Dataset[] = [
     product: 'images',
     optional: true,
     daily: true,
+    recent: true,
     key: () => '*',
     values: (r) => ({ 'img.tx': r.sum?.billableEventCount ?? 0 }),
   },
@@ -398,6 +412,7 @@ const DATASETS: Dataset[] = [
     product: 'images',
     optional: true,
     daily: true,
+    recent: true,
     key: () => '*',
     values: (r) => ({ 'img.del': r.sum?.requests ?? 0 }),
   },
@@ -409,6 +424,7 @@ const DATASETS: Dataset[] = [
     product: 'stream',
     optional: true,
     daily: true,
+    recent: true,
     key: () => '*',
     values: (r) => ({ 'stream.del': r.sum?.minutesViewed ?? 0 }),
   },
@@ -420,6 +436,7 @@ const DATASETS: Dataset[] = [
     product: 'realtime',
     optional: true,
     daily: true,
+    recent: true,
     key: () => '*',
     values: (r) => ({ 'rt.egress': (r.sum?.egressBytes ?? 0) / GB }),
   },
@@ -431,6 +448,7 @@ const DATASETS: Dataset[] = [
     product: 'realtime',
     optional: true,
     daily: true,
+    recent: true,
     key: () => '*',
     values: (r) => ({ 'rt.egress': (r.sum?.egressBytes ?? 0) / GB }),
   },
@@ -443,6 +461,7 @@ const DATASETS: Dataset[] = [
     product: 'email',
     optional: true,
     daily: true,
+    recent: true,
     key: (r) => r.dimensions.sendingDomain || '*',
     values: (r) =>
       Number(r.dimensions.isLastEvent) === 1 && !/^(incoming|forward)$/.test(r.dimensions.eventType ?? '')
@@ -458,6 +477,7 @@ const DATASETS: Dataset[] = [
     product: 'logpush',
     optional: true,
     daily: true,
+    recent: true,
     key: (r) => (r.dimensions.jobId ? `Job ${r.dimensions.jobId}` : null),
     values: (r) =>
       Number(r.dimensions.final) === 1 && Number(r.dimensions.success) === 1
@@ -577,15 +597,21 @@ const RATE_LIMITED = /rate limit/i;
  */
 async function fetchDatasets(token: string, accountId: string, dates: string[], missing: string[]) {
   const field = (d: Dataset, i: number) =>
-    `d${i}: ${d.field}(limit: 10000, filter: { date_geq: $from, date_leq: $to }) { ${d.select} dimensions { date ${d.dims.join(' ')} } }`;
-  const ask = (fields: string) =>
-    `query($a: string!, $from: Date!, $to: Date!) { viewer { accounts(filter: { accountTag: $a }) { ${fields} } } }`;
-  const vars = { a: accountId, from: dates[0], to: dates.at(-1) };
+    `d${i}: ${d.field}(limit: 10000, filter: { date_geq: ${d.recent ? '$recent' : '$from'}, date_leq: $to }) { ${d.select} dimensions { date ${d.dims.join(' ')} } }`;
+  // A variable declared but not used fails the request: declare only the ones the fields use.
+  const ask = (fields: string) => {
+    const from = ['from', 'recent'].filter((v) => fields.includes(`$${v}`)).map((v) => `, $${v}: Date!`);
+    return `query($a: string!, $to: Date!${from.join('')}) { viewer { accounts(filter: { accountTag: $a }) { ${fields} } } }`;
+  };
+  const vars = { a: accountId, from: dates[0], to: dates.at(-1), recent: dates.at(-RECENT_DAYS) ?? dates[0] };
   const run = async (query: string) => {
     const res = await fetch(`${API}/graphql`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, variables: vars }),
+      body: JSON.stringify({
+        query,
+        variables: Object.fromEntries(Object.entries(vars).filter(([k]) => query.includes(`$${k}:`))),
+      }),
     });
     return (await res.json().catch(() => null)) as {
       data?: { viewer?: { accounts?: Record<string, Row[] | null>[] } } | null;
