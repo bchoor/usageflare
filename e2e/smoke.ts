@@ -314,8 +314,12 @@ async function checkPopup(
     await p.evaluate(() => document.querySelector('[data-smoke-pop]')?.removeAttribute('data-smoke-pop'));
   }
   await p.keyboard.press('Escape');
-  await p.waitForTimeout(300);
-  const after = await p.locator(sel).count();
+  // A popup's exit animation can outlast a short wait on a busy page: give it up to 1.5s.
+  let after = before;
+  for (let t = 0; t < 5 && after >= before; t++) {
+    await p.waitForTimeout(300);
+    after = await p.locator(sel).count();
+  }
   if (after >= before && role) {
     await report(p, {
       check: 'popup',
@@ -955,6 +959,10 @@ async function sweepPage(p: Page, ctx: Ctx, url: string, where: string, full: bo
   await checkLayout(p, ctx, where);
   await checkClip(p, ctx, 'body', where);
   await checkScroll(p, ctx, 'body', where);
+  // The scroll test leaves the pointer over the table, where a row's hover card opens on its
+  // own: park it in a corner so the page is checked as it stands.
+  await p.mouse.move(0, 0);
+  await p.waitForTimeout(500);
   await checkInvariants(p, ctx, where);
   await visual(p, ctx, where);
   if (full && ctx.theme === 'light') await exercise(p, ctx, url, where);
