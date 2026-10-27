@@ -96,6 +96,7 @@ interface Dataset {
 }
 
 const GB = 1e9;
+const NONE: Record<string, number> = {};
 const norm = (id: string) => id.replaceAll('-', '').toLowerCase();
 
 // R2 operation classes (https://developers.cloudflare.com/r2/pricing/#class-a-operations).
@@ -318,7 +319,232 @@ const DATASETS: Dataset[] = [
     key: () => '*',
     values: (r) => ({ 'builds.min': r.sum?.buildMinutes ?? 0 }),
   },
+  // The products below are account-wide meters most accounts never use: none is reported missing,
+  // and none is read by the hour.
+  {
+    // The account's total; `splitBrowserHours` hands each Worker its share.
+    name: 'Browser Run hours',
+    field: 'browserRenderingBrowserTimeUsageAdaptiveGroups',
+    select: 'sum { totalSessionDurationMs }',
+    dims: [],
+    product: 'browser',
+    optional: true,
+    daily: true,
+    key: () => '*',
+    values: (r) => ({ 'br.hours': (r.sum?.totalSessionDurationMs ?? 0) / 3.6e6 }),
+  },
+  {
+    name: 'Browser Run sessions',
+    field: 'browserRenderingBrowserTimeUsageAdaptiveGroups',
+    select: 'sum { totalSessionDurationMs }',
+    dims: ['sessionId'],
+    product: 'browser',
+    optional: true,
+    daily: true,
+    key: () => null,
+    values: () => ({}),
+  },
+  {
+    name: 'Browser Run callers',
+    field: 'browserRenderingEventsAdaptiveGroups',
+    select: 'count',
+    dims: ['scriptName', 'sessionId'],
+    product: 'browser',
+    optional: true,
+    daily: true,
+    key: () => null,
+    values: () => ({}),
+  },
+  {
+    // Bindings only: Quick Actions (REST) don't count towards concurrency.
+    name: 'Browser Run concurrency',
+    field: 'browserRenderingBindingSessionsAdaptiveGroups',
+    select: 'max { maxConcurrentSessions }',
+    gauge: true,
+    dims: [],
+    product: 'browser',
+    optional: true,
+    daily: true,
+    key: () => '*',
+    values: (r) => ({ 'br.conc': r.max?.maxConcurrentSessions ?? 0 }),
+  },
+  {
+    name: 'Images transformations',
+    field: 'imagesTransformationsAdaptiveGroups',
+    select: 'sum { billableEventCount }',
+    dims: [],
+    product: 'images',
+    optional: true,
+    daily: true,
+    key: () => '*',
+    values: (r) => ({ 'img.tx': r.sum?.billableEventCount ?? 0 }),
+  },
+  {
+    name: 'Images delivered',
+    field: 'imagesRequestsAdaptiveGroups',
+    select: 'sum { requests }',
+    dims: [],
+    product: 'images',
+    optional: true,
+    daily: true,
+    key: () => '*',
+    values: (r) => ({ 'img.del': r.sum?.requests ?? 0 }),
+  },
+  {
+    name: 'Stream minutes delivered',
+    field: 'streamMinutesViewedAdaptiveGroups',
+    select: 'sum { minutesViewed }',
+    dims: [],
+    product: 'stream',
+    optional: true,
+    daily: true,
+    key: () => '*',
+    values: (r) => ({ 'stream.del': r.sum?.minutesViewed ?? 0 }),
+  },
+  {
+    name: 'Realtime SFU egress',
+    field: 'callsUsageAdaptiveGroups',
+    select: 'sum { egressBytes }',
+    dims: [],
+    product: 'realtime',
+    optional: true,
+    daily: true,
+    key: () => '*',
+    values: (r) => ({ 'rt.egress': (r.sum?.egressBytes ?? 0) / GB }),
+  },
+  {
+    name: 'Realtime TURN egress',
+    field: 'callsTurnUsageAdaptiveGroups',
+    select: 'sum { egressBytes }',
+    dims: [],
+    product: 'realtime',
+    optional: true,
+    daily: true,
+    key: () => '*',
+    values: (r) => ({ 'rt.egress': (r.sum?.egressBytes ?? 0) / GB }),
+  },
+  {
+    // One row per email (its last event); forwards from Email Routing are free.
+    name: 'Email Sending',
+    field: 'emailSendingAdaptiveGroups',
+    select: 'count',
+    dims: ['sendingDomain', 'eventType', 'isLastEvent'],
+    product: 'email',
+    optional: true,
+    daily: true,
+    key: (r) => r.dimensions.sendingDomain || '*',
+    values: (r) =>
+      Number(r.dimensions.isLastEvent) === 1 && !/^(incoming|forward)$/.test(r.dimensions.eventType ?? '')
+        ? { 'email.sent': r.count ?? 0 }
+        : NONE,
+  },
+  {
+    // A batch's last attempt that succeeded: its records reached the destination.
+    name: 'Logpush',
+    field: 'logpushHealthAdaptiveGroups',
+    select: 'sum { records }',
+    dims: ['jobId', 'final', 'success'],
+    product: 'logpush',
+    optional: true,
+    daily: true,
+    key: (r) => (r.dimensions.jobId ? `Job ${r.dimensions.jobId}` : null),
+    values: (r) =>
+      Number(r.dimensions.final) === 1 && Number(r.dimensions.success) === 1
+        ? { 'logpush.rec': r.sum?.records ?? 0 }
+        : NONE,
+  },
 ];
+
+/** What a row is, for products Cloudflare has no list of. */
+const UNLISTED_DETAIL: Partial<Record<ProductId, string>> = {
+  basin: 'Data Catalog warehouse',
+  email: 'Sending domain',
+  logpush: 'Logpush job',
+};
+
+/** A dataset by name, for the reads that join two of them. */
+const DS = (name: string) => DATASETS.findIndex((d) => d.name === name);
+
+/**
+ * Browser Run reports hours per session, and which Worker opened a session in another dataset:
+ * each day's account total is split by the sessions' hours per calling Worker. Sessions with no
+ * Worker came through the REST API. A day without session rows stays on the account row.
+ */
+function splitBrowserHours(
+  rows: Row[][],
+  dayIndex: Map<string, number>,
+  whole: Resource | undefined,
+  rowFor: (name: string, worker: boolean) => Resource,
+) {
+  const total = whole?.series['br.hours'];
+  if (!whole || !total) return;
+  const caller = new Map<string, string>();
+  for (const r of rows[DS('Browser Run callers')] ?? [])
+    if (r.dimensions.sessionId && r.dimensions.scriptName)
+      caller.set(r.dimensions.sessionId, r.dimensions.scriptName);
+  // Per day: hours per caller, from the sessions.
+  const byDay = new Map<number, Map<string, number>>();
+  for (const r of rows[DS('Browser Run sessions')] ?? []) {
+    const day = dayIndex.get(r.dimensions.date ?? '');
+    const ms = r.sum?.totalSessionDurationMs ?? 0;
+    if (day === undefined || !ms) continue;
+    const who = caller.get(r.dimensions.sessionId ?? '') ?? '';
+    const m = byDay.get(day) ?? new Map<string, number>();
+    m.set(who, (m.get(who) ?? 0) + ms);
+    byDay.set(day, m);
+  }
+  for (const [day, m] of byDay) {
+    const all = [...m.values()].reduce((a, b) => a + b, 0);
+    const t = total[day] ?? 0;
+    if (!all || !t) continue;
+    for (const [who, ms] of m) {
+      const res = rowFor(who || 'REST API', !!who);
+      const s = res.series['br.hours'] ?? new Array<number>(total.length).fill(0);
+      s[day] = (s[day] ?? 0) + (t * ms) / all;
+      res.series['br.hours'] = s;
+    }
+    total[day] = 0;
+  }
+  if (total.every((v) => !v)) delete whole.series['br.hours'];
+}
+
+/**
+ * Account-wide numbers only REST answers, as they are today: Images stored, Stream minutes stored
+ * and Zero Trust seats. A product the account doesn't have answers with an error and is left out;
+ * only a refused token is reported missing.
+ */
+async function readRestMeters(token: string, acct: string, missing: string[]) {
+  const a = `/accounts/${acct}`;
+  // 10000 is Cloudflare's "Authentication error": the token lacks the permission. An account without
+  // the product answers with its own code, which isn't a missing scope.
+  const refused = (e: unknown) => e instanceof CfError && (e.code === 10000 || e.status === 401);
+  const one = async (label: string, fn: () => Promise<Record<string, number>>) => {
+    try {
+      return await fn();
+    } catch (e) {
+      if (refused(e)) missing.push(label);
+      return {};
+    }
+  };
+  const parts = await Promise.all([
+    one('Images stats', async () => {
+      const r = await rest<{ count?: { current?: number } }>(token, `${a}/images/v1/stats`);
+      return { 'img.stor': r.count?.current ?? 0 };
+    }),
+    one('Stream storage', async () => {
+      const r = await rest<{ totalStorageMinutes?: number }>(token, `${a}/stream/storage-usage`);
+      return { 'stream.stor': r.totalStorageMinutes ?? 0 };
+    }),
+    one('Zero Trust seats', async () => {
+      const users = await restList<{ access_seat?: boolean; gateway_seat?: boolean }>(
+        token,
+        `${a}/access/users`,
+      );
+      return { 'zt.seats': users.filter((u) => u.access_seat || u.gateway_seat).length };
+    }),
+  ]);
+  return Object.assign({}, ...parts) as Record<string, number>;
+}
 
 const RATE_LIMITED = /rate limit/i;
 
@@ -641,6 +867,13 @@ async function detectPlan(token: string, acct: string): Promise<Plan | null> {
 /** Cloudflare's service names (`Workers Standard`, `R2 Storage Class A Operations`) to products. */
 const SERVICE_PRODUCT: [RegExp, ProductId][] = [
   [/durable object/i, 'do'],
+  [/browser (rendering|run)/i, 'browser'],
+  [/\bimages?\b/i, 'images'],
+  [/\bstream\b/i, 'stream'],
+  [/realtime|calls|\bturn\b|\bsfu\b/i, 'realtime'],
+  [/email/i, 'email'],
+  [/logpush/i, 'logpush'],
+  [/zero trust|access seat|gateway seat/i, 'zt'],
   [/workers ai|neuron/i, 'ai'],
   [/workers kv|\bkv\b/i, 'kv'],
   [/\bd1\b/i, 'd1'],
@@ -734,13 +967,14 @@ export async function readAccount(
 ): Promise<{ account: Account; resources: Resource[]; rateLimited: boolean; seen: Seen }> {
   const missing: string[] = [];
   const from = hoursFrom();
-  const [inv, detected, { rows, rateLimited }, billing, hourly] = await Promise.all([
+  const [inv, detected, { rows, rateLimited }, billing, hourly, sizes] = await Promise.all([
     inventory(token, meta.id, missing),
     meta.planOverride ? Promise.resolve(null) : detectPlan(token, meta.id),
     fetchDatasets(token, meta.id, dates, missing),
     // Optional extra: whatever goes wrong there, the usage still loads.
     readBilling(token, meta.id).catch(() => undefined),
     fetchHourly(token, meta.id, from),
+    readRestMeters(token, meta.id, missing).catch(() => ({}) as Record<string, number>),
   ]);
   const dayIndex = new Map(dates.map((d, i) => [d, i]));
   const today = dates.at(-1) ?? '';
@@ -783,9 +1017,8 @@ export async function readAccount(
               detail:
                 d.product === 'ai'
                   ? key
-                  : d.product === 'basin'
-                    ? 'Data Catalog warehouse'
-                    : 'Not in the account’s list: deleted, or the token can’t list it',
+                  : (UNLISTED_DETAIL[d.product] ??
+                    'Not in the account’s list: deleted, or the token can’t list it'),
             },
       );
     }
@@ -806,6 +1039,33 @@ export async function readAccount(
       }
     }
   });
+
+  // Each Worker that opened browsers gets a Browser Run row of its own, which the Worker binds, so
+  // the Worker's tags reach it.
+  const browserOf = (name: string, worker: boolean) => {
+    const id = rid(meta.id, 'browser', name);
+    if (!inv.resources.has(id)) {
+      add(inv, meta.id, 'browser', name, [], {
+        detail: worker ? `Opened by Worker ${name}` : 'Quick Actions called from outside a Worker',
+      });
+      const w = inv.resources.get(rid(meta.id, 'workers', name));
+      if (worker && w) w.binds = [...(w.binds ?? []), id];
+    }
+    return inv.resources.get(id) as Resource;
+  };
+  const browserWhole = rid(meta.id, 'browser', 'Whole account');
+  splitBrowserHours(rows, dayIndex, inv.resources.get(browserWhole), browserOf);
+  if (!Object.keys(inv.resources.get(browserWhole)?.series ?? { x: 1 }).length)
+    inv.resources.delete(browserWhole);
+
+  // Sizes REST reports only as they are now: the same all month (no history to read).
+  for (const [metric, v] of Object.entries(sizes)) {
+    if (!v) continue;
+    const product = metric.startsWith('img.') ? 'images' : metric.startsWith('stream.') ? 'stream' : 'zt';
+    const id = add(inv, meta.id, product, 'Whole account', ['*'], { total: true });
+    const res = inv.resources.get(id) as Resource;
+    res.series[metric] = new Array<number>(dates.length).fill(v);
+  }
 
   for (const [i, list] of hourly ?? []) {
     const d = DATASETS[i] as Dataset;
