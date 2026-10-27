@@ -15,7 +15,6 @@ import {
   PaceWindowPicker,
   ShareMeter,
   StackedColumns,
-  TileSpark,
   UnitValue,
   useChartTokens,
   type ViewDomain,
@@ -709,7 +708,7 @@ function ResourceLinks({ m, ids, open }: { m: Model; ids: string[]; open: (id: s
   );
 }
 
-/** Every metric of `r` on one line (its 30 days, this period, share of allowance); the picked one is charted below. */
+/** Every metric of `r` on one line (this period, share of allowance); the picked one's 30 days are charted below. */
 function ResourceUsage({ m, r }: { m: Model; r: Resource }) {
   const keys = Object.keys(r.series);
   const a = m.account[r.acct];
@@ -725,9 +724,8 @@ function ResourceUsage({ m, r }: { m: Model; r: Resource }) {
     <div className="flex flex-col gap-3">
       <DetailsTable
         head={[
+          // A drawer has room for the figures, not a spark: the chart below draws the 30 days.
           { label: 'Metric', grow: true },
-          // A phone drawer has room for the figures, not the spark; the chart below draws it.
-          { label: '30 days', hideOnPhone: true },
           { label: 'This period', right: true },
           { label: 'Of limit', right: true },
         ]}
@@ -744,9 +742,6 @@ function ResourceUsage({ m, r }: { m: Model; r: Resource }) {
               <span key="n" className="inline-flex items-center gap-2 whitespace-nowrap font-sans">
                 <ColorDot color={color(k)} />
                 {met?.label ?? k}
-              </span>,
-              <span key="s" className="block w-12 md:w-16">
-                <TileSpark values={r.series[k] ?? []} color={color(k)} />
               </span>,
               fmt(v, met?.unit),
               u ? (

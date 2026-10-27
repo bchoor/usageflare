@@ -1152,7 +1152,13 @@ for (const vp of vpList)
     const host = new URL(BASE).host;
     p.on('pageerror', (e) => ctx.errors.push(`page error: ${e.message.slice(0, 160)}`));
     p.on('console', (m) => {
-      if (m.type() === 'error' && !/blockedbyclient|Failed to load resource/.test(m.text()))
+      // Live, the tester token opens this app only: another suite app's Access login (the app
+      // switcher's hub) answers it with a CORS error a signed-in person never sees.
+      if (
+        m.type() === 'error' &&
+        !/blockedbyclient|Failed to load resource/i.test(m.text()) &&
+        !(LIVE && /cloudflareaccess\.com\/cdn-cgi\/access\/login/.test(m.text()))
+      )
         ctx.errors.push(`console: ${m.text().slice(0, 160)}`);
     });
     p.on('response', (r) => {
@@ -1162,7 +1168,7 @@ for (const vp of vpList)
     p.on('requestfailed', (r) => {
       if (
         new URL(r.url()).host === host &&
-        r.failure()?.errorText !== 'net::ERR_BLOCKED_BY_CLIENT' &&
+        !r.failure()?.errorText.startsWith('net::ERR_BLOCKED_BY_CLIENT') &&
         !/ERR_ABORTED/.test(r.failure()?.errorText ?? '')
       )
         ctx.errors.push(`${r.method()} ${new URL(r.url()).pathname} failed: ${r.failure()?.errorText}`);
