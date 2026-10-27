@@ -749,6 +749,9 @@ export function fmt(v: number, unit = ''): string {
 export const shareOf = (u: Usage, v: number) => (u.limit > 0 ? v / u.limit : 0);
 /** A share; ten times the allowance and up reads as a multiple (18×), not a four-digit %. */
 export const pctText = (p: number) => (p >= 10 ? `${Math.round(p)}×` : `${Math.round(p * 100)}%`);
+/** `pctText` split for `UnitValue`: the number and its unit, `%` or `×`. */
+export const pctParts = (p: number): [string, string] =>
+  p >= 10 ? [String(Math.round(p)), '×'] : [String(Math.round(p * 100)), '%'];
 export const usd = (v: number) => `$${v.toFixed(2)}`;
 const priceText = (u: Usage) =>
   u.price < 0.001
