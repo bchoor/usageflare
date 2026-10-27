@@ -581,7 +581,6 @@ function TopResources({
         { label: showAccount ? 'Account' : 'Product', hideOnPhone: true },
         { label: 'Usage' },
         { label: 'Watch for' },
-        { label: 'Trend 7d', right: true, hideOnPhone: true },
       ]}
       rows={top.map((r) => {
         const a = m.account[r.acct];
@@ -610,7 +609,6 @@ function TopResources({
             ),
             <UsageCell key="u" model={m} r={r} />,
             <WatchFor key="w" model={m} r={r} />,
-            <Trend7 key="t" change={m.info(r).change} unit={m.info(r).main?.u.m.unit} />,
           ],
         };
       })}
