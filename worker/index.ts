@@ -12,6 +12,7 @@ import type { AppEnv, Env } from './env';
 import { FIXTURE_TAGS, fixtureRefs, fixturesOn, fixtureUsage } from './fixtures';
 import { deleteSecret, hasSecret, listSecrets, putSecret, testSecret } from './secrets';
 import { forgetTagAccess, getTagsState, saveTags } from './tags';
+import { metered, usageRequestMeter, wireTelemetry } from './telemetry';
 import {
   accountRefs,
   accountUsage,
@@ -235,6 +236,7 @@ const appShell = (req: Request, env: AppEnv['Bindings']) =>
   env.ASSETS.fetch(new Request(new URL('/app/', req.url), req));
 
 const app = new Hono<AppEnv>()
+  .use(usageRequestMeter())
   .route('/api', api)
   .all('/api/*', (c) => c.json({ error: 'Not found' }, 404))
   .get('/app', (c) => appShell(c.req.raw, c.env))
@@ -245,4 +247,9 @@ const app = new Hono<AppEnv>()
   .get('/a/*', (c) => c.redirect(`/app${new URL(c.req.url).pathname}${new URL(c.req.url).search}`, 301));
 
 export type Api = typeof api;
-export default app;
+export default {
+  fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    wireTelemetry(env);
+    return app.fetch(request, metered(env), ctx);
+  },
+} satisfies ExportedHandler<Env>;
