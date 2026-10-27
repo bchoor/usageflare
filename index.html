@@ -184,6 +184,13 @@ td.unit { font-family: var(--mono); font-size: 12.5px; color: var(--muted); font
 .meter b::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--w); background: var(--c); border-radius: 3px; }
 .meter span { font-family: var(--mono); font-size: 12.5px; text-align: right; font-variant-numeric: tabular-nums; }
 .note { font-size: 13px; color: var(--dim); margin-top: 14px; }
+/* A phone keeps product and use on one line each; metrics and allowance need the wider screen. */
+@media (max-width: 640px) {
+  table { min-width: 0; table-layout: fixed; }
+  th:nth-child(2), td:nth-child(2), th:nth-child(3), td:nth-child(3) { display: none; }
+  th:last-child, td:last-child { width: 160px; }
+  td.prod { overflow: hidden; text-overflow: ellipsis; }
+}
 
 /* Setup steps */
 .steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
@@ -374,7 +381,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: s
             <tr><td class="prod"><i style="background:#ec4899"></i>Queues</td><td class="met"><span>Operations</span></td><td class="unit">1.00M ops/mo</td><td><span class="meter" style="--w:70%;--c:var(--s-ok)"><b></b><span>70%</span></span></td></tr>
             <tr><td class="prod"><i style="background:#a855f7"></i>Workers AI</td><td class="met"><span>Neurons</span></td><td class="unit">10.0k neurons/day</td><td><span class="meter" style="--w:54%;--c:var(--s-ok)"><b></b><span>54%</span></span></td></tr>
             <tr><td class="prod"><i style="background:#e11d48"></i>Containers</td><td class="met"><span>vCPU time</span><span>Memory</span><span>Disk</span></td><td class="unit">375 vCPU-min/mo</td><td><span class="meter" style="--w:89%;--c:var(--s-exceed)"><b></b><span>89%</span></span></td></tr>
-            <tr><td class="prod"><i style="background:#14b8a6"></i>Vectorize · Hyperdrive · Workflows</td><td class="met"><span>Queried dimensions</span><span>Queries</span><span>Steps</span></td><td class="unit">per plan</td><td class="unit">—</td></tr>
+            <tr><td class="prod" title="Vectorize · Hyperdrive · Workflows"><i style="background:#14b8a6"></i>Vectorize · Hyperdrive · Workflows</td><td class="met"><span>Queried dimensions</span><span>Queries</span><span>Steps</span></td><td class="unit">per plan</td><td class="unit">—</td></tr>
           </tbody>
         </table>
       </div>

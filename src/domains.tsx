@@ -1037,7 +1037,8 @@ export function UsageLines({
       option={{
         ...baseOption(t),
         grid: { left: 44, right: 12, top: 12, bottom: 44 },
-        legend: { bottom: 0, icon: 'circle', itemWidth: 8, textStyle: { color: t.muted } },
+        // One line, paged on a phone, so the legend never wraps onto the axis labels.
+        legend: { type: 'scroll', bottom: 0, icon: 'circle', itemWidth: 8, textStyle: { color: t.muted } },
         tooltip: {
           trigger: 'axis',
           valueFormatter: (v: unknown) => (typeof v === 'number' ? pctText(v) : '—'),
