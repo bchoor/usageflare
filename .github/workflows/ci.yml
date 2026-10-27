@@ -63,7 +63,7 @@ jobs:
         with:
           bun-version: 1.4.3
       - run: bun install --frozen-lockfile
-      - run: bunx playwright install chromium
+      - run: bunx playwright install --with-deps chromium
       - name: Sample data, no Access
         run: printf 'FIXTURES=1\nACCESS_TEAM_DOMAIN=\nACCESS_AUD=\nSETTINGS_KEY=%s\n' "$(openssl rand -base64 32)" > .dev.vars
       - name: Baseline screenshots from main
