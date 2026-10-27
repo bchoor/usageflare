@@ -551,32 +551,29 @@ function splitBrowserHours(
 
 /**
  * Account-wide numbers only REST answers, as they are today: Images stored, Stream minutes stored
- * and Zero Trust seats. A product the account doesn't have answers with an error and is left out;
- * only a refused token is reported missing.
+ * and Zero Trust seats. Like the optional GraphQL datasets, their scopes are optional (README): a
+ * token without one, or an account without the product, just leaves that meter out, never flags the
+ * account as missing a scope.
  */
-async function readRestMeters(token: string, acct: string, missing: string[]) {
+async function readRestMeters(token: string, acct: string) {
   const a = `/accounts/${acct}`;
-  // 10000 is Cloudflare's "Authentication error": the token lacks the permission. An account without
-  // the product answers with its own code, which isn't a missing scope.
-  const refused = (e: unknown) => e instanceof CfError && (e.code === 10000 || e.status === 401);
-  const one = async (label: string, fn: () => Promise<Record<string, number>>) => {
+  const one = async (fn: () => Promise<Record<string, number>>) => {
     try {
       return await fn();
-    } catch (e) {
-      if (refused(e)) missing.push(label);
+    } catch {
       return {};
     }
   };
   const parts = await Promise.all([
-    one('Images stats', async () => {
+    one(async () => {
       const r = await rest<{ count?: { current?: number } }>(token, `${a}/images/v1/stats`);
       return { 'img.stor': r.count?.current ?? 0 };
     }),
-    one('Stream storage', async () => {
+    one(async () => {
       const r = await rest<{ totalStorageMinutes?: number }>(token, `${a}/stream/storage-usage`);
       return { 'stream.stor': r.totalStorageMinutes ?? 0 };
     }),
-    one('Zero Trust seats', async () => {
+    one(async () => {
       const users = await restList<{ access_seat?: boolean; gateway_seat?: boolean }>(
         token,
         `${a}/access/users`,
@@ -1024,7 +1021,7 @@ export async function readAccount(
     // Optional extra: whatever goes wrong there, the usage still loads.
     readBilling(token, meta.id).catch(() => undefined),
     fetchHourly(token, meta.id, from),
-    readRestMeters(token, meta.id, missing).catch(() => ({}) as Record<string, number>),
+    readRestMeters(token, meta.id).catch(() => ({}) as Record<string, number>),
   ]);
   const dayIndex = new Map(dates.map((d, i) => [d, i]));
   const today = dates.at(-1) ?? '';
