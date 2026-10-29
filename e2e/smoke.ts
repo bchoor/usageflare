@@ -950,6 +950,73 @@ async function checkInvariants(p: Page, ctx: Ctx, where: string, scope = 'body')
   }
 }
 
+/**
+ * Every column of a desktop table shows, at the widths people use, with the sidebar open and
+ * closed: no column hidden to make the table fit, and a table too wide for its room scrolls
+ * sideways with its name column at its cap (`--lead-col-max`), never taking the room from the rest.
+ */
+async function checkColumns(p: Page, ctx: Ctx, where: string) {
+  if (ctx.vp !== 'desktop' || !(await p.locator('table thead th').count())) return;
+  const size = p.viewportSize() ?? VPS.desktop;
+  const toggle = p.getByRole('button', { name: 'Toggle Sidebar' }).first();
+  for (let pass = 0; pass < 2; pass++) {
+    const side = await p
+      .locator('[data-slot=sidebar][data-state]')
+      .first()
+      .getAttribute('data-state')
+      .catch(() => null);
+    for (const width of [1024, 1280, 1440]) {
+      await p.setViewportSize({ width, height: size.height });
+      await p.waitForTimeout(500);
+      const issues = await p.evaluate(() => {
+        const out: string[] = [];
+        const probe = document.createElement('div');
+        probe.style.cssText = 'position:absolute;visibility:hidden;width:var(--lead-col-max)';
+        document.body.append(probe);
+        const cap = probe.getBoundingClientRect().width || 288;
+        probe.remove();
+        for (const t of document.querySelectorAll<HTMLTableElement>('table')) {
+          const head = t.tHead?.rows[0];
+          if (!head?.getClientRects().length || t.closest('[aria-hidden=true],[role=dialog]')) continue;
+          const name = (c: Element) => c.textContent?.trim().slice(0, 40) ?? '';
+          for (const th of head.cells)
+            if (name(th) && th.getBoundingClientRect().width < 1)
+              out.push(
+                `column "${name(th)}" is hidden to fit (${name(head.cells[1] ?? head.cells[0])} table)`,
+              );
+          const view = t.closest<HTMLElement>('[data-slot=view-scroll]') ?? t.parentElement;
+          if (!view) continue;
+          const cs = getComputedStyle(view);
+          const right = view.getBoundingClientRect().right - parseFloat(cs.paddingRight);
+          const lead = t.tBodies[0]?.querySelector<HTMLElement>('td[data-card=lead]');
+          if (!lead || t.getBoundingClientRect().right <= right + 1) continue;
+          const lcs = getComputedStyle(lead);
+          const inner =
+            lead.getBoundingClientRect().width - parseFloat(lcs.paddingLeft) - parseFloat(lcs.paddingRight);
+          if (inner > cap + 48)
+            out.push(
+              `name column ${Math.round(inner)}px (cap ${Math.round(cap)}px) while columns run off screen (${name(head.cells[1] ?? head.cells[0])} table)`,
+            );
+        }
+        return out.slice(0, 8);
+      });
+      for (const what of issues)
+        await report(p, {
+          check: 'columns',
+          where: `${where} @${width}px, sidebar ${side ?? 'n/a'}`,
+          vp: ctx.vp,
+          theme: ctx.theme,
+          what,
+        });
+    }
+    if (!(await toggle.count())) break;
+    await toggle.click().catch(() => {});
+    await p.waitForTimeout(500);
+  }
+  await p.setViewportSize(size);
+  await p.waitForTimeout(300);
+}
+
 async function sweepPage(p: Page, ctx: Ctx, url: string, where: string, full: boolean) {
   console.log(`· ${where} ${ctx.vp}/${ctx.theme}`);
   await p.goto(BASE + url);
@@ -965,6 +1032,7 @@ async function sweepPage(p: Page, ctx: Ctx, url: string, where: string, full: bo
   await p.waitForTimeout(500);
   await checkInvariants(p, ctx, where);
   await visual(p, ctx, where);
+  if (ctx.theme === 'light') await checkColumns(p, ctx, where);
   if (full && ctx.theme === 'light') await exercise(p, ctx, url, where);
 }
 
