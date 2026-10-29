@@ -448,14 +448,14 @@ export const lineGap = (l: BillCheck['lines'][number]) => l.est !== null && gapO
 
 /** A resource's numbers: its main metric's share of the allowance, and its share of the bill. */
 /**
- * Without a detected or chosen plan, an account that went past a Free daily hard limit on any day
+ * Without a detected or chosen plan, an account that went past a daily cap Free enforces on any day
  * must be on Workers Paid (Free would have stopped it there).
  */
 function inferPlan(d: AccountUsage): Account {
   if (d.account.planSource !== 'assumed') return d.account;
   const over = METRICS.some((m) => {
     const lim = m.free;
-    if (lim?.[1] !== 'day' || lim[2] !== undefined) return false;
+    if (!m.enforced || lim?.[1] !== 'day' || lim[2] !== undefined) return false;
     const n = d.dates.length;
     return Array.from({ length: n }, (_, i) =>
       d.resources.reduce((s, r) => s + (r.series[m.key]?.[i] ?? 0), 0),
