@@ -4,7 +4,7 @@
  *
  *   1. note the version serving now (what a rollback returns to)
  *   2. `wrangler deploy`
- *   3. wait until the live `/api/health` sha is this build's commit (`WORKERS_CI_COMMIT_SHA`)
+ *   3. wait until the live `/api/health` sha is this build's commit (`buildSha()`)
  *   4. signed in (the read-only tester service token, `USAGEFLARE_ACCESS_CLIENT_ID` / `_SECRET`):
  *      the landing page, the app shell and every script and stylesheet it names, and `/api`:
  *      me, accounts, every account's usage, prefs, tags, a saved view, releases
@@ -14,11 +14,13 @@
  *                                             # only when WORKERS_CI_COMMIT_SHA is set)
  */
 import { $ } from 'bun';
+import { buildSha } from './build-sha';
 
 const BASE = (process.env.USAGEFLARE_URL ?? 'https://usageflare.icaruslab.dev').replace(/\/$/, '');
 const NAME = 'usageflare';
-const SHA = process.env.WORKERS_CI_COMMIT_SHA ?? '';
 const VERIFY_ONLY = process.argv.includes('--verify-only');
+/** In `--verify-only` only a sha given in the environment is waited for. */
+const SHA = VERIFY_ONLY ? (process.env.WORKERS_CI_COMMIT_SHA ?? '') : buildSha();
 const ID = process.env.USAGEFLARE_ACCESS_CLIENT_ID ?? '';
 const SECRET = process.env.USAGEFLARE_ACCESS_CLIENT_SECRET ?? '';
 /** How long the new version may take to reach the edge. */
@@ -51,7 +53,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Waits for the live Worker to report this build's sha. */
 async function waitForSha() {
-  if (!SHA) throw new Error('WORKERS_CI_COMMIT_SHA is not set: no way to tell this build went live');
+  if (!/^[0-9a-f]{7,40}$/.test(SHA))
+    throw new Error(`build sha "${SHA}" is not a commit: no way to tell this build went live`);
   const until = Date.now() + PROPAGATE_MS;
   let last = '';
   while (Date.now() < until) {
