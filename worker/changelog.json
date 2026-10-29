@@ -1,5 +1,41 @@
 [
   {
+    "tag": "v0.0.8",
+    "published_at": "2026-10-29T18:01:16Z",
+    "takeaways": [
+      {
+        "text": "**Today and Yesterday beside Used**: On the Limits page (default By tag view) and on Resources, you can now see each item's use for today and yesterday (UTC days) right after Used.",
+        "types": [
+          "feature"
+        ]
+      },
+      {
+        "text": "**Meter bars use level colours**: On the Limits page, bars are now green under 75%, amber from 75%, orange from 90% and red from 100%, instead of taking a tag's colour, so Rows at 111% no longer look green.",
+        "types": [
+          "fix"
+        ]
+      },
+      {
+        "text": "**Every table column shows with the sidebar open**: On Resources and the other tables, columns such as Tags, Hits limit and Trend 7d no longer disappear when the sidebar is open, and a narrow table scrolls sideways instead.",
+        "types": [
+          "fix"
+        ]
+      },
+      {
+        "text": "**Free accounts keep Free limits**: On the Limits page, a Cloudflare Free account is no longer guessed to be Workers Paid, so its KV limit shows the Free daily number instead of 1M a month.",
+        "types": [
+          "fix"
+        ]
+      },
+      {
+        "text": "**More dependable loading**: Across the dashboard, pages open faster from your device's saved data, and if Cloudflare is slow or fails, the last good numbers are shown instead of an error.",
+        "types": [
+          "performance"
+        ]
+      }
+    ]
+  },
+  {
     "tag": "v0.0.7",
     "published_at": "2026-10-27T20:46:50Z",
     "takeaways": [
