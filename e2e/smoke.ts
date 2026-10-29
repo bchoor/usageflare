@@ -988,7 +988,10 @@ async function checkColumns(p: Page, ctx: Ctx, where: string) {
           if (!view) continue;
           const cs = getComputedStyle(view);
           const right = view.getBoundingClientRect().right - parseFloat(cs.paddingRight);
-          const lead = t.tBodies[0]?.querySelector<HTMLElement>('td[data-card=lead]');
+          // A data row's name cell: a group or Total row's label spans several columns by design.
+          const lead = t.tBodies[0]?.querySelector<HTMLElement>(
+            'tr:not([data-rollup]) > td[data-card=lead]:not([colspan]), tr:not([data-rollup]) > td[data-card=lead][colspan="1"]',
+          );
           if (!lead || t.getBoundingClientRect().right <= right + 1) continue;
           const lcs = getComputedStyle(lead);
           const inner =
