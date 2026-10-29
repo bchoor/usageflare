@@ -259,7 +259,7 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
             if (u.payg) return <QuotaShare share={0} payg />;
             const segs = [...qs]
               .sort((a, b) => b.used - a.used)
-              .map((q) => ({ value: q.share, color: colorOf(m, q.tag, q.u.a.id), label: q.tag }));
+              .map((q) => ({ value: q.share, label: q.tag }));
             const share = shareOf(u, u.used);
             return <ShareMeter value={share} label={pctText(share)} segments={segs} />;
           }
@@ -394,7 +394,6 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
                   label={pctText(shareOf(q.u, q.u.used))}
                   segments={all.map((x) => ({
                     value: x.share,
-                    color: colorOf(m, x.tag, x.u.a.id),
                     label: x.tag,
                   }))}
                 />

@@ -106,7 +106,7 @@ import { notTaggable, setTags, TagPicker, TagSource } from './tags';
 export const view = (c: Partial<CustomViewConfig> & { name: string }) =>
   ({ ...customViewConfigSchema.parse(c), name: c.name }) as CustomViewConfig;
 
-const LEVEL_TEXT = { ok: 'Room', watch: 'Watch', alert: 'Near cap' } as const;
+const LEVEL_TEXT = { ok: 'Room', watch: 'Watch', alert: 'Near cap', over: 'Over allowance' } as const;
 const shareStatus = (share: number | undefined) =>
   share === undefined ? 'No data' : share >= 1 ? 'Over allowance' : LEVEL_TEXT[meterLevel(share)];
 

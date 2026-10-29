@@ -228,22 +228,17 @@ export function ResourceCard({ model, r, children }: { model: Model; r: Resource
 /** A share of the allotment: `<1%` rather than a misleading 0%. */
 export const planText = (p: number) => (p > 0 && p < 0.005 ? '<1%' : pctText(p));
 
-/** A Usage share as a quiet bar (it is a size, not a warning); just the number on a phone. */
+/** A Usage share as a bar in the kit's meter colours; just the number on a phone. */
 export function PlanMeter({ share }: { share: number }) {
   return (
     <>
-      <ShareMeter
-        className="max-md:hidden"
-        value={share}
-        label={planText(share)}
-        color="color-mix(in oklab, var(--primary) 70%, transparent)"
-      />
+      <ShareMeter className="max-md:hidden" value={share} label={planText(share)} />
       <span className="num md:hidden">{planText(share)}</span>
     </>
   );
 }
 
-/** A meter's name and share of its own cap, tinted by the kit's meter levels (grey, amber, red). */
+/** A meter's name and share of its own cap, tinted by the kit's meter levels (amber, orange, red). */
 export function WatchChip({
   label,
   share,

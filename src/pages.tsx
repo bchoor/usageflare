@@ -385,7 +385,7 @@ function usageTile(m: Model, w: PaceWindow) {
       }
       case 'watch': {
         const watching = rows.filter((u) => !u.payg && meterLevel(u.pct) !== 'ok');
-        const alerts = watching.filter((u) => meterLevel(u.pct) === 'alert');
+        const alerts = watching.filter((u) => meterLevel(u.pct) !== 'watch');
         return (
           <Tile
             label="Watch for"
