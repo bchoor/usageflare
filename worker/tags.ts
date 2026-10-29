@@ -16,7 +16,8 @@
  * subrequest limit.
  *
  * KV: `tags:v2` → { tags (each with its account), local }; `tagaccess:v1` → which tags token reaches which account (10 min);
- * `cftags:v1:<account>` → the account's tagged resources as Cloudflare listed them (5 min). A page
+ * `cftags:v1:<account>` → the account's tagged resources as Cloudflare listed them (5 min; both
+ * written only when they change, or hourly, worker/store.ts). A page
  * load is served an older copy of either at once and Cloudflare is read after the reply; a save
  * always reads it fresh.
  * The copy from before (`tags:v1`, whose tags spanned accounts, or `labels:v1` before it) moves
@@ -35,7 +36,8 @@ import {
 import { REST_MS } from './cloudflare';
 import type { Env } from './env';
 import { listSecrets, revealSecret } from './secrets';
-import { accountRefs, type Defer, KEEP_S } from './usage';
+import { dropHot, getCopy, putCopy, quietPut } from './store';
+import { accountRefs, type Defer, KEEP_S, SAME_PERSIST_MS } from './usage';
 
 const API = 'https://api.cloudflare.com/client/v4';
 const KEY = 'tags:v2';
@@ -161,7 +163,7 @@ async function swr<T>(
   load: () => Promise<T>,
   defer?: Defer,
 ) {
-  const hit = await env.KV.get<{ at: number; value: T }>(key, 'json');
+  const hit = await getCopy<T>(env, key);
   if (!fresh) {
     if (hit && Date.now() - hit.at < ttl) return hit.value;
     if (hit && defer) {
@@ -208,7 +210,7 @@ async function probeTagAccess(env: Env): Promise<Access> {
       }),
     );
   }
-  await env.KV.put(ACCESS_KEY, JSON.stringify({ at: Date.now(), value: out }), { expirationTtl: KEEP_S });
+  await putCopy(env, ACCESS_KEY, out, { maxGap: SAME_PERSIST_MS, expirationTtl: KEEP_S });
   return out;
 }
 
@@ -230,7 +232,7 @@ async function readTagged(env: Env, acct: string, token: string): Promise<CfTagg
     cursor = r.cursor;
     if (!cursor) break;
   }
-  await env.KV.put(key, JSON.stringify({ at: Date.now(), value: out }), { expirationTtl: KEEP_S });
+  await putCopy(env, key, out, { maxGap: SAME_PERSIST_MS, expirationTtl: KEEP_S });
   return out;
 }
 
@@ -514,7 +516,9 @@ export async function saveTags(
       const value = [...(hit?.value ?? []).filter((t) => !fresh.has(keyOf(t))), ...items].filter(
         (t) => Object.keys(t.tags).length,
       );
-      await env.KV.put(key, JSON.stringify({ at: hit?.at ?? Date.now(), value }), { expirationTtl: KEEP_S });
+      // Dated now, so no older copy an isolate still holds can outrank what was just written.
+      await quietPut(env, key, JSON.stringify({ at: Date.now(), value }), { expirationTtl: KEEP_S });
+      dropHot(key);
     }),
   );
   return { ...(await getTagsState(env, false)), failed, left };

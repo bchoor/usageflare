@@ -98,6 +98,12 @@ export interface Metric {
    * minutes or more is a whole hour, less is none).
    */
   round?: 'nearest';
+  /**
+   * Cloudflare stops a Free account at this meter's daily cap (its docs name the error), so a
+   * day past it proves Workers Paid. Others (Durable Object rows, Workers AI, Browser Run) have
+   * run past their Free numbers on Free accounts, so they prove nothing.
+   */
+  enforced?: true;
   paid: Allowance | null;
   free: Allowance | null;
 }
@@ -254,6 +260,7 @@ export const METRICS: Metric[] = [
     unit: '',
     kind: 'sum',
     paid: [10e6, 'mo', 0.3 / 1e6],
+    enforced: true,
     free: [1e5, 'day'],
   },
   {
@@ -274,6 +281,7 @@ export const METRICS: Metric[] = [
     unit: '',
     kind: 'sum',
     paid: [10e6, 'mo', 0.5 / 1e6],
+    enforced: true,
     free: [1e5, 'day'],
   },
   {
@@ -284,6 +292,7 @@ export const METRICS: Metric[] = [
     unit: '',
     kind: 'sum',
     paid: [1e6, 'mo', 5 / 1e6],
+    enforced: true,
     free: [1e3, 'day'],
   },
   {
@@ -294,6 +303,7 @@ export const METRICS: Metric[] = [
     unit: '',
     kind: 'sum',
     paid: [1e6, 'mo', 5 / 1e6],
+    enforced: true,
     free: [1e3, 'day'],
   },
   {
@@ -304,6 +314,7 @@ export const METRICS: Metric[] = [
     unit: '',
     kind: 'sum',
     paid: [1e6, 'mo', 5 / 1e6],
+    enforced: true,
     free: [1e3, 'day'],
   },
   {
@@ -324,6 +335,7 @@ export const METRICS: Metric[] = [
     unit: '',
     kind: 'sum',
     paid: [25e9, 'mo', 0.001 / 1e6],
+    enforced: true,
     free: [5e6, 'day'],
   },
   {
@@ -334,6 +346,7 @@ export const METRICS: Metric[] = [
     unit: '',
     kind: 'sum',
     paid: [50e6, 'mo', 1 / 1e6],
+    enforced: true,
     free: [1e5, 'day'],
   },
   {

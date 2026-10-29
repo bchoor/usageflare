@@ -6,7 +6,7 @@
  * well inside the Worker's subrequest limit.
  *
  * KV: `accounts:v1` → AccountRef[] (10 min), `usage:v2:<account>` → { account, resources } (10 min,
- * kept 7 days for stale-while-revalidate),
+ * kept 7 days for stale-while-revalidate; written at most every 30 min, worker/store.ts),
  * `prefs:v1`, `view:v1:<page>` → the person's settings and saved page layouts (tags: worker/tags.ts).
  * `seen:v1:<account>` → each listed resource's last day in its list (no expiry), to tell deleted ones.
  * `binds:v1:<account>` → each Worker's bindings at its last deploy, so only Workers deployed since are read.
@@ -15,9 +15,20 @@ import type { Prefs } from '../shared/catalog';
 import { type BindMemo, historyDates, listAccounts, readAccount, type Seen } from './cloudflare';
 import type { Env } from './env';
 import { listSecrets, revealSecret } from './secrets';
+import { getCopy, putCopy, putIfChanged, quietPut } from './store';
 import { taggedIds } from './tags';
 
 const TTL_MS = 10 * 60_000;
+/**
+ * A usage read reaches KV at most this often (worker/store.ts): Free allows 1,000 KV writes a day,
+ * and three accounts refreshed every 10 minutes would spend most of them. In between, the newer
+ * copy lives in the isolate that read it.
+ */
+const USAGE_PERSIST_MS = 30 * 60_000;
+/** An unchanged list (accounts, tags) is written again this often, so its age stays honest in KV. */
+export const SAME_PERSIST_MS = 60 * 60_000;
+/** A `?fresh` read this soon after the last one is served that copy: two tabs, a double tap. */
+const FRESH_FLOOR_MS = 60_000;
 /** How long KV keeps a copy past its 10 minutes, so a page opened after a quiet week still draws at once. */
 export const KEEP_S = 7 * 86_400;
 /** A remembered resource gone this long is forgotten, unless a tag still points at it. */
@@ -33,11 +44,6 @@ export interface AccountRef {
 /** One account's read as cached: the memory of seen resources stays in its own key. */
 type Read = Omit<Awaited<ReturnType<typeof readAccount>>, 'seen' | 'binds'>;
 
-interface Cached<T> {
-  at: number;
-  value: T;
-}
-
 /** Runs work after the reply is sent (the request's `waitUntil`). */
 export type Defer = (work: Promise<unknown>) => void;
 
@@ -50,12 +56,10 @@ async function cached<T>(
 ): Promise<T> {
   const save = async () => {
     const value = await load();
-    await env.KV.put(key, JSON.stringify({ at: Date.now(), value } satisfies Cached<T>), {
-      expirationTtl: KEEP_S,
-    });
+    await putCopy(env, key, value, { maxGap: SAME_PERSIST_MS, expirationTtl: KEEP_S });
     return value;
   };
-  const hit = await env.KV.get<Cached<T>>(key, 'json');
+  const hit = await getCopy<T>(env, key);
   if (!fresh) {
     if (hit && Date.now() - hit.at < TTL_MS) return hit.value;
     if (hit && defer) {
@@ -107,7 +111,9 @@ export async function accountUsage(env: Env, accountId: string, fresh: boolean, 
   const prefs = await getPrefs(env);
   const key = `usage:v2:${accountId}`;
   // A plan change in Settings must show at once, so it's part of what the cache is checked against.
-  const hit = fresh ? null : await env.KV.get<Cached<Read>>(key, 'json');
+  const prev = await getCopy<Read>(env, key);
+  // `?fresh` right after another read (two tabs, a double tap) takes that read rather than another.
+  const hit = !fresh || (prev && Date.now() - prev.at < FRESH_FLOOR_MS) ? prev : null;
   const want = prefs.plans[accountId];
   // An older copy is served as it is, marked stale; only a plan change in Settings waits for a read.
   if (hit && (want ? hit.value.account.plan === want : hit.value.account.planSource !== 'set')) {
@@ -119,12 +125,12 @@ export async function accountUsage(env: Env, accountId: string, fresh: boolean, 
   if (!token) throw new Error('Token missing');
   const seenKey = `seen:v1:${accountId}`;
   const bindsKey = `binds:v1:${accountId}`;
-  const [seen, tagged, binds] = await Promise.all([
-    env.KV.get<Seen>(seenKey, 'json'),
+  const [seenRaw, tagged, binds] = await Promise.all([
+    env.KV.get(seenKey),
     taggedIds(env, accountId),
     env.KV.get<BindMemo>(bindsKey, 'json'),
   ]);
-  const prev = hit ?? (await env.KV.get<Cached<Read>>(key, 'json'));
+  const seen = seenRaw ? (JSON.parse(seenRaw) as Seen) : null;
   let result: Awaited<ReturnType<typeof readAccount>>;
   try {
     result = await readAccount(token, { ...ref, planOverride: want }, historyDates(), {
@@ -139,22 +145,27 @@ export async function accountUsage(env: Env, accountId: string, fresh: boolean, 
     return { dates: historyDates(new Date(prev.at)), stale: true, ...publicUsage(prev.value) };
   }
   const { seen: next, binds: nextBinds, ...read } = result;
-  const bindsJson = JSON.stringify(nextBinds);
-  if (bindsJson !== JSON.stringify(binds ?? {}))
-    await env.KV.put(bindsKey, bindsJson, { expirationTtl: KEEP_S });
+  // Both change at most once a day (a deploy, a new day's sighting): written only when they do.
+  await putIfChanged(env, bindsKey, JSON.stringify(nextBinds), JSON.stringify(binds ?? {}), {
+    expirationTtl: KEEP_S,
+  });
   const cutoff = new Date(Date.now() - SEEN_DAYS * 86_400_000).toISOString().slice(0, 10);
   const keep = new Set(tagged);
-  await env.KV.put(
+  await putIfChanged(
+    env,
     seenKey,
     JSON.stringify(
       Object.fromEntries(Object.entries(next).filter(([id, x]) => x.d >= cutoff || keep.has(id))),
     ),
+    seenRaw,
   );
   // Out of analytics budget (or too slow to answer): a stale but whole copy beats a fresh one full of gaps.
   if (read.rateLimited && prev) {
     return { dates: historyDates(new Date(prev.at)), stale: false, ...publicUsage(prev.value) };
   }
-  await env.KV.put(key, JSON.stringify({ at: Date.now(), value: read } satisfies Cached<typeof read>), {
+  await putCopy(env, key, read, {
+    minGap: USAGE_PERSIST_MS,
+    maxGap: USAGE_PERSIST_MS,
     expirationTtl: KEEP_S,
   });
   return { dates: historyDates(), stale: false, ...publicUsage(read) };
@@ -213,7 +224,7 @@ export async function getView(env: Env, page: string, defer: Defer) {
   if (!raw) return null;
   const view = renameFields(JSON.parse(raw));
   // Saved back after the reply: the fix-up never holds the request.
-  if (JSON.stringify(view) !== raw) defer(env.KV.put(`view:v1:${page}`, JSON.stringify(view)));
+  if (JSON.stringify(view) !== raw) defer(quietPut(env, `view:v1:${page}`, JSON.stringify(view)));
   return view;
 }
 export const putView = (env: Env, page: string, config: unknown) =>
