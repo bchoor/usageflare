@@ -25,6 +25,8 @@ import {
   Activity,
   Box,
   Building2,
+  CalendarCheck,
+  CalendarMinus,
   ChartColumn,
   CircleGauge,
   CircleSlash,
@@ -70,6 +72,7 @@ import {
   fmt,
   gbUnit,
   type Model,
+  onUtcDay,
   partNote,
   pctParts,
   pctText,
@@ -82,6 +85,8 @@ import {
   tagColor,
   tagNames,
   type Usage,
+  UTC_DAY_LABEL,
+  type UtcDay,
   usd,
 } from './model';
 import {
@@ -144,6 +149,61 @@ export const amountParts = (v: number, unit: string): [string, string] =>
     : unit === 'h' && v > 0 && v < 1
       ? [v.toFixed(2), 'h']
       : [fmt(v), UNIT_SHORT[unit] ?? unit];
+/** A row's use on one UTC day, in its meter's unit; `key` tells meters apart for a roll-up. */
+export type DayUse = { v: number | null; unit: string; key: string } | null;
+
+/**
+ * Used today and Used yesterday (UTC days, Cloudflare's), beside the month's Used: optional
+ * columns, added from the table's column picker. A group or Total sums one meter's rows and stays
+ * blank across meters, which count different things. `roll` replaces that roll-up.
+ */
+export function dayFields<T>(
+  read: (row: T, back: UtcDay) => DayUse,
+  roll?: (back: UtcDay) => ViewField<T>['rollRender'],
+): ViewField<T>[] {
+  return ([0, 1] as const).map((back) => ({
+    key: back ? 'used_yday' : 'used_today',
+    label: UTC_DAY_LABEL[back],
+    icon: back ? CalendarMinus : CalendarCheck,
+    format: 'number',
+    note: 'used that UTC day',
+    hideOnPhone: true,
+    aggregate: 'sum',
+    value: (row: T) => read(row, back)?.v ?? null,
+    render: (row: T) => {
+      const x = read(row, back);
+      if (x?.v == null) return null;
+      const [n, unit] = amountParts(x.v, x.unit);
+      return <UnitValue value={n} unit={unit} />;
+    },
+    rollRender:
+      roll?.(back) ??
+      ((rows: T[]) => {
+        const xs = rows.map((r) => read(r, back)).filter((x) => x?.v != null);
+        const first = xs[0];
+        if (!first || xs.some((x) => x?.key !== first.key)) return null;
+        const [n, unit] = amountParts(
+          xs.reduce((t, x) => t + (x?.v ?? 0), 0),
+          first.unit,
+        );
+        return <UnitValue value={n} unit={unit} />;
+      }),
+  }));
+}
+/** A drawer table's Today and Yesterday columns beside Used (UTC days); a phone keeps Used alone. */
+export const DAY_HEAD = ([0, 1] as const).map((back) => ({
+  label: UTC_DAY_LABEL[back],
+  right: true,
+  hideOnPhone: true,
+}));
+
+/** One resource's Today and Yesterday cells for `DAY_HEAD`. */
+export const dayCells = (series: number[] | undefined, dates: string[], unit: string) =>
+  ([0, 1] as const).map((back) => {
+    const v = onUtcDay(series, dates, back);
+    return v === null ? '—' : fmt(v, unit);
+  });
+
 const toneOf = (share: number, payg?: boolean) => (payg ? undefined : meterValueTone(share));
 
 /** A share as one number in its unit slot: `%`, or `×` from ten times the cap (`pctText`). */
@@ -487,6 +547,10 @@ export function resourceDomain(
           return x ? <span className="num whitespace-nowrap">{fmt(x.v, x.u.m.unit)}</span> : '—';
         },
       },
+      ...dayFields<Resource>((r, back) => {
+        const x = main(r);
+        return x ? { v: onUtcDay(r.series[x.key], m.dates, back), unit: x.u.m.unit, key: x.u.m.key } : null;
+      }),
       {
         key: 'share',
         label: 'Share of allowance',
@@ -847,6 +911,11 @@ export function limitDomain(m: Model, w: PaceWindow): ViewDomain<Usage> {
         value: (u) => u.used,
         render: (u) => <span className="font-mono tabular-nums">{fmt(u.used, u.m.unit)}</span>,
       },
+      ...dayFields<Usage>((u, back) => ({
+        v: onUtcDay(u.days, m.dates, back),
+        unit: u.m.unit,
+        key: u.m.key,
+      })),
       {
         key: 'allowance',
         label: 'Allowance',
@@ -950,6 +1019,7 @@ export function limitDomain(m: Model, w: PaceWindow): ViewDomain<Usage> {
             head={[
               { label: 'Resource', grow: true },
               { label: 'Used', right: true },
+              ...DAY_HEAD,
               { label: 'Share', right: true },
             ]}
             rows={u.parts.map((p) => ({
@@ -960,6 +1030,7 @@ export function limitDomain(m: Model, w: PaceWindow): ViewDomain<Usage> {
                   {p.r.name}
                 </span>,
                 fmt(p.v, u.m.unit),
+                ...dayCells(p.r.series[u.m.key], m.dates, u.m.unit),
                 u.used ? pctText(p.v / u.used) : '—',
               ],
             }))}

@@ -18,11 +18,12 @@ import {
 } from '@columenlabs/lumen-ui';
 import { Box, ChartColumn, DollarSign, Gauge, Server, Tag, Timer, TriangleAlert } from 'lucide-react';
 import { PRODUCT, PRODUCTS, type Resource } from '../shared/catalog';
-import { amountParts } from './domains';
+import { amountParts, DAY_HEAD, dayCells, dayFields } from './domains';
 import {
   findTag,
   fmt,
   type Model,
+  onUtcDay,
   pctText,
   perText,
   STATUS_LABEL,
@@ -48,6 +49,8 @@ export interface QuotaRow {
   fshare: number;
   fcost: number;
   parts: { r: Resource; v: number }[];
+  /** Its use today and yesterday (UTC days), each resource split between its tags the same way. */
+  day: [number | null, number | null];
 }
 
 export const meterName = (u: Usage) => `${PRODUCT[u.m.product].label} · ${u.m.label}`;
@@ -59,15 +62,19 @@ export const meterName = (u: Usage) => `${PRODUCT[u.m.product].label} · ${u.m.l
 export function quotaRows(m: Model, us: Usage[]): QuotaRow[] {
   const out: QuotaRow[] = [];
   for (const u of us) {
-    const by = new Map<string, { v: number; parts: { r: Resource; v: number }[] }>();
+    const by = new Map<string, { v: number; parts: { r: Resource; v: number }[]; day: QuotaRow['day'] }>();
     for (const p of u.parts) {
       if (!(p.v > 0)) continue;
       const ls = m.tagsOf(p.r);
       const names = ls.length ? ls : [NO_TAG];
       for (const l of names) {
-        const e = by.get(l) ?? { v: 0, parts: [] };
+        const e = by.get(l) ?? { v: 0, parts: [], day: [null, null] };
         e.v += p.v / names.length;
         e.parts.push({ r: p.r, v: p.v / names.length });
+        for (const back of [0, 1] as const) {
+          const d = onUtcDay(p.r.series[u.m.key], m.dates, back);
+          if (d !== null) e.day[back] = (e.day[back] ?? 0) + d / names.length;
+        }
         by.set(l, e);
       }
     }
@@ -82,6 +89,7 @@ export function quotaRows(m: Model, us: Usage[]): QuotaRow[] {
         fshare: u.payg ? 0 : u.fpct * of,
         fcost: u.hard ? 0 : u.fcost * of,
         parts: e.parts.sort((a, b) => b.v - a.v),
+        day: e.day,
       });
     }
   }
@@ -197,6 +205,24 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
           return <UnitValue value={n} unit={unit} />;
         },
       },
+      ...dayFields<QuotaRow>(
+        (q, back) => ({ v: q.day[back], unit: q.u.m.unit, key: q.u.m.key }),
+        // As Used: a meter line is the whole meter; one pool sums its tags; several stay blank.
+        (back) => (qs, level) => {
+          const q = qs[0];
+          if (!q || pools(qs).pools.length !== 1) return null;
+          const v =
+            level === 'fold'
+              ? onUtcDay(q.u.days, m.dates, back)
+              : qs.reduce<number | null>(
+                  (t, x) => (x.day[back] === null ? t : (t ?? 0) + (x.day[back] ?? 0)),
+                  null,
+                );
+          if (v === null) return null;
+          const [n, unit] = amountParts(v, q.u.m.unit);
+          return <UnitValue value={n} unit={unit} />;
+        },
+      ),
       {
         key: 'quota',
         label: 'Quota',
@@ -334,6 +360,7 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
             head={[
               { label: 'Resource', grow: true },
               { label: 'Used', right: true },
+              ...DAY_HEAD,
               { label: '% of meter', right: true },
             ]}
             rows={q.parts.map((p) => ({
@@ -344,6 +371,7 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
                   <span className="truncate">{p.r.name}</span>
                 </span>,
                 fmt(p.v, q.u.m.unit),
+                ...dayCells(p.r.series[q.u.m.key], m.dates, q.u.m.unit),
                 q.u.used > 0 ? pctText(p.v / q.u.used) : '—',
               ],
             }))}

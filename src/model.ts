@@ -817,6 +817,24 @@ export const dayLabel = (iso: string) =>
     timeZone: 'UTC',
   });
 
+/** A calendar day in UTC, Cloudflare's usage day: `0` today, `1` yesterday. */
+export type UtcDay = 0 | 1;
+
+export const UTC_DAY_LABEL: Record<UtcDay, string> = { 0: 'Today', 1: 'Yesterday' };
+
+/** `YYYY-MM-DD` of a UTC day. */
+export const utcDate = (back: UtcDay) => new Date(Date.now() - back * 86_400_000).toISOString().slice(0, 10);
+
+/**
+ * A daily series' value on a UTC day, by date (a series ends on the day it was read, so a copy read
+ * yesterday has no today). Null when the series doesn't reach that day.
+ */
+export function onUtcDay(values: number[] | undefined, dates: string[], back: UtcDay): number | null {
+  const i = dates.lastIndexOf(utcDate(back));
+  if (i < 0 || !values) return null;
+  return values[values.length - dates.length + i] ?? null;
+}
+
 /** The end of the billing month, e.g. `Oct 31`. */
 export function monthEnd(): string {
   const now = new Date();
