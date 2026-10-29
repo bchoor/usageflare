@@ -95,6 +95,8 @@ interface Dataset {
   values: (r: Row) => Record<string, number>;
   /** Gauges keep the day's maximum instead of adding rows up. */
   gauge?: boolean;
+  /** A gauge Cloudflare reports only on some days: a day without a row keeps the last size. */
+  carry?: boolean;
   /** Most accounts don't use it: a field the token can't read isn't reported as missing. */
   optional?: boolean;
   /** Left out of the hourly read (pace): Cloudflare reports it by day only. */
@@ -220,20 +222,21 @@ const DATASETS: Dataset[] = [
     values: (r) => ({ 'do.req': r.sum?.requests ?? 0 }),
   },
   {
-    // Duration is billed at 128 MB per active object: activeTime (µs) × 0.125 GB.
+    // Duration as Cloudflare bills it (GB-s at 128 MB per active object), and SQLite rows.
     name: 'Durable Objects duration',
     field: 'durableObjectsPeriodicGroups',
-    select: 'sum { activeTime rowsRead rowsWritten }',
+    select: 'sum { duration rowsRead rowsWritten }',
     dims: ['namespaceId'],
     product: 'do',
     key: (r) => norm(r.dimensions.namespaceId ?? ''),
     values: (r) => ({
-      'do.dur': ((r.sum?.activeTime ?? 0) / 1e6) * 0.125,
+      'do.dur': r.sum?.duration ?? 0,
       'do.rowsr': r.sum?.rowsRead ?? 0,
       'do.rowsw': r.sum?.rowsWritten ?? 0,
     }),
   },
   {
+    // Key-value backed namespaces: Cloudflare reports their size for the account, not per namespace.
     name: 'Durable Objects storage',
     field: 'durableObjectsStorageGroups',
     select: 'max { storedBytes }',
@@ -241,6 +244,19 @@ const DATASETS: Dataset[] = [
     dims: [],
     product: 'do',
     key: () => '*',
+    values: (r) => ({ 'do.stor': (r.max?.storedBytes ?? 0) / GB }),
+  },
+  {
+    // SQLite-backed namespaces (every one on Free): the size of all its objects' databases.
+    // Cloudflare skips days a namespace's size wasn't sampled, so the last size carries over.
+    name: 'Durable Objects SQLite storage',
+    field: 'durableObjectsSqlStorageGroups',
+    select: 'max { storedBytes }',
+    gauge: true,
+    carry: true,
+    dims: ['namespaceId'],
+    product: 'do',
+    key: (r) => norm(r.dimensions.namespaceId ?? ''),
     values: (r) => ({ 'do.stor': (r.max?.storedBytes ?? 0) / GB }),
   },
   {
@@ -1148,6 +1164,7 @@ export async function readAccount(
     return inv.resources.get(id);
   };
 
+  const carried = new Set<number[]>();
   DATASETS.forEach((d, i) => {
     for (const row of rows[i] ?? []) {
       const day = dayIndex.get(row.dimensions.date ?? '');
@@ -1159,9 +1176,11 @@ export async function readAccount(
         const s = res.series[metric] ?? new Array<number>(dates.length).fill(0);
         s[day] = d.gauge ? Math.max(s[day] ?? 0, v) : (s[day] ?? 0) + v;
         res.series[metric] = s;
+        if (d.carry) carried.add(s);
       }
     }
   });
+  for (const s of carried) for (let i = 1; i < s.length; i++) if (!s[i]) s[i] = s[i - 1] ?? 0;
 
   // Each Worker that opened browsers gets a Browser Run row of its own, which the Worker binds, so
   // the Worker's tags reach it.

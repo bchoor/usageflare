@@ -785,11 +785,13 @@ function ResourceUsage({ m, r }: { m: Model; r: Resource }) {
     return f ? FAMILY[f].color : a.color;
   };
   return (
-    <div className="flex flex-col gap-3">
+    <div className="@container flex flex-col gap-3">
       <DetailsTable
         head={[
           // A drawer has room for the figures, not a spark: the chart below draws the 30 days.
-          { label: 'Metric', grow: true },
+          // Metric names are short, so they fit their text and the share takes the spare width:
+          // a narrow drawer keeps all three columns in view.
+          { label: 'Metric' },
           { label: 'This period', right: true },
           { label: 'Of limit', right: true },
         ]}
@@ -814,10 +816,11 @@ function ResourceUsage({ m, r }: { m: Model; r: Resource }) {
                     Pay as you go
                   </span>
                 ) : (
-                  // A phone drawer has room for the share, not its bar.
+                  // A narrow drawer (a phone, or docked beside the page) has room for the share,
+                  // not its bar: sized by the drawer's width, not the screen's.
                   <span key="p">
-                    <ShareMeter className="max-md:hidden" value={share} label={pctText(share)} />
-                    <span className="md:hidden">{pctText(share)}</span>
+                    <ShareMeter className="@max-lg:hidden" value={share} label={pctText(share)} />
+                    <span className="@lg:hidden">{pctText(share)}</span>
                   </span>
                 )
               ) : (
