@@ -76,6 +76,7 @@ import {
   monthEnd,
   pctText,
   sevColor,
+  sevText,
   statusText,
   tagNames,
   type Usage,
@@ -189,9 +190,9 @@ export function StatusPill({ u, dates }: { u: Usage; dates: string[] }) {
   return (
     <span
       className="inline-flex h-5 items-center gap-1 whitespace-nowrap rounded-full px-2 font-semibold text-[11px]"
-      // The text leans toward the foreground so it reads at 4.5:1 on its own tint; the dot keeps the hue.
+      // The text takes the status's darker text colour so it reads at 4.5:1 on its tint; the dot keeps the hue.
       style={{
-        color: `color-mix(in oklab, ${sevColor(u.st)} 75%, var(--foreground))`,
+        color: sevText(u.st),
         background: `color-mix(in oklab, ${sevColor(u.st)} 14%, transparent)`,
       }}
     >
@@ -385,7 +386,7 @@ function usageTile(m: Model, w: PaceWindow) {
       }
       case 'watch': {
         const watching = rows.filter((u) => !u.payg && meterLevel(u.pct) !== 'ok');
-        const alerts = watching.filter((u) => meterLevel(u.pct) === 'alert');
+        const alerts = watching.filter((u) => meterLevel(u.pct) !== 'watch');
         return (
           <Tile
             label="Watch for"

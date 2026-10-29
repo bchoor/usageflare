@@ -785,12 +785,26 @@ export function partNote(u: Usage, r: Resource, v: number): string {
     : `${fmt(own, u.m.unit)} by month end × ${priceText(u)} − ${free} = ${cost}`;
 }
 export const perText = (u: Usage) => (u.per === 'day' ? '/day' : u.m.kind === 'gauge' ? '' : '/mo');
+/** A status's dot, in the kit's meter colours (`--meter-*`), so a status and a bar agree. */
 export const sevColor = (st: Status) =>
   st === 'block' || st === 'over'
-    ? 'var(--loss)'
-    : st === 'soon' || st === 'watch'
-      ? 'var(--warning)'
-      : 'var(--gain)';
+    ? 'var(--meter-over)'
+    : st === 'soon'
+      ? 'var(--meter-alert)'
+      : st === 'watch'
+        ? 'var(--meter-watch)'
+        : 'var(--meter-ok)';
+/** A status's text on its own tint, darker than the dot so it reads at 4.5:1. */
+export const sevText = (st: Status) =>
+  `color-mix(in oklab, ${
+    st === 'block' || st === 'over'
+      ? 'var(--loss)'
+      : st === 'soon'
+        ? 'var(--caution)'
+        : st === 'watch'
+          ? 'var(--warning)'
+          : 'var(--gain)'
+  } 85%, var(--foreground))`;
 export const productOf = (r: Resource) => PRODUCT[r.product];
 
 /** `Hit limit Oct 19`, `Exceeds ~Oct 28`, or the status name. */
