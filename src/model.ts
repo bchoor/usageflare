@@ -794,6 +794,17 @@ export const sevColor = (st: Status) =>
       : st === 'watch'
         ? 'var(--meter-watch)'
         : 'var(--meter-ok)';
+/** A status's text on its own tint, darker than the dot so it reads at 4.5:1. */
+export const sevText = (st: Status) =>
+  `color-mix(in oklab, ${
+    st === 'block' || st === 'over'
+      ? 'var(--loss)'
+      : st === 'soon'
+        ? 'var(--caution)'
+        : st === 'watch'
+          ? 'var(--warning)'
+          : 'var(--gain)'
+  } 85%, var(--foreground))`;
 export const productOf = (r: Resource) => PRODUCT[r.product];
 
 /** `Hit limit Oct 19`, `Exceeds ~Oct 28`, or the status name. */

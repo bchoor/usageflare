@@ -6,6 +6,7 @@
 import {
   ColorDot,
   METER_LEVEL_COLOR,
+  METER_LEVEL_TEXT,
   meterLevel,
   ShareMeter,
   type TrendChange,
@@ -260,8 +261,8 @@ export function WatchChip({
         level === 'ok'
           ? { background: 'var(--muted)' }
           : {
-              background: `color-mix(in oklab, ${c} 18%, transparent)`,
-              color: `color-mix(in oklab, ${c} 80%, var(--foreground))`,
+              background: `color-mix(in oklab, ${c} 14%, transparent)`,
+              color: METER_LEVEL_TEXT[level],
             }
       }
     >
