@@ -134,7 +134,7 @@ export const PRODUCTS: Product[] = [
     label: 'Durable Objects',
     color: '#e64980',
     source:
-      'durableObjectsInvocationsAdaptiveGroups · durableObjectsPeriodicGroups · durableObjectsStorageGroups',
+      'durableObjectsInvocationsAdaptiveGroups · durableObjectsPeriodicGroups · durableObjectsSqlStorageGroups · durableObjectsStorageGroups',
   },
   {
     id: 'builds',
