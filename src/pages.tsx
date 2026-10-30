@@ -139,15 +139,27 @@ function withPace(c: CustomViewConfig, fallback: CustomViewConfig): CustomViewCo
 }
 
 /**
- * This month came after Today and Yesterday. A layout from before it that shows Yesterday gets
- * This month after it, once; saved again, it has the column (shown or hidden), so it stays put.
+ * This month came after Today and Yesterday. A layout from before it that shows Yesterday (in its
+ * table or a table card) gets This month after it, once; saved again, it has the column (shown or
+ * hidden), so it stays put.
  */
 function withMonth(c: CustomViewConfig, fallback: CustomViewConfig): CustomViewConfig {
-  const cols = c.columns ?? [];
-  const at = cols.indexOf('used_yday');
-  if (!fallback.columns?.includes('used_month') || at < 0 || cols.includes('used_month')) return c;
-  if (c.hidden?.includes('used_month') || c.hidden?.includes('used_yday')) return c;
-  return { ...c, columns: [...cols.slice(0, at + 1), 'used_month', ...cols.slice(at + 1)] };
+  if (!fallback.columns?.includes('used_month')) return c;
+  const add = <T extends { columns?: string[]; hidden?: string[] }>(t: T): T => {
+    const cols = t.columns ?? [];
+    const at = cols.indexOf('used_yday');
+    if (
+      at < 0 ||
+      cols.includes('used_month') ||
+      t.hidden?.some((k) => k === 'used_month' || k === 'used_yday')
+    )
+      return t;
+    return { ...t, columns: [...cols.slice(0, at + 1), 'used_month', ...cols.slice(at + 1)] };
+  };
+  return {
+    ...add(c),
+    cards: c.cards?.map((x) => ('table' in x && x.table ? { ...x, table: add(x.table) } : x)),
+  };
 }
 
 /**
