@@ -31,7 +31,7 @@ const vpList = (arg('vp') ? [arg('vp')] : ['desktop', 'phone']) as Vp[];
 const themes = (arg('theme') ? [arg('theme')] : ['light', 'dark']) as ('light' | 'dark')[];
 const OUT = `${arg('out', new URL('./out', import.meta.url).pathname)}/`;
 // Visual baselines: `--baseline <dir>` compares each page's screenshot with the one there (another
-// build's run, e.g. main's in CI); `--save <dir>` writes this run's for the next to compare with.
+// build's run, e.g. main's); `--save <dir>` writes this run's for the next to compare with.
 const BASELINE = arg('baseline');
 const SAVE = arg('save');
 // `--shots`: only the screenshots (a baseline run), no checks.
