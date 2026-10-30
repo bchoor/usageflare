@@ -18,7 +18,7 @@ import {
 } from '@columenlabs/lumen-ui';
 import { Box, ChartColumn, DollarSign, Gauge, Server, Tag, Timer, TriangleAlert } from 'lucide-react';
 import { PRODUCT, PRODUCTS, type Resource } from '../shared/catalog';
-import { amountParts, DAY_HEAD, dayCells, dayFields } from './domains';
+import { amountParts, DAY_HEAD, dayCells, dayFields, USED_NOTE, usedWindow } from './domains';
 import {
   findTag,
   fmt,
@@ -190,12 +190,13 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
         label: 'Used',
         icon: ChartColumn,
         format: 'number',
+        note: USED_NOTE,
         value: (q) => q.used,
         aggregate: 'sum',
         hideOnPhone: true,
         render: (q) => {
           const [n, unit] = amountParts(q.used, q.u.m.unit);
-          return <UnitValue value={n} unit={unit} />;
+          return <UnitValue value={n} unit={unit} title={usedWindow(q.u)} />;
         },
         // One meter sums with its unit; a product's meters count different things, so stay blank.
         rollRender: (qs, level) => {
@@ -204,7 +205,7 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
           // A meter line is the whole meter, even when a filter shows some of its tags.
           const used = level === 'fold' ? qs[0].u.used : (ps[0]?.used ?? 0);
           const [n, unit] = amountParts(used, qs[0].u.m.unit);
-          return <UnitValue value={n} unit={unit} />;
+          return <UnitValue value={n} unit={unit} title={usedWindow(qs[0].u)} />;
         },
       },
       ...dayFields<QuotaRow>(
@@ -372,7 +373,9 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
                   <ProductIcon id={p.r.product} />
                   <span className="truncate">{p.r.name}</span>
                 </span>,
-                fmt(p.v, q.u.m.unit),
+                <span key="u" title={usedWindow(q.u)}>
+                  {fmt(p.v, q.u.m.unit)}
+                </span>,
                 ...dayCells(p.r.series[q.u.m.key], m.dates, q.u.m.unit, q.u.m.kind === 'gauge'),
                 q.u.used > 0 ? pctText(p.v / q.u.used) : '—',
               ],
