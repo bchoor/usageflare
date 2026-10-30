@@ -139,6 +139,18 @@ function withPace(c: CustomViewConfig, fallback: CustomViewConfig): CustomViewCo
 }
 
 /**
+ * This month came after Today and Yesterday. A layout from before it that shows Yesterday gets
+ * This month after it, once; saved again, it has the column (shown or hidden), so it stays put.
+ */
+function withMonth(c: CustomViewConfig, fallback: CustomViewConfig): CustomViewConfig {
+  const cols = c.columns ?? [];
+  const at = cols.indexOf('used_yday');
+  if (!fallback.columns?.includes('used_month') || at < 0 || cols.includes('used_month')) return c;
+  if (c.hidden?.includes('used_month') || c.hidden?.includes('used_yday')) return c;
+  return { ...c, columns: [...cols.slice(0, at + 1), 'used_month', ...cols.slice(at + 1)] };
+}
+
+/**
  * A saved Tags view from before shows "Only in usageflare" (`local`) and "Kept in" (`where`): the
  * first becomes Deleted and Not taggable, the second goes.
  */
@@ -172,7 +184,7 @@ function useSavedView(page: PageId, fallback: CustomViewConfig) {
   });
   return {
     config: saved.data?.config
-      ? withPace(withNumbers(splitLocal(saved.data.config), fallback), fallback)
+      ? withMonth(withPace(withNumbers(splitLocal(saved.data.config), fallback), fallback), fallback)
       : fallback,
     onConfigChange: (c: CustomViewConfig) => save.mutate(c),
     onReset: saved.data?.config ? () => reset.mutate() : undefined,
