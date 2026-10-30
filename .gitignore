@@ -37,3 +37,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # Interaction smoke output (bun e2e/smoke.ts)
 e2e/out
+
+# Local sanity run (bun run sanity)
+.sanity
+.sanity-state
