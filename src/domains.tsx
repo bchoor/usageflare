@@ -27,6 +27,7 @@ import {
   Building2,
   CalendarCheck,
   CalendarMinus,
+  CalendarRange,
   ChartColumn,
   CircleGauge,
   CircleSlash,
@@ -86,6 +87,7 @@ import {
   tagNames,
   type Usage,
   UTC_DAY_LABEL,
+  UTC_DAYS,
   type UtcDay,
   usd,
 } from './model';
@@ -149,11 +151,14 @@ export const amountParts = (v: number, unit: string): [string, string] =>
     : unit === 'h' && v > 0 && v < 1
       ? [v.toFixed(2), 'h']
       : [fmt(v), UNIT_SHORT[unit] ?? unit];
+const FIELD_KEY: Record<UtcDay, string> = { 0: 'used_today', 1: 'used_yday', mo: 'used_month' };
+const FIELD_ICON = { 0: CalendarCheck, 1: CalendarMinus, mo: CalendarRange } as const;
+
 /** A row's use on one UTC day, in its meter's unit; `key` tells meters apart for a roll-up. */
 export type DayUse = { v: number | null; unit: string; key: string } | null;
 
 /**
- * Used today and Used yesterday (UTC days, Cloudflare's), beside the month's Used: optional
+ * Used today, yesterday and this month (UTC days, Cloudflare's), beside Used: optional
  * columns, added from the table's column picker. A group or Total sums one meter's rows and stays
  * blank across meters, which count different things. `roll` replaces that roll-up.
  */
@@ -161,12 +166,12 @@ export function dayFields<T>(
   read: (row: T, back: UtcDay) => DayUse,
   roll?: (back: UtcDay) => ViewField<T>['rollRender'],
 ): ViewField<T>[] {
-  return ([0, 1] as const).map((back) => ({
-    key: back ? 'used_yday' : 'used_today',
+  return UTC_DAYS.map((back) => ({
+    key: FIELD_KEY[back],
     label: UTC_DAY_LABEL[back],
-    icon: back ? CalendarMinus : CalendarCheck,
+    icon: FIELD_ICON[back],
     format: 'number',
-    note: 'used that UTC day',
+    note: back === 'mo' ? 'used this UTC month so far (a size: its latest)' : 'used that UTC day',
     hideOnPhone: true,
     aggregate: 'sum',
     value: (row: T) => read(row, back)?.v ?? null,
@@ -190,17 +195,17 @@ export function dayFields<T>(
       }),
   }));
 }
-/** A drawer table's Today and Yesterday columns beside Used (UTC days); a phone keeps Used alone. */
-export const DAY_HEAD = ([0, 1] as const).map((back) => ({
+/** A drawer table's Today, Yesterday and This month columns beside Used (UTC); a phone keeps Used alone. */
+export const DAY_HEAD = UTC_DAYS.map((back) => ({
   label: UTC_DAY_LABEL[back],
   right: true,
   hideOnPhone: true,
 }));
 
-/** One resource's Today and Yesterday cells for `DAY_HEAD`. */
-export const dayCells = (series: number[] | undefined, dates: string[], unit: string) =>
-  ([0, 1] as const).map((back) => {
-    const v = onUtcDay(series, dates, back);
+/** One resource's cells for `DAY_HEAD`; `gauge` reads a size's latest level for the month. */
+export const dayCells = (series: number[] | undefined, dates: string[], unit: string, gauge: boolean) =>
+  UTC_DAYS.map((back) => {
+    const v = onUtcDay(series, dates, back, gauge);
     return v === null ? '—' : fmt(v, unit);
   });
 
@@ -549,7 +554,13 @@ export function resourceDomain(
       },
       ...dayFields<Resource>((r, back) => {
         const x = main(r);
-        return x ? { v: onUtcDay(r.series[x.key], m.dates, back), unit: x.u.m.unit, key: x.u.m.key } : null;
+        return x
+          ? {
+              v: onUtcDay(r.series[x.key], m.dates, back, x.u.m.kind === 'gauge'),
+              unit: x.u.m.unit,
+              key: x.u.m.key,
+            }
+          : null;
       }),
       {
         key: 'share',
@@ -915,7 +926,7 @@ export function limitDomain(m: Model, w: PaceWindow): ViewDomain<Usage> {
         render: (u) => <span className="font-mono tabular-nums">{fmt(u.used, u.m.unit)}</span>,
       },
       ...dayFields<Usage>((u, back) => ({
-        v: onUtcDay(u.days, m.dates, back),
+        v: onUtcDay(u.days, m.dates, back, u.m.kind === 'gauge'),
         unit: u.m.unit,
         key: u.m.key,
       })),
@@ -1033,7 +1044,7 @@ export function limitDomain(m: Model, w: PaceWindow): ViewDomain<Usage> {
                   {p.r.name}
                 </span>,
                 fmt(p.v, u.m.unit),
-                ...dayCells(p.r.series[u.m.key], m.dates, u.m.unit),
+                ...dayCells(p.r.series[u.m.key], m.dates, u.m.unit, u.m.kind === 'gauge'),
                 u.used ? pctText(p.v / u.used) : '—',
               ],
             }))}

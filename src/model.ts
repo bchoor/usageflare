@@ -831,22 +831,41 @@ export const dayLabel = (iso: string) =>
     timeZone: 'UTC',
   });
 
-/** A calendar day in UTC, Cloudflare's usage day: `0` today, `1` yesterday. */
-export type UtcDay = 0 | 1;
+/**
+ * A UTC period beside Used, on Cloudflare's usage days: `0` today, `1` yesterday, `'mo'` this
+ * calendar month so far.
+ */
+export type UtcDay = 0 | 1 | 'mo';
 
-export const UTC_DAY_LABEL: Record<UtcDay, string> = { 0: 'Today', 1: 'Yesterday' };
+export const UTC_DAYS = [0, 1, 'mo'] as const;
+
+export const UTC_DAY_LABEL: Record<UtcDay, string> = { 0: 'Today', 1: 'Yesterday', mo: 'This month' };
 
 /** `YYYY-MM-DD` of a UTC day. */
-export const utcDate = (back: UtcDay) => new Date(Date.now() - back * 86_400_000).toISOString().slice(0, 10);
+export const utcDate = (back: 0 | 1) => new Date(Date.now() - back * 86_400_000).toISOString().slice(0, 10);
 
 /**
  * A daily series' value on a UTC day, by date (a series ends on the day it was read, so a copy read
- * yesterday has no today). Null when the series doesn't reach that day.
+ * yesterday has no today). This month sums the days from the 1st; a size (`gauge`) reads its latest
+ * level instead. Null when the series doesn't reach that day or month.
  */
-export function onUtcDay(values: number[] | undefined, dates: string[], back: UtcDay): number | null {
-  const i = dates.lastIndexOf(utcDate(back));
-  if (i < 0 || !values) return null;
-  return values[values.length - dates.length + i] ?? null;
+export function onUtcDay(
+  values: number[] | undefined,
+  dates: string[],
+  back: UtcDay,
+  gauge = false,
+): number | null {
+  if (!values) return null;
+  const at = (i: number) => values[values.length - dates.length + i];
+  if (back !== 'mo') {
+    const i = dates.lastIndexOf(utcDate(back));
+    return i < 0 ? null : (at(i) ?? null);
+  }
+  const month = utcDate(0).slice(0, 7);
+  const days = dates.flatMap((d, i) => (d.startsWith(month) ? [at(i)] : []));
+  const seen = days.filter((v): v is number => v !== undefined);
+  if (!seen.length) return null;
+  return gauge ? (seen.at(-1) ?? null) : seen.reduce((t, v) => t + v, 0);
 }
 
 /** The end of the billing month, e.g. `Oct 31`. */
