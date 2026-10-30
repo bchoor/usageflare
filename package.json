@@ -51,6 +51,7 @@
     "deploy": "vite build && wrangler deploy",
     "deploy:verified": "bun scripts/deploy.ts",
     "lint": "biome check .",
+    "sanity": "node --experimental-strip-types --no-warnings e2e/sanity/sanity.ts",
     "type-check": "tsc && tsc -p e2e"
   },
   "cloudflare": {

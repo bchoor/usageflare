@@ -9,7 +9,8 @@
       "!**/worker-configuration.d.ts",
       "!**/*.md",
       "!worker/changelog.json",
-      "!e2e/out"
+      "!e2e/out",
+      "!.sanity"
     ]
   },
   "formatter": { "indentStyle": "space", "lineWidth": 110 },
