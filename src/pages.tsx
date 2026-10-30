@@ -291,12 +291,18 @@ function Waiting({ m, crumbs }: { m: Model; crumbs: { label: ReactNode }[] }) {
   );
 }
 
-/** Errors a token or dataset reported, so a missing scope never reads as zero usage. */
+/**
+ * Errors a token or dataset reported, so a missing scope never reads as zero usage. A list
+ * Cloudflare just didn't answer (`unread`) says so, and never asks for a permission the token has.
+ */
 function Problems({ m, acct }: { m: Model; acct?: string }) {
   const shell = useShell();
-  const missing = m.accounts.filter((a) => (!acct || a.id === acct) && a.missing.length);
-  if (!m.errors.length && !missing.length) return null;
+  const mine = m.accounts.filter((a) => !acct || a.id === acct);
+  const missing = mine.filter((a) => a.missing.length);
+  const unread = mine.filter((a) => a.unread?.length);
+  if (!m.errors.length && !missing.length && !unread.length) return null;
   const perms = permissionsFor(missing.flatMap((a) => a.missing));
+  const scopes = m.errors.length > 0 || missing.length > 0;
   return (
     <NoteLine
       icon={TriangleAlert}
@@ -305,11 +311,16 @@ function Problems({ m, acct }: { m: Model; acct?: string }) {
         ...m.errors.map((e) => `Token ${e.label}: ${e.error}`),
         ...missing.map((a) => `${a.name}: no access to ${a.missing.join(', ')}`),
         ...(perms.length ? [`Edit the token in Cloudflare and add ${perms.join(', ')}`] : []),
+        ...unread.map(
+          (a) => `${a.name}: Cloudflare didn't answer for ${a.unread?.join(', ')}; the next sync tries again`,
+        ),
       ].join(' · ')}
       action={
-        <Button size="sm" variant="outline" onClick={() => shell.openSettings('tokens')}>
-          Tokens
-        </Button>
+        scopes ? (
+          <Button size="sm" variant="outline" onClick={() => shell.openSettings('tokens')}>
+            Tokens
+          </Button>
+        ) : undefined
       }
     />
   );
