@@ -142,6 +142,18 @@ export function Spark({ values, color }: { values: number[]; color: string }) {
   );
 }
 
+/**
+ * What Used counts: the meter's own billing window, so it reads as Today for a daily limit, This
+ * month for a monthly one and the latest level for a size. Its cells' hover and its field note.
+ */
+export const usedWindow = (u: Pick<Usage, 'm' | 'per'>) =>
+  u.m.kind === 'gauge'
+    ? 'Size now (billed by its average over the month)'
+    : u.per === 'day'
+      ? 'Used today so far (daily limit, resets 00:00 UTC)'
+      : 'Used this month so far (monthly allowance, UTC)';
+export const USED_NOTE = "its billing window: today, this month, or a size's latest";
+
 /** One line: the value, then its share of the allowance in brackets, coloured by how close it is. */
 const UNIT_SHORT: Record<string, string> = { 'vCPU-min': 'vCPU-m' };
 /** A meter's amount as number and unit, for `UnitValue`. */
@@ -546,10 +558,17 @@ export function resourceDomain(
         label: 'Used',
         icon: Activity,
         format: 'number',
+        note: USED_NOTE,
         value: (r) => main(r)?.v ?? null,
         render: (r) => {
           const x = main(r);
-          return x ? <span className="num whitespace-nowrap">{fmt(x.v, x.u.m.unit)}</span> : '—';
+          return x ? (
+            <span className="num whitespace-nowrap" title={usedWindow(x.u)}>
+              {fmt(x.v, x.u.m.unit)}
+            </span>
+          ) : (
+            '—'
+          );
         },
       },
       ...dayFields<Resource>((r, back) => {
@@ -922,8 +941,13 @@ export function limitDomain(m: Model, w: PaceWindow): ViewDomain<Usage> {
         label: 'Used',
         icon: Activity,
         format: 'number',
+        note: USED_NOTE,
         value: (u) => u.used,
-        render: (u) => <span className="font-mono tabular-nums">{fmt(u.used, u.m.unit)}</span>,
+        render: (u) => (
+          <span className="font-mono tabular-nums" title={usedWindow(u)}>
+            {fmt(u.used, u.m.unit)}
+          </span>
+        ),
       },
       ...dayFields<Usage>((u, back) => ({
         v: onUtcDay(u.days, m.dates, back, u.m.kind === 'gauge'),
@@ -1043,7 +1067,9 @@ export function limitDomain(m: Model, w: PaceWindow): ViewDomain<Usage> {
                   <ProductIcon id={p.r.product} />
                   {p.r.name}
                 </span>,
-                fmt(p.v, u.m.unit),
+                <span key="u" title={usedWindow(u)}>
+                  {fmt(p.v, u.m.unit)}
+                </span>,
                 ...dayCells(p.r.series[u.m.key], m.dates, u.m.unit, u.m.kind === 'gauge'),
                 u.used ? pctText(p.v / u.used) : '—',
               ],
