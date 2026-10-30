@@ -1,7 +1,9 @@
 name: CI
 
-# Smoke detector only: lint, typecheck, build. No unit tests (Bikram, 2026-10-24); each thread owns
-# its own review. Deploys are Cloudflare Workers Builds on push to main, not this workflow.
+# Fast gates only: lint, typecheck, build, under a minute (Bikram, 2026-10-30: a run over 1 min is a
+# red flag). No unit tests (2026-10-24). The UI smoke and the returning-user check run locally
+# (`bun e2e/local.ts`), not here. Deploys are Cloudflare Workers Builds on push to main, which
+# verify live and roll back (scripts/deploy.ts).
 on:
   push:
     branches: [main]
@@ -22,91 +24,13 @@ jobs:
     name: Lint + type + build
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: [self-hosted, openship, linux]
+    timeout-minutes: 3
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.3
-      - name: Restore bun deps cache
-        id: bun-cache
-        uses: actions/cache/restore@v5
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile
       - run: bun run lint
       - run: bun run type-check
       - run: bun run build
-      - name: Save bun deps cache
-        if: github.event_name == 'push' && steps.bun-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
-        with:
-          path: ~/.bun/install/cache
-          key: ${{ steps.bun-cache.outputs.cache-primary-key }}
-
-  # The UI gate (e2e, not unit tests): drives every page, Settings section and control on a phone and a
-  # desktop, light and dark, against sample data (`FIXTURES=1`), and fails on any broken interaction,
-  # cut-off or overlapping content, low contrast, small tap target, console error or failed call.
-  # Screenshots that differ from main's are listed in the summary for review (bun e2e/smoke.ts).
-  ui-smoke:
-    name: UI smoke
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    runs-on: [self-hosted, openship, linux]
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.3
-      - run: bun install --frozen-lockfile
-      - run: bunx playwright install --with-deps chromium
-      - name: Sample data, no Access
-        run: printf 'FIXTURES=1\nACCESS_TEAM_DOMAIN=\nACCESS_AUD=\nSETTINGS_KEY=%s\n' "$(openssl rand -base64 32)" > .dev.vars
-      - name: Baseline screenshots from main
-        if: github.event_name == 'pull_request'
-        run: |
-          git worktree add ../base origin/${{ github.base_ref }}
-          cp .dev.vars ../base/
-          (cd ../base && bun install --frozen-lockfile && (bunx vite --port 5174 --strictPort > ../base-vite.log 2>&1 &))
-          timeout 90 bash -c 'until curl -sf localhost:5174/api/accounts >/dev/null; do sleep 2; done'
-          bun e2e/smoke.ts --base http://localhost:5174 --shots --save ../base-shots
-      - name: Start this build
-        run: |
-          (bunx vite --port 5173 --strictPort > ../vite.log 2>&1 &)
-          timeout 90 bash -c 'until curl -sf localhost:5173/api/accounts >/dev/null; do sleep 2; done'
-      - name: Smoke
-        run: bun e2e/smoke.ts $([ -d ../base-shots ] && echo --baseline ../base-shots)
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: ui-smoke
-          path: e2e/out/
-          if-no-files-found: ignore
-
-  # Prod safety rule 4: the production build in a real browser, as a returning user: a fresh load, a
-  # reload with saved data while the server is slow, and a stuck, slow, broken or missing store
-  # (bun e2e/returning.ts). Each must draw data with no console error.
-  returning-user:
-    name: Returning user
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    runs-on: [self-hosted, openship, linux]
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.3
-      - run: bun install --frozen-lockfile
-      - run: bunx playwright install --with-deps chromium
-      - name: Sample data, no Access
-        run: printf 'FIXTURES=1\nACCESS_TEAM_DOMAIN=\nACCESS_AUD=\nSETTINGS_KEY=%s\n' "$(openssl rand -base64 32)" > .dev.vars
-      - run: bun run build
-      - name: Serve the production build
-        run: |
-          (bunx vite preview --port 4173 --strictPort > ../preview.log 2>&1 &)
-          timeout 90 bash -c 'until curl -sf localhost:4173/api/accounts >/dev/null; do sleep 2; done'
-      - run: bun e2e/returning.ts

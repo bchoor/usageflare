@@ -9,7 +9,7 @@
  *   broken store  the saved copy is garbage: it is dropped, the server answers
  *   no storage    storage throws (a locked-down browser): the server answers
  *
- *   bun run build && bunx vite preview --port 4173      # with `.dev.vars` FIXTURES=1, as in CI
+ *   bun run build && bunx vite preview --port 4173      # with `.dev.vars` FIXTURES=1 (bun e2e/local.ts does it all)
  *   bun e2e/returning.ts                                 # default --base http://localhost:4173
  *   bun e2e/returning.ts --base https://usageflare.icaruslab.dev   # live (tester token, GETs only)
  *
