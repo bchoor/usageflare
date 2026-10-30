@@ -770,6 +770,11 @@ export interface Account {
   /** Datasets or lists the token couldn't read, e.g. `R2 buckets` or `d1AnalyticsAdaptiveGroups`. */
   missing: string[];
   /**
+   * Lists Cloudflare didn't answer on the last read (a timeout, a 5xx, a rate limit), not a scope
+   * the token lacks; the next read tries again. Optional: older copies have none.
+   */
+  unread?: string[];
+  /**
    * What Cloudflare has billed this period (its Billable Usage API): `no-access` without Billing
    * Read, `not-covered` where Cloudflare doesn't report it (Enterprise, for now). Optional: a token
    * without Billing Read keeps the estimates alone.

@@ -31,6 +31,13 @@ class CfError extends Error {
 /** The product isn't turned on in the account (R2 answers 10042): nothing to list, not a missing scope. */
 const NOT_ENABLED = new Set([10042]);
 
+/**
+ * The token lacks the scope: 401/403, or Cloudflare's auth codes. Anything else (a timeout, a 5xx,
+ * a 429) is Cloudflare not answering this time, and never reads as a missing permission.
+ */
+const denied = (e: unknown) =>
+  e instanceof CfError && (e.status === 401 || e.status === 403 || e.code === 10000 || e.code === 9109);
+
 async function rest<T>(token: string, path: string): Promise<T> {
   const res = await fetch(API + path, {
     headers: { Authorization: `Bearer ${token}` },
@@ -812,6 +819,7 @@ async function inventory(
   acct: string,
   missing: string[],
   memo: BindMemo = {},
+  unread: string[] = [],
 ): Promise<Inventory> {
   const inv: Inventory = {
     resources: new Map(),
@@ -831,7 +839,15 @@ async function inventory(
         if (product) inv.listed.add(product);
         return [];
       }
-      missing.push(label);
+      if (denied(e)) missing.push(label);
+      else {
+        unread.push(label);
+        console.warn(
+          'list failed',
+          label,
+          e instanceof CfError ? `${e.status} ${e.code} ${e.message}` : String(e),
+        );
+      }
       return [];
     }
   };
@@ -972,7 +988,7 @@ async function inventory(
     }),
   );
   const left = scripts.filter((s) => !kept(s) && !reading.has(s.id));
-  if (left.length) missing.push(`Bindings for ${left.length} more Workers`);
+  if (left.length) unread.push(`Bindings for ${left.length} more Workers`);
   // Past the cap a Worker still counts as listed, just without its bindings.
   for (const s of left)
     add(inv, acct, 'workers', s.id, [s.id], { cfId: s.tag ?? s.id, routes: routes.get(s.id) });
@@ -1105,9 +1121,10 @@ export async function readAccount(
   memory: { seen: Seen; tagged: string[]; binds?: BindMemo } = { seen: {}, tagged: [] },
 ): Promise<{ account: Account; resources: Resource[]; rateLimited: boolean; seen: Seen; binds: BindMemo }> {
   const missing: string[] = [];
+  const unread: string[] = [];
   const from = hoursFrom();
   const [inv, detected, { rows, rateLimited }, billing, hourly, sizes] = await Promise.all([
-    inventory(token, meta.id, missing, memory.binds),
+    inventory(token, meta.id, missing, memory.binds, unread),
     meta.planOverride ? Promise.resolve(null) : detectPlan(token, meta.id),
     fetchDatasets(token, meta.id, dates, missing),
     // Optional extra: whatever goes wrong there, the usage still loads.
@@ -1278,6 +1295,7 @@ export async function readAccount(
       tokenLabel: meta.tokenLabel,
       syncedAt: new Date().toISOString(),
       missing,
+      unread: unread.length ? unread : undefined,
       billing,
       hoursFrom: hourly ? new Date(from).toISOString() : undefined,
       hourly: hourly

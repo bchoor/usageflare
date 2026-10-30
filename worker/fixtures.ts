@@ -245,6 +245,7 @@ export function fixtureUsage(accountId: string, dates: string[]) {
     tokenLabel: 'Sample data',
     syncedAt: new Date().toISOString(),
     missing: a.plan === 'free' ? ['R2 buckets'] : [],
+    unread: a.plan === 'free' ? ['Queues'] : undefined,
     billing: fixtureBilling(a.id, dates),
     hoursFrom: new Date(hoursFrom()).toISOString(),
     hourly: [
