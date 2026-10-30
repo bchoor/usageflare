@@ -30,6 +30,8 @@ import {
   shareOf,
   tagColor,
   type Usage,
+  UTC_DAYS,
+  type UtcDay,
 } from './model';
 import { hitting, MeterPaceCell, PaceSection } from './pace';
 import { MeterIcon, PRODUCT_ICON, ProductIcon } from './products';
@@ -49,8 +51,8 @@ export interface QuotaRow {
   fshare: number;
   fcost: number;
   parts: { r: Resource; v: number }[];
-  /** Its use today and yesterday (UTC days), each resource split between its tags the same way. */
-  day: [number | null, number | null];
+  /** Its use today, yesterday and this month (UTC), each resource split between its tags the same way. */
+  day: Record<UtcDay, number | null>;
 }
 
 export const meterName = (u: Usage) => `${PRODUCT[u.m.product].label} · ${u.m.label}`;
@@ -68,11 +70,11 @@ export function quotaRows(m: Model, us: Usage[]): QuotaRow[] {
       const ls = m.tagsOf(p.r);
       const names = ls.length ? ls : [NO_TAG];
       for (const l of names) {
-        const e = by.get(l) ?? { v: 0, parts: [], day: [null, null] };
+        const e = by.get(l) ?? { v: 0, parts: [], day: { 0: null, 1: null, mo: null } };
         e.v += p.v / names.length;
         e.parts.push({ r: p.r, v: p.v / names.length });
-        for (const back of [0, 1] as const) {
-          const d = onUtcDay(p.r.series[u.m.key], m.dates, back);
+        for (const back of UTC_DAYS) {
+          const d = onUtcDay(p.r.series[u.m.key], m.dates, back, u.m.kind === 'gauge');
           if (d !== null) e.day[back] = (e.day[back] ?? 0) + d / names.length;
         }
         by.set(l, e);
@@ -213,7 +215,7 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
           if (!q || pools(qs).pools.length !== 1) return null;
           const v =
             level === 'fold'
-              ? onUtcDay(q.u.days, m.dates, back)
+              ? onUtcDay(q.u.days, m.dates, back, q.u.m.kind === 'gauge')
               : qs.reduce<number | null>(
                   (t, x) => (x.day[back] === null ? t : (t ?? 0) + (x.day[back] ?? 0)),
                   null,
@@ -371,7 +373,7 @@ export function quotaDomain(m: Model, w: PaceWindow): ViewDomain<QuotaRow> {
                   <span className="truncate">{p.r.name}</span>
                 </span>,
                 fmt(p.v, q.u.m.unit),
-                ...dayCells(p.r.series[q.u.m.key], m.dates, q.u.m.unit),
+                ...dayCells(p.r.series[q.u.m.key], m.dates, q.u.m.unit, q.u.m.kind === 'gauge'),
                 q.u.used > 0 ? pctText(p.v / q.u.used) : '—',
               ],
             }))}

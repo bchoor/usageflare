@@ -738,7 +738,19 @@ function monthStart() {
 
 const LIMITS = view({
   name: 'By tag',
-  columns: ['tag', 'used', 'used_today', 'used_yday', 'quota', 'pct', 'fpct', 'pace', 'cost', 'top'],
+  columns: [
+    'tag',
+    'used',
+    'used_today',
+    'used_yday',
+    'used_month',
+    'quota',
+    'pct',
+    'fpct',
+    'pace',
+    'cost',
+    'top',
+  ],
   group: { fields: ['product', 'tag', 'status'], default: 'product' },
   subgroup: 'meter',
   sort: { key: 'pct', desc: true },
