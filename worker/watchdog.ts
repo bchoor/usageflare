@@ -401,7 +401,7 @@ export class Watchdog extends DurableObject<Env> {
     kind: WatchKind | 'test',
   ): Promise<KeyTest> {
     const at = new Date().toISOString();
-    const token = n.token ? await unseal(this.env, 'ntfy:token', n.token) : null;
+    const token = n.token ? await unseal(this.env, 'ntfy:token', JSON.parse(n.token)) : null;
     const res = await fetch(`${n.server}/${encodeURIComponent(n.topic)}`, {
       method: 'POST',
       headers: {
@@ -432,9 +432,10 @@ export class Watchdog extends DurableObject<Env> {
     when: string,
   ): Promise<KeyTest> {
     const at = new Date().toISOString();
-    const url = await unseal(this.env, `hook:${h.id}:url`, h.url);
+    const url = await unseal(this.env, `hook:${h.id}:url`, JSON.parse(h.url));
     const headers: Record<string, string> = { 'content-type': 'application/json' };
-    for (const x of h.headers) headers[x.name] = await unseal(this.env, `hook:${h.id}:h:${x.name}`, x.value);
+    for (const x of h.headers)
+      headers[x.name] = await unseal(this.env, `hook:${h.id}:h:${x.name}`, JSON.parse(x.value));
     const res = await fetch(url, {
       method: 'POST',
       headers,
@@ -536,7 +537,7 @@ export class Watchdog extends DurableObject<Env> {
   async ntfyToken(token: string) {
     const t = this.targets();
     if (!t.ntfy) throw new Error('ntfy is off');
-    t.ntfy.token = await seal(this.env, 'ntfy:token', token);
+    t.ntfy.token = JSON.stringify(await seal(this.env, 'ntfy:token', token));
     t.ntfy.last4 = token.slice(-4);
     t.ntfy.last_test = null;
     return this.save(t);
@@ -566,11 +567,14 @@ export class Watchdog extends DurableObject<Env> {
     const u = new URL(input.url);
     const headers = [];
     for (const h of input.headers)
-      headers.push({ name: h.name, value: await seal(this.env, `hook:${id}:h:${h.name}`, h.value) });
+      headers.push({
+        name: h.name,
+        value: JSON.stringify(await seal(this.env, `hook:${id}:h:${h.name}`, h.value)),
+      });
     t.webhooks.push({
       id,
       name: input.name,
-      url: await seal(this.env, `hook:${id}:url`, input.url),
+      url: JSON.stringify(await seal(this.env, `hook:${id}:url`, input.url)),
       shown: `${u.origin}/…${(u.pathname + u.search).slice(-4)}`,
       headers,
       created_at: new Date().toISOString(),

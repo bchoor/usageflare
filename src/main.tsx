@@ -44,6 +44,7 @@ import { StrictMode, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { z } from 'zod';
 import { CATEGORIES, type CategoryId, PRODUCTS, type ProductId } from '../shared/catalog';
+import { AlertsSettings } from './alerts';
 import { api, type Me } from './api';
 import { MeterIconsSettings } from './meter-icons';
 import { planText } from './meters';
@@ -426,9 +427,16 @@ function Shell() {
           content: <LimitsSettings />,
         },
         {
-          id: 'notifications',
-          title: 'Notifications',
+          id: 'alerts',
+          title: 'Alerts',
           icon: BellRing,
+          description: 'Email or a webhook when a limit’s status changes.',
+          content: <AlertsSettings />,
+        },
+        {
+          id: 'notifications',
+          title: 'Watchdog alerts',
+          icon: Radar,
           description: 'Where the watchdog tells you: email, ntfy, webhooks.',
           content: (
             <NotificationsSettings

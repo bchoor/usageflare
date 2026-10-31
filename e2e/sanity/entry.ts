@@ -8,13 +8,13 @@
  *   fetch, …), so a binding added later counts by itself;
  * - KV bytes written (`kvBytesWritten`), since the free plan caps KV writes;
  * - the Worker's own invocations (`inv.worker.fetch`, `inv.worker.scheduled`);
- * Durable Object classes are re-exported as they are; their binding's calls count like any other.
  * - calls out to the network (`out.<host>`), all refused: a sanity run never reaches Cloudflare.
  */
 // @ts-nocheck
 // biome-ignore-all lint/suspicious/noExplicitAny: it wraps whatever bindings the Worker has
 import real from './index.js';
-// Durable Object classes the build exports (its wrangler.json binds them by class name).
+
+// The Worker's Durable Object classes (the alert check), so its bindings resolve.
 export * from './index.js';
 
 const t: Record<string, number> = { outboundCalls: 0, kvBytesWritten: 0 };
