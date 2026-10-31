@@ -4,6 +4,19 @@ declare global {
 }
 
 import type { TelemetryEnv } from './telemetry';
+import type { Watchdog } from './watchdog';
+
+/** One alert email, laid out by the hub (its `alertMail` fields), to the hub's owner only. */
+export interface MailAlert {
+  to: string;
+  subject: string;
+  brand: { name: string; color: string; mark?: string };
+  tag?: string;
+  title: string;
+  lines?: string[];
+  links?: { text: string; href: string }[];
+  footer?: { text: string };
+}
 
 export interface Env extends TelemetryEnv {
   KV: KVNamespace;
@@ -22,6 +35,13 @@ export interface Env extends TelemetryEnv {
   SUITE_LIST_URL?: string;
   SUITE_PREFS_COOKIE?: string;
   SUITE_PREFS_DOMAIN?: string;
+  /** The watchdog (worker/watchdog.ts): one Durable Object whose alarm checks the accounts. */
+  WATCHDOG: DurableObjectNamespace<Watchdog>;
+  /**
+   * The hub's email relay, a service binding to its `MailApi` entrypoint (production only): the
+   * watchdog's alert emails go out through it. Unbound, email shows as not set up.
+   */
+  MAIL?: { alert(m: MailAlert): Promise<{ ok: boolean; detail: string }> };
   /** `1` serves sample accounts on localhost (worker/fixtures.ts); never set in production. */
   FIXTURES?: string;
 }

@@ -47,7 +47,7 @@ const { chromium } = createRequire(import.meta.url)('playwright') as typeof impo
 // ---- config: the built wrangler.json, its entry wrapped by the counter, sample data on ----
 const cfg = JSON.parse(readFileSync(join(BUILD, 'wrangler.json'), 'utf8'));
 copyFileSync(join(dirname(fileURLToPath(import.meta.url)), 'entry.ts'), join(BUILD, '.sanity-entry.ts'));
-const keep = ['name', 'compatibility_date', 'compatibility_flags', 'kv_namespaces', 'vars'];
+const keep = ['name', 'compatibility_date', 'compatibility_flags', 'kv_namespaces', 'vars', 'durable_objects', 'migrations'];
 const run = Object.fromEntries(Object.entries(cfg).filter(([k]) => keep.includes(k)));
 Object.assign(run, {
   main: '.sanity-entry.ts',
@@ -208,6 +208,7 @@ const PAGES = [
   '/app/limits',
   '/app/resources',
   '/app/tags',
+  '/app/watchdog',
   `/app/a/${acct}`,
   `/app/a/${acct}/limits`,
 ];
