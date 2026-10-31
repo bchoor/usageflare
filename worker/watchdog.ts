@@ -336,7 +336,9 @@ export class Watchdog extends DurableObject<Env> {
   // ---------- Sending ----------
 
   private targets(): Targets {
-    return this.get<Targets>('targets', { webhooks: [], off: {} });
+    // Limits crossed already reach email and webhooks through Alerts (worker/watch.ts), so the
+    // watchdog keeps them in the app unless a channel is turned on for them here.
+    return this.get<Targets>('targets', { webhooks: [], off: { level: ['email', 'ntfy'] } });
   }
 
   private async send(t: Targets, kind: WatchKind, e: WatchEvent & { text: string }, origin: string) {
@@ -580,6 +582,7 @@ export class Watchdog extends DurableObject<Env> {
       created_at: new Date().toISOString(),
       last_test: null,
     });
+    t.off.level = [...(t.off.level ?? []), id];
     return this.save(t);
   }
 
