@@ -1221,7 +1221,7 @@ for (const a of accounts) {
     [`/app/a/${a.id}/tags`, `${n} › Tags`],
   );
 }
-const SECTIONS = ['tokens', 'accounts', 'limits', 'meter-icons', 'profile'];
+const SECTIONS = ['tokens', 'accounts', 'limits', 'alerts', 'meter-icons', 'profile'];
 
 for (const vp of vpList)
   for (const theme of themes) {

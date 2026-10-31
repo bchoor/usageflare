@@ -26,11 +26,23 @@ import {
   RouterProvider,
   redirect,
 } from '@tanstack/react-router';
-import { Bell, Building2, Gauge, KeyRound, LayoutDashboard, Plus, Rows3, Shapes, Tag } from 'lucide-react';
+import {
+  Bell,
+  BellRing,
+  Building2,
+  Gauge,
+  KeyRound,
+  LayoutDashboard,
+  Plus,
+  Rows3,
+  Shapes,
+  Tag,
+} from 'lucide-react';
 import { StrictMode, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { z } from 'zod';
 import { CATEGORIES, type CategoryId, PRODUCTS, type ProductId } from '../shared/catalog';
+import { AlertsSettings } from './alerts';
 import { api, type Me } from './api';
 import { MeterIconsSettings } from './meter-icons';
 import { planText } from './meters';
@@ -402,6 +414,13 @@ function Shell() {
           icon: Bell,
           description: 'When a metric counts as at risk.',
           content: <LimitsSettings />,
+        },
+        {
+          id: 'alerts',
+          title: 'Alerts',
+          icon: BellRing,
+          description: 'Email or a webhook when a limit’s status changes.',
+          content: <AlertsSettings />,
         },
         {
           id: 'meter-icons',

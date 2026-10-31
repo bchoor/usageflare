@@ -206,3 +206,28 @@ export async function testSecret(env: Env, name: string): Promise<SecretInfo | n
   await env.KV.put(TEST + name, JSON.stringify(test));
   return info(name, s, test);
 }
+
+/** A value sealed under SETTINGS_KEY for another settings doc (alerts); `aad` binds it to its place. */
+export interface Sealed {
+  iv: string;
+  ct: string;
+}
+
+export async function seal(env: Env, aad: string, value: string): Promise<Sealed> {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv, additionalData: enc.encode(aad) },
+    await key(env),
+    enc.encode(value),
+  );
+  return { iv: b64(iv), ct: b64(ct) };
+}
+
+export async function unseal(env: Env, aad: string, s: Sealed): Promise<string> {
+  const pt = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: unb64(s.iv), additionalData: enc.encode(aad) },
+    await key(env),
+    unb64(s.ct),
+  );
+  return new TextDecoder().decode(pt);
+}
