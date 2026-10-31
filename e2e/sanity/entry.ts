@@ -14,6 +14,9 @@
 // biome-ignore-all lint/suspicious/noExplicitAny: it wraps whatever bindings the Worker has
 import real from './index.js';
 
+// The Worker's Durable Object classes (the alert check), so its bindings resolve.
+export * from './index.js';
+
 const t: Record<string, number> = { outboundCalls: 0, kvBytesWritten: 0 };
 // Always in a probe's numbers; every other key only when it moved.
 const BASE = new Set(Object.keys(t));

@@ -4,9 +4,12 @@ declare global {
 }
 
 import type { TelemetryEnv } from './telemetry';
+import type { Watch } from './watch';
 
 export interface Env extends TelemetryEnv {
   KV: KVNamespace;
+  /** The alert check's Durable Object (worker/watch.ts), one instance named `alerts`. */
+  WATCH: DurableObjectNamespace<Watch>;
   /** Static assets: the landing page at `/` and the app shell at `/app/`. */
   ASSETS: Fetcher;
   /** AES-GCM key for secrets kept in KV: 32 random bytes, base64 (a Worker secret). */

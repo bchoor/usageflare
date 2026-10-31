@@ -6,6 +6,7 @@ import { secureHeaders } from 'hono/secure-headers';
 import { z } from 'zod';
 import { CATEGORIES, METRIC } from '../shared/catalog';
 import { requireAccess, sameOrigin } from './access';
+import { getAlerts, putAlerts, testAlerts } from './alerts';
 import changelog from './changelog.json';
 import { historyDates } from './cloudflare';
 import type { AppEnv, Env } from './env';
@@ -104,6 +105,30 @@ const prefsBody = z.object({
 });
 const fresh = (q: string | undefined) => q !== undefined;
 
+const https = z
+  .string()
+  .trim()
+  .url()
+  .max(2048)
+  .refine((u) => u.startsWith('https://'), 'Must be an https address');
+const alertsBody = z.object({
+  on: z.boolean(),
+  level: z.enum(['watch', 'soon', 'over']),
+  email: z
+    .object({
+      url: https,
+      from: z.string().trim().min(3).max(200),
+      to: z.string().trim().email().max(200),
+      key: z.string().trim().min(8).max(4096).optional(),
+    })
+    .nullable()
+    .optional(),
+  webhook: z.object({ url: https.optional() }).nullable().optional(),
+});
+
+/** The alert check's one Durable Object, told the settings changed (it sets or clears its alarm). */
+const watch = (env: Env, url: string) => env.WATCH.getByName('alerts').sync(new URL(url).origin);
+
 const secretBody = z.object({
   kind: z.enum(['cf_api_token', 'cf_tags_token']),
   label: z.string().trim().min(1).max(80),
@@ -181,6 +206,23 @@ const api = new Hono<AppEnv>()
     );
     return usage ? c.json(usage) : c.json({ error: 'No token reaches that account' }, 404);
   })
+  // Alerts: the settings (nothing sealed comes back) and the check's last round.
+  .get('/alerts', async (c) => {
+    const [alerts, state] = await Promise.all([getAlerts(c.env), watch(c.env, c.req.url)]);
+    return c.json({ alerts, state });
+  })
+  .put('/alerts', zValidator('json', alertsBody), async (c) => {
+    try {
+      const alerts = await putAlerts(c.env, c.req.valid('json'), c.get('email'));
+      return c.json({ alerts, state: await watch(c.env, c.req.url) });
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : 'Save failed' }, 400);
+    }
+  })
+  .post('/alerts/test', async (c) => {
+    const alerts = await testAlerts(c.env, `${new URL(c.req.url).origin}/app/`);
+    return c.json({ alerts, state: await watch(c.env, c.req.url) });
+  })
   .get('/prefs', async (c) => c.json(await getPrefs(c.env)))
   .put('/prefs', zValidator('json', prefsBody), async (c) => {
     await putPrefs(c.env, c.req.valid('json'));
@@ -244,6 +286,7 @@ const app = new Hono<AppEnv>()
   .get('/resources', (c) => c.redirect(`/app/resources${new URL(c.req.url).search}`, 301))
   .get('/a/*', (c) => c.redirect(`/app${new URL(c.req.url).pathname}${new URL(c.req.url).search}`, 301));
 
+export { Watch } from './watch';
 export type Api = typeof api;
 export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext) {
