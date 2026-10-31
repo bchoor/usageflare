@@ -8,6 +8,7 @@ import {
   LumenShell,
   LumenSuiteSwitcher,
   NavGroup,
+  NotificationsSettings,
   type SectionItem,
   SettingRow,
   SidebarSection,
@@ -34,6 +35,7 @@ import {
   KeyRound,
   LayoutDashboard,
   Plus,
+  Radar,
   Rows3,
   Shapes,
   Tag,
@@ -61,6 +63,7 @@ import { AccountLimitsPage, AccountPage, OverviewPage, ResourcesPage, TagsPage }
 import { PRODUCT_ICON } from './products';
 import { TokensSettings } from './settings';
 import { registerTagSaver, TagForm } from './tags';
+import { unusual, useWatchdog, WatchdogPage, watchdogMessages } from './watchdog';
 
 configureLumen({ prefsCookie: 'usageflare_prefs' });
 const queryClient = createDeskQueryClient();
@@ -350,6 +353,7 @@ function Shell() {
   const ago = useAgo(synced);
   const refreshing = useRefreshing();
   const missing = m.accounts.filter((a) => a.missing.length);
+  const wd = useWatchdog();
   return (
     <LumenShell
       app="usageflare"
@@ -373,6 +377,12 @@ function Shell() {
                 badge: m.resources.filter((r) => !r.total && !m.archived(r)).length || undefined,
               },
               { title: 'Tags', to: '/tags', icon: Tag, badge: tagNames(m.tags).length || undefined },
+              {
+                title: 'Watchdog',
+                to: '/watchdog',
+                icon: Radar,
+                badge: unusual(wd.data) || undefined,
+              },
             ]}
           />
           <AccountNav m={m} />
@@ -387,6 +397,7 @@ function Shell() {
           {synced && <StatusItem label="Synced" value={refreshing ? `${ago} · refreshing…` : ago} />}
         </>
       }
+      bar={{ messages: watchdogMessages(wd.data) }}
       releases="/api/releases"
       user={me.data ? { email: me.data.email, name: null } : null}
       finder={{
@@ -421,6 +432,19 @@ function Shell() {
           icon: BellRing,
           description: 'Email or a webhook when a limit’s status changes.',
           content: <AlertsSettings />,
+        },
+        {
+          id: 'notifications',
+          title: 'Watchdog alerts',
+          icon: Radar,
+          description: 'Where the watchdog tells you: email, ntfy, webhooks.',
+          content: (
+            <NotificationsSettings
+              api="/api/notifications"
+              product="usageflare"
+              sender="the hub's email relay"
+            />
+          ),
         },
         {
           id: 'meter-icons',
@@ -519,6 +543,7 @@ const routes = [
       return <TagsPage key={acct} acct={acct} />;
     },
   }),
+  createRoute({ getParentRoute: () => root, path: '/watchdog', component: WatchdogPage }),
 ] as const;
 const [, , resourcesRoute, accountRoute, accountResourcesRoute, accountLimitsRoute, , accountTagsRoute] =
   routes;

@@ -104,7 +104,14 @@ export async function accountRefs(env: Env, fresh: boolean, defer?: Defer) {
   );
 }
 
-export async function accountUsage(env: Env, accountId: string, fresh: boolean, defer?: Defer) {
+/** `persist: false` (the watchdog's reads) keeps the read out of the KV copy: its writes are the page's. */
+export async function accountUsage(
+  env: Env,
+  accountId: string,
+  fresh: boolean,
+  defer?: Defer,
+  { persist = true }: { persist?: boolean } = {},
+) {
   const { accounts } = await accountRefs(env, false, defer);
   const ref = accounts.find((a) => a.id === accountId);
   if (!ref) return null;
@@ -163,11 +170,12 @@ export async function accountUsage(env: Env, accountId: string, fresh: boolean, 
   if (read.rateLimited && prev) {
     return { dates: historyDates(new Date(prev.at)), stale: false, ...publicUsage(prev.value) };
   }
-  await putCopy(env, key, read, {
-    minGap: USAGE_PERSIST_MS,
-    maxGap: USAGE_PERSIST_MS,
-    expirationTtl: KEEP_S,
-  });
+  if (persist)
+    await putCopy(env, key, read, {
+      minGap: USAGE_PERSIST_MS,
+      maxGap: USAGE_PERSIST_MS,
+      expirationTtl: KEEP_S,
+    });
   return { dates: historyDates(), stale: false, ...publicUsage(read) };
 }
 

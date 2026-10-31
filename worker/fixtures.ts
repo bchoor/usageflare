@@ -58,6 +58,8 @@ const SPECS: Record<string, Spec[]> = {
     ['workers', 'blog-site', { 'workers.req': 21e3, 'workers.cpu': 60e3 }],
     ['workers', 'newsletter-api', { 'workers.req': 130e3, 'workers.cpu': 420e3 }],
     ['workers', 'status-page-proxy', { 'workers.req': 45e3, 'workers.cpu': 120e3 }],
+    // Deployed this morning: no history, then real traffic (the watchdog's new mover).
+    ['workers', 'webhook-relay', { 'workers.req': 0 }],
     ['kv', 'SESSIONS', { 'kv.read': 150e3, 'kv.write': 18e3, 'kv.stor': 0.4 }],
     ['kv', 'CONFIG', { 'kv.read': 30e3, 'kv.write': 40, 'kv.stor': 0.01 }],
     ['kv', 'API_KEYS_PREVIEW', {}, { state: 'unbound' }],
@@ -179,7 +181,14 @@ function fixtureBilling(id: string, dates: string[]): Account['billing'] {
 const SURGE: Record<string, (slot: number) => number> = {
   'a2000000000000000000000000000002:workers:quizgame-staging|workers.req': (h) => (h >= 17 ? 3.2 : 1),
   'a1000000000000000000000000000001:kv:SESSIONS|kv.read': (h) => (h === 20 ? 9 : 1),
+  // The last whole hour at 12× (the watchdog's spike).
+  'a1000000000000000000000000000001:workers:blog-site|workers.req': (h) => (h === 23 ? 12 : 1),
   'a3000000000000000000000000000003:d1:quizgame-prod|d1.read': (h) => (h >= 12 ? 1.8 : 1),
+};
+
+/** Hourly traffic with nothing before it: per hour, for the last so many slots. */
+const FRESH: Record<string, [number, number]> = {
+  'a1000000000000000000000000000001:workers:webhook-relay|workers.req': [2_400, 4],
 };
 
 /** The last day by the hour, from yesterday's total, with a daytime rise; today's day matches it. */
@@ -195,9 +204,11 @@ function withHourly(r: Resource, from: number, dates: string[]) {
     if (GAUGES.has(k)) continue;
     const perHour = (daily[today - 1] ?? 0) / 24;
     const surge = SURGE[`${r.id}|${k}`];
+    const fresh = FRESH[`${r.id}|${k}`];
     const hours = Array.from({ length: HOURLY_SLOTS }, (_, h) => {
       const utc = new Date(from + h * 3_600_000).getUTCHours();
       const day = 0.7 + 0.6 * Math.max(0, Math.sin(((utc - 6) / 24) * 2 * Math.PI));
+      if (fresh) return h >= HOURLY_SLOTS - fresh[1] ? fresh[0] : 0;
       return Math.round(perHour * day * (0.85 + 0.3 * rnd()) * (surge?.(h) ?? 1) * 100) / 100;
     });
     r.hourly[k] = hours;

@@ -216,6 +216,7 @@ const PAGES = [
   '/app/limits',
   '/app/resources',
   '/app/tags',
+  '/app/watchdog',
   `/app/a/${acct}`,
   `/app/a/${acct}/limits`,
 ];

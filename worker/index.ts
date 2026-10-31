@@ -24,6 +24,9 @@ import {
   putPrefs,
   putView,
 } from './usage';
+import { watchdog } from './watchdog';
+
+export { Watchdog } from './watchdog';
 
 /** Validation failures answer `{error: string}`, the shape the client shows. */
 const zValidator = <T extends z.ZodType, Target extends 'json' | 'param' | 'query'>(
@@ -89,6 +92,7 @@ const viewPage = z.object({
     ...CATEGORIES.map((c) => `resources-${c.id}` as const),
     'tags',
     'account-tags',
+    'watchdog',
   ]),
 });
 const prefsBody = z.object({
@@ -105,6 +109,41 @@ const prefsBody = z.object({
 });
 const fresh = (q: string | undefined) => q !== undefined;
 
+const hookBody = z.object({
+  name: z.string().trim().min(1).max(60),
+  url: z
+    .string()
+    .trim()
+    .url()
+    .max(2000)
+    .refine((u) => u.startsWith('https://'), 'An https address'),
+  headers: z
+    .array(
+      z.object({
+        name: z
+          .string()
+          .trim()
+          .regex(/^[A-Za-z0-9-]{1,64}$/),
+        value: z.string().min(1).max(2000),
+      }),
+    )
+    .max(5),
+});
+const eventParam = z.object({ key: z.enum(['spike', 'surge', 'new', 'level', 'runsOut', 'blind']) });
+const eventBody = z.object({ target: z.string().regex(/^(email|ntfy|wh_[0-9a-f]{12})$/), on: z.boolean() });
+const hookParam = z.object({ id: z.string().regex(/^wh_[0-9a-f]{12}$/) });
+
+/** What the watchdog refuses with (worker/watchdog.ts), passed on as they are. */
+const REFUSALS = [
+  'Email is not set up on this server',
+  'Email is off',
+  'ntfy is off',
+  'Ten webhooks at most',
+  'No such webhook',
+];
+
+/** The watchdog's alarm is set by the first API call an isolate sees (and on every write here). */
+let watching = false;
 const https = z
   .string()
   .trim()
@@ -152,6 +191,62 @@ const api = new Hono<AppEnv>()
   })
   .use(requireAccess, sameOrigin)
   .get('/health', (c) => c.json({ ok: true, sha: __BUILD_SHA__ }))
+  .use(async (c, next) => {
+    if (!watching && c.env.WATCHDOG) {
+      watching = true;
+      c.executionCtx.waitUntil(
+        watchdog(c.env)
+          .ensure(new URL(c.req.url).origin)
+          .catch((e) => {
+            watching = false;
+            console.error('watchdog ensure:', e);
+          }),
+      );
+    }
+    await next();
+  })
+  // The watchdog: what it found (30 days) and each account's last check; Check now runs every account.
+  .get('/watchdog', async (c) => c.json(await watchdog(c.env).status()))
+  .post('/watchdog/run', async (c) => c.json(await watchdog(c.env).run()))
+  // Settings ▸ Notifications (Lumen's NotificationsSettings): where the watchdog tells you.
+  .get('/notifications', async (c) => c.json(await watchdog(c.env).notifications()))
+  .post('/notifications/email', async (c) => c.json(await watchdog(c.env).emailOn(c.get('email'))))
+  .delete('/notifications/email', async (c) => c.json(await watchdog(c.env).emailOff()))
+  .post('/notifications/email/test', async (c) => c.json(await watchdog(c.env).emailTest()))
+  .post('/notifications/ntfy', async (c) => c.json(await watchdog(c.env).ntfyOn()))
+  .delete('/notifications/ntfy', async (c) => c.json(await watchdog(c.env).ntfyOff()))
+  .put(
+    '/notifications/ntfy/token',
+    zValidator(
+      'json',
+      z.object({
+        token: z
+          .string()
+          .trim()
+          .regex(/^tk_[A-Za-z0-9]{8,64}$/, 'An ntfy access token (tk_…)'),
+      }),
+    ),
+    async (c) => c.json(await watchdog(c.env).ntfyToken(c.req.valid('json').token)),
+  )
+  .post('/notifications/ntfy/test', async (c) => c.json(await watchdog(c.env).ntfyTest()))
+  .post('/notifications/webhooks', zValidator('json', hookBody), async (c) =>
+    c.json(await watchdog(c.env).hookAdd(c.req.valid('json'))),
+  )
+  .delete('/notifications/webhooks/:id', zValidator('param', hookParam), async (c) =>
+    c.json(await watchdog(c.env).hookRemove(c.req.valid('param').id)),
+  )
+  .post('/notifications/webhooks/:id/test', zValidator('param', hookParam), async (c) =>
+    c.json(await watchdog(c.env).hookTest(c.req.valid('param').id)),
+  )
+  .put(
+    '/notifications/events/:key',
+    zValidator('param', eventParam),
+    zValidator('json', eventBody),
+    async (c) => {
+      const { target, on } = c.req.valid('json');
+      return c.json(await watchdog(c.env).setEvent(c.req.valid('param').key, target, on));
+    },
+  )
   .get('/me', (c) => c.json({ email: c.get('email'), suite: suiteOf(c.env) }))
   // What's new in the status bar: the Key takeaways lumen-ship commits on each release.
   .get('/releases', (c) =>
@@ -256,6 +351,9 @@ const api = new Hono<AppEnv>()
   })
   .onError((err, c) => {
     console.error(err);
+    // The watchdog's own refusals (email not set up, ntfy off) say what to do.
+    const said = err instanceof Error ? REFUSALS.find((r) => err.message.includes(r)) : undefined;
+    if (said) return c.json({ error: said }, 400);
     return c.json({ error: 'Internal error' }, 500);
   });
 

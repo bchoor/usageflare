@@ -16,8 +16,14 @@
   "kv_namespaces": [{ "binding": "KV" }],
   // The alert check (worker/watch.ts): one SQLite Durable Object whose alarm runs every 15 minutes
   // while alerts are on. An alarm, not a cron trigger, so it takes none of the account's crons.
-  "durable_objects": { "bindings": [{ "name": "WATCH", "class_name": "Watch" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Watch"] }],
+  // The watchdog (worker/watchdog.ts): usage far from its normal; its own SQLite DO and alarm.
+  "durable_objects": {
+    "bindings": [{ "name": "WATCH", "class_name": "Watch" }, { "name": "WATCHDOG", "class_name": "Watchdog" }]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Watch"] },
+    { "tag": "v2-watchdog", "new_sqlite_classes": ["Watchdog"] }
+  ],
   // Your Cloudflare Access application: put it in front of /app and /api (the landing page at / stays
   // public). The Worker checks its JWT on every /api call and answers 503 while these are empty.
   "vars": {
@@ -35,8 +41,20 @@
       "name": "usageflare",
       "account_id": "87a4f50952b4b2ce00cab6c2680e63ae",
       "kv_namespaces": [{ "binding": "KV", "id": "a9e1e84a14b747df95bb156af22ff56c" }],
-      "durable_objects": { "bindings": [{ "name": "WATCH", "class_name": "Watch" }] },
-      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Watch"] }],
+      "durable_objects": {
+        "bindings": [
+          { "name": "WATCH", "class_name": "Watch" },
+          { "name": "WATCHDOG", "class_name": "Watchdog" }
+        ]
+      },
+      "migrations": [
+        { "tag": "v1", "new_sqlite_classes": ["Watch"] },
+        { "tag": "v2-watchdog", "new_sqlite_classes": ["Watchdog"] }
+      ],
+      // Alert emails go out through the hub's relay (its MailApi entrypoint, owner only).
+      "services": [
+        { "binding": "MAIL", "service": "hub", "entrypoint": "MailApi", "props": { "app": "usageflare" } }
+      ],
       "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "usageflare_requests" }],
       "vars": {
         "ACCESS_TEAM_DOMAIN": "bchoor.cloudflareaccess.com",

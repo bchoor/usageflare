@@ -1211,6 +1211,7 @@ const pages: [string, string][] = [
   ['/app/', 'Overview'],
   ['/app/resources', 'All resources'],
   ['/app/tags', 'Tags'],
+  ['/app/watchdog', 'Watchdog'],
 ];
 for (const a of accounts) {
   const n = a.name;
@@ -1221,7 +1222,7 @@ for (const a of accounts) {
     [`/app/a/${a.id}/tags`, `${n} › Tags`],
   );
 }
-const SECTIONS = ['tokens', 'accounts', 'limits', 'alerts', 'meter-icons', 'profile'];
+const SECTIONS = ['tokens', 'accounts', 'limits', 'alerts', 'notifications', 'meter-icons', 'profile'];
 
 for (const vp of vpList)
   for (const theme of themes) {

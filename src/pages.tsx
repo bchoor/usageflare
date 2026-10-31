@@ -102,7 +102,8 @@ type PageId =
   | 'resources-all'
   | `resources-${CategoryId}`
   | 'tags'
-  | 'account-tags';
+  | 'account-tags'
+  | 'watchdog';
 
 /**
  * A page's numbers live in a Row of numbers card of built-in tiles (`usageTile`). A layout saved
@@ -175,7 +176,7 @@ function splitLocal(config: CustomViewConfig): CustomViewConfig {
   };
 }
 
-function useSavedView(page: PageId, fallback: CustomViewConfig) {
+export function useSavedView(page: PageId, fallback: CustomViewConfig) {
   const qc = useQueryClient();
   const saved = useQuery({
     queryKey: ['view', page],

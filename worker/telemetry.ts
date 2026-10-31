@@ -33,7 +33,7 @@ export function wireTelemetry(env: TelemetryEnv): void {
 
 /** The env the app sees: its bindings timed. */
 export const metered = <E extends object>(env: E): E =>
-  meteredBindings(env, { kinds: { KV: 'kv', ASSETS: 'assets' }, skip: ['METRICS'] });
+  meteredBindings(env, { kinds: { KV: 'kv', ASSETS: 'assets' }, skip: ['METRICS', 'WATCHDOG', 'MAIL'] });
 
 /**
  * The request meter: first, so every route is metered; hashed files are one route. A `?fresh`
