@@ -65,7 +65,8 @@ import { TokensSettings } from './settings';
 import { registerTagSaver, TagForm } from './tags';
 import { unusual, useWatchdog, WatchdogPage, watchdogMessages } from './watchdog';
 
-configureLumen({ prefsCookie: 'usageflare_prefs' });
+// Every table's columns resize by dragging a header's edge (desktop); widths kept per table.
+configureLumen({ prefsCookie: 'usageflare_prefs', resizableColumns: true });
 const queryClient = createDeskQueryClient();
 
 // The last data this browser saw is kept on the device (IndexedDB, lumen savedAnswers), so a page
