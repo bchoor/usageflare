@@ -12,6 +12,7 @@ import {
   type StatusMessage,
   Tile,
   TileRow,
+  UnitValue,
   useLumenLoad,
   type ViewDomain,
 } from '@columenlabs/lumen-ui';
@@ -21,7 +22,7 @@ import { Activity, Building2, Clock, Gauge, RefreshCw, ShieldCheck, Zap } from '
 import { useMemo } from 'react';
 import { METRIC, PRODUCT } from '../shared/catalog';
 import { KIND_LABEL, type WatchEvent, type WatchKind } from '../shared/watchdog';
-import { view } from './domains';
+import { amountParts, view } from './domains';
 import { useModel } from './model';
 import { useSavedView } from './pages';
 import { ProductIcon } from './products';
@@ -77,6 +78,17 @@ const xText = (e: StoredEvent) =>
       : e.kind === 'blind'
         ? '—'
         : `${e.x >= 10 ? Math.round(e.x) : e.x.toFixed(1)}×`;
+
+/** An amount in its meter's unit, or nothing (a dash) when there is none to show. */
+function Amount({ e, v }: { e: StoredEvent; v: number }) {
+  if (e.kind === 'blind' || !(v > 0)) return null;
+  const [n, unit] = amountParts(v, METRIC[e.metric]?.unit ?? '');
+  return (
+    <span title={e.text}>
+      <UnitValue value={n} unit={unit} />
+    </span>
+  );
+}
 
 const meterOf = (e: StoredEvent) => {
   const m = METRIC[e.metric];
@@ -145,6 +157,25 @@ function watchDomain(accountName: (id: string) => string): ViewDomain<StoredEven
         ),
       },
       {
+        key: 'value',
+        label: 'Amount',
+        icon: Activity,
+        format: 'number',
+        note: 'the hour (spike), the hourly average (surge, new mover) or the period so far (limits)',
+        value: (e) => (e.kind === 'blind' ? null : e.value),
+        render: (e) => <Amount e={e} v={e.value} />,
+      },
+      {
+        key: 'normal',
+        label: 'Baseline',
+        icon: Gauge,
+        format: 'number',
+        note: 'its normal hour, or the allowance for limits',
+        value: (e) => (e.normal > 0 ? e.normal : null),
+        render: (e) => <Amount e={e} v={e.normal} />,
+        hideOnPhone: true,
+      },
+      {
         key: 'meter',
         label: 'Meter',
         icon: Gauge,
@@ -210,7 +241,7 @@ function watchDomain(accountName: (id: string) => string): ViewDomain<StoredEven
 
 const WATCHDOG = view({
   name: 'Watchdog',
-  columns: ['what', 'kind', 'x', 'meter', 'account', 'when', 'sent'],
+  columns: ['what', 'kind', 'x', 'value', 'normal', 'meter', 'account', 'when', 'sent'],
   group: { fields: ['kind', 'account', 'meter'], default: null },
   sort: { key: 'when', desc: true },
 });
@@ -220,7 +251,7 @@ export function WatchdogPage() {
   const q = useWatchdog();
   const qc = useQueryClient();
   const load = useLumenLoad(q);
-  const saved = useSavedView('watchdog', WATCHDOG);
+  const saved = useSavedView('watchdog-amounts', WATCHDOG);
   const run = useMutation({
     mutationFn: () => apiJson<WatchdogStatus>('/api/watchdog/run', { method: 'POST' }, 'watchdog.run'),
     onSuccess: (s) => {

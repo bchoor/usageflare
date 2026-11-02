@@ -103,7 +103,8 @@ type PageId =
   | `resources-${CategoryId}`
   | 'tags'
   | 'account-tags'
-  | 'watchdog';
+  | 'watchdog'
+  | 'watchdog-amounts';
 
 /**
  * A page's numbers live in a Row of numbers card of built-in tiles (`usageTile`). A layout saved

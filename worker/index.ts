@@ -92,6 +92,8 @@ const viewPage = z.object({
     'tags',
     'account-tags',
     'watchdog',
+    // Since Amount and Baseline: a fresh default, older saved columns left behind.
+    'watchdog-amounts',
   ]),
 });
 const prefsBody = z.object({

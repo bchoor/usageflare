@@ -12,7 +12,9 @@
  *
  * Normal is the larger of the median hour before the window and the 14 days before today, per
  * hour; the median ignores one-off spikes. Every velocity check also needs a real amount: a tenth
- * of an even hour's share of the meter's allowance (`floor`), so 3 → 15 calls never fires.
+ * of an even hour's share of the meter's allowance (`floor`), and the move must add 1% of that
+ * allowance over normal (`moveOf`): a ratio without its amounts is alarmist, so 31 → 543 requests
+ * (17×) on a 100,000 a day allowance stays quiet.
  * Pure: no I/O, the same code judges in the Worker's alarm and draws in the app.
  */
 import { type Account, HOURLY_SLOTS, METRIC, type Metric, PRODUCT, type Resource } from './catalog';
@@ -47,6 +49,14 @@ export const SURGE_HOURS = 6;
 export const SPIKE_HOURS = 3;
 /** Floor for a meter with no allowance (CPU ms on Free, a payg meter). */
 const BARE_FLOOR = 100;
+/**
+ * How much a move must add before it is worth telling: 1% of the meter's allowance for its period,
+ * so 1 → 10 requests (10×) stays quiet while a hour that eats a real slice of the cap is heard.
+ * A ratio alone is alarmist on small numbers; this is the denominator it needs.
+ */
+export const MOVE_SHARE = 0.01;
+/** The same for a meter with no allowance: this many units over normal. */
+const BARE_MOVE = 10_000;
 const HISTORY = 14;
 
 const median = (v: number[]) => {
@@ -69,6 +79,12 @@ export function floorOf(m: Metric, plan: Account['plan']) {
   return a ? a.limit / (a.per === 'day' ? 24 : 720) / 10 : BARE_FLOOR;
 }
 
+/** What a spike, surge or new mover must add over normal, in the meter's unit (`MOVE_SHARE`). */
+export function moveOf(m: Metric, plan: Account['plan']) {
+  const a = allowanceOf(m, plan);
+  return a ? a.limit * MOVE_SHARE : BARE_MOVE;
+}
+
 const hourIso = (from: number, slot: number) => new Date(from + slot * 3_600_000).toISOString().slice(0, 13);
 
 /**
@@ -81,6 +97,8 @@ function velocity(
   from: number,
   floor: number,
   id: { acct: string; rid: string; name: string; metric: string },
+  /** What the move must add over normal (`moveOf`): a spike's hour, a surge's or new mover's window. */
+  move = 0,
 ): WatchEvent[] {
   const out: WatchEvent[] = [];
   const last = HOURLY_SLOTS - 1; // the hour in progress
@@ -91,7 +109,7 @@ function velocity(
   const base = { acct: id.acct, rid: id.rid, name: id.name, metric: id.metric };
   // new: nothing at all before, and now a real amount (the window counts, the hour in progress too).
   const recent = hours.slice(last - SURGE_HOURS);
-  if (quiet && Math.max(...recent) >= floor) {
+  if (quiet && Math.max(...recent) >= floor && recent.reduce((t, v) => t + v, 0) >= move) {
     const avg = mean(recent);
     out.push({
       ...base,
@@ -111,7 +129,8 @@ function velocity(
   let top = -1;
   for (let s = start; s <= last; s++) {
     const v = hours[s] ?? 0;
-    if (v >= floor && v >= SPIKE_X * normal && (top < 0 || v > (hours[top] ?? 0))) top = s;
+    if (v >= floor && v - normal >= move && v >= SPIKE_X * normal && (top < 0 || v > (hours[top] ?? 0)))
+      top = s;
   }
   if (top >= 0) {
     const v = hours[top] ?? 0;
@@ -131,6 +150,7 @@ function velocity(
   const avg = mean(win);
   if (
     avg >= floor &&
+    (avg - sNormal) * SURGE_HOURS >= move &&
     avg >= SURGE_X * sNormal &&
     win.filter((v) => v >= SURGE_X * sNormal).length > SURGE_HOURS / 2
   ) {
@@ -169,12 +189,14 @@ export function watch({ account: a, resources, dates, warn, now = Date.now() }: 
       const m = METRIC[k];
       if (!m || m.kind !== 'sum' || hours.length !== HOURLY_SLOTS) continue;
       out.push(
-        ...velocity(hours, r.series[k] ?? [], from, floorOf(m, a.plan), {
-          acct: a.id,
-          rid: r.id,
-          name: r.name,
-          metric: k,
-        }),
+        ...velocity(
+          hours,
+          r.series[k] ?? [],
+          from,
+          floorOf(m, a.plan),
+          { acct: a.id, rid: r.id, name: r.name, metric: k },
+          moveOf(m, a.plan),
+        ),
       );
     }
   }
@@ -272,9 +294,9 @@ export const KIND_LABEL: Record<WatchKind, string> = {
 
 /** What each kind means, one line (Settings ▸ Notifications lists them). */
 export const KIND_DETAIL: Record<WatchKind, string> = {
-  spike: `One hour at ${SPIKE_X}× its normal or more`,
-  surge: `${SURGE_HOURS} hours averaging ${SURGE_X}× normal or more`,
-  new: 'Real use on something with no history',
+  spike: `One hour at ${SPIKE_X}× its normal, adding 1% of the allowance or more`,
+  surge: `${SURGE_HOURS} hours at ${SURGE_X}× normal, adding 1% of the allowance or more`,
+  new: 'No history, now 1% of the allowance or more',
   level: 'An account meter passes Watch, 90% or 100% of its allowance',
   runsOut: 'At this pace a meter runs out before it resets',
   blind: "The watchdog can't read an account for over an hour",
