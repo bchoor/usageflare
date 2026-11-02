@@ -1,5 +1,42 @@
 [
   {
+    "tag": "v0.0.9",
+    "published_at": "2026-11-02T19:33:05Z",
+    "takeaways": [
+      {
+        "text": "**Watchdog alerts on usage that moves far from normal**: On the new Watchdog page, with a badge in the sidebar and a notice in the status bar, you can see which accounts, resources or meters are spiking, surging or about to run out, even while they are still far from their limits.",
+        "types": [
+          "feature"
+        ]
+      },
+      {
+        "text": "**Alerts when a limit's status changes**: In Settings ▸ Alerts, you can choose a level (Watch, Will exceed or Over) and get an email or webhook within about 15 minutes of a limit crossing it, without opening the dashboard.",
+        "types": [
+          "feature"
+        ]
+      },
+      {
+        "text": "**Resizable table columns**: On every table on desktop, you can drag the edge of a column header to resize it, and each table remembers its widths.",
+        "types": [
+          "feature"
+        ]
+      },
+      {
+        "text": "**This month column on Limits**: On the Limits page, the \"This month\" column now appears next to Today and Yesterday, including in saved layouts that previously never showed it.",
+        "types": [
+          "feature",
+          "fix"
+        ]
+      },
+      {
+        "text": "**Cloudflare hiccups no longer look like missing permissions**: On the Limits page, the banner now says \"Cloudflare didn't answer\" when a read fails temporarily, and only suggests adding token permissions when one is really missing.",
+        "types": [
+          "fix"
+        ]
+      }
+    ]
+  },
+  {
     "tag": "v0.0.8",
     "published_at": "2026-10-29T18:01:16Z",
     "takeaways": [
