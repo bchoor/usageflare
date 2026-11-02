@@ -3,13 +3,16 @@
  * and write the watchdog's one settings record (worker/watchdog.ts, `/api/notifications`): limits
  * and the watchdog's own findings are judged on one 5 minute step and sent through one set of
  * channels. The grid of rules × channels and the channels themselves are Lumen's
- * NotificationsSettings, drawn in two sections (`parts`).
+ * NotificationsSettings, drawn in two sections (`parts`). Below the grid, your own rules on any
+ * meter (src/rules.tsx).
  */
 import { apiJson, ErrorLine, NotificationsSettings, SettingRow, useClock } from '@columenlabs/lumen-ui';
 import { Switch } from '@columenlabs/lumen-ui/ui/switch';
 import { ToggleGroup, ToggleGroupItem } from '@columenlabs/lumen-ui/ui/toggle-group';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { Rule } from '../shared/rules';
 import type { AlertLevel } from './api';
+import { RulesSettings } from './rules';
 import { useWatchdog } from './watchdog';
 
 const API = '/api/notifications';
@@ -32,7 +35,7 @@ function useAlerting() {
   const qc = useQueryClient();
   const q = useQuery({
     queryKey: KEY,
-    queryFn: () => apiJson<{ alerting?: Alerting }>(API, undefined, 'notifications'),
+    queryFn: () => apiJson<{ alerting?: Alerting; rules?: Rule[] }>(API, undefined, 'notifications'),
   });
   const save = useMutation({
     mutationFn: (a: Alerting) =>
@@ -87,6 +90,10 @@ export function AlertsSettings() {
       </SettingRow>
       <ErrorLine error={save.error} />
       <NotificationsSettings api={API} product="usageflare" sender={SENDER} parts="events" />
+      <div className="flex flex-col gap-2">
+        <p className="font-medium text-sm">Your rules</p>
+        <RulesSettings rules={q.data?.rules ?? []} />
+      </div>
       <p className="truncate text-muted-foreground text-xs">
         {a.on ? '' : 'Off: found and shown here, sent nowhere · '}
         {last ? `Checked ${clock(last)}` : 'First check within 5 minutes'}

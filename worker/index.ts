@@ -5,6 +5,7 @@ import { Hono } from 'hono';
 import { secureHeaders } from 'hono/secure-headers';
 import { z } from 'zod';
 import { CATEGORIES, METRIC } from '../shared/catalog';
+import { RULE_CONDS } from '../shared/rules';
 import { requireAccess, sameOrigin } from './access';
 import changelog from './changelog.json';
 import { historyDates } from './cloudflare';
@@ -130,7 +131,21 @@ const hookBody = z.object({
     )
     .max(5),
 });
-const eventParam = z.object({ key: z.enum(['spike', 'surge', 'new', 'level', 'runsOut', 'blind']) });
+const eventParam = z.object({
+  key: z.string().regex(/^(spike|surge|new|level|runsOut|blind|rule:r_[0-9a-f]{8})$/),
+});
+const ruleParam = z.object({ id: z.string().regex(/^r_[0-9a-f]{8}$/) });
+const ruleBody = z.object({
+  on: z.boolean(),
+  name: z.string().trim().min(1).max(80),
+  acct: z.string().regex(/^[0-9a-f]{32}$/),
+  rid: z.string().max(300).optional(),
+  metric: z.string().regex(/^[A-Za-z0-9_.-]{1,80}$/),
+  cond: z.enum(RULE_CONDS),
+  value: z.number().finite().min(-1e15).max(1e15),
+  window: z.enum(['hour', 'day', 'month']).optional(),
+  dir: z.enum(['up', 'down']).optional(),
+});
 const eventBody = z.object({ target: z.string().regex(/^(email|ntfy|wh_[0-9a-f]{12})$/), on: z.boolean() });
 const hookParam = z.object({ id: z.string().regex(/^wh_[0-9a-f]{12}$/) });
 
@@ -220,6 +235,18 @@ const api = new Hono<AppEnv>()
   )
   .put('/notifications/alerting', zValidator('json', alertingBody), async (c) =>
     c.json(await watchdog(c.env).setAlerting(c.req.valid('json'))),
+  )
+  .put('/notifications/rules/:id', zValidator('param', ruleParam), zValidator('json', ruleBody), async (c) =>
+    c.json(
+      await watchdog(c.env).ruleSave({
+        ...c.req.valid('json'),
+        id: c.req.valid('param').id,
+        created_at: new Date().toISOString(),
+      }),
+    ),
+  )
+  .delete('/notifications/rules/:id', zValidator('param', ruleParam), async (c) =>
+    c.json(await watchdog(c.env).ruleRemove(c.req.valid('param').id)),
   )
   .put(
     '/notifications/events/:key',

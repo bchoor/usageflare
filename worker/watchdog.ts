@@ -6,17 +6,19 @@
  * page only reads what the alarm wrote. The account's free cron triggers are all taken, so the
  * alarm is the schedule; any API call makes sure one is set.
  *
- * SQLite: `events` (one row per thing that happened, kept 30 days; INSERTs name their columns) and
- * `state` (the bookmark, each account's last check, the notification targets). Writes happen
+ * SQLite: `events` (one row per thing that happened, kept 30 days; INSERTs name their columns),
+ * `rule_events` (the same, for the person's own rules: a table of its own so an older build never
+ * reads a kind it doesn't know) and `state` (the bookmark, each account's last check, the
+ * notification targets, the rules and whether each is armed). Writes happen
  * only when something changes; KV is never written here (its 1,000 writes a day are the page's).
  * Every call out has a timeout, and a failed one is recorded, never thrown.
  */
 import { DurableObject } from 'cloudflare:workers';
+import { MAX_RULES, type Rule, type RuleReading, readingText, readNow, seriesOf } from '../shared/rules';
 import {
   describe,
   KIND_DETAIL,
   KIND_LABEL,
-  KINDS,
   type WatchEvent,
   type WatchKind,
   watch,
@@ -72,8 +74,8 @@ interface Targets {
     last_test: KeyTest | null;
   };
   webhooks: Webhook[];
-  /** Event kind → targets it is off for (`email`, `ntfy`, a webhook id). */
-  off: Partial<Record<WatchKind, string[]>>;
+  /** Event kind, or `rule:<id>` → targets it is off for (`email`, `ntfy`, a webhook id). */
+  off: Partial<Record<string, string[]>>;
 }
 
 /** Settings ▸ Alerts: sending on or off, and from which limit level a limit alert goes out. */
@@ -142,7 +144,22 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS events_seen ON events(seen);
 CREATE TABLE IF NOT EXISTS state (k TEXT PRIMARY KEY, v TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS rule_events (
+  key TEXT PRIMARY KEY, kind TEXT NOT NULL, acct TEXT NOT NULL, rid TEXT, name TEXT NOT NULL,
+  metric TEXT NOT NULL, at TEXT NOT NULL, value REAL NOT NULL, normal REAL NOT NULL, x REAL NOT NULL,
+  level REAL, seen INTEGER NOT NULL, text TEXT NOT NULL, sent TEXT NOT NULL DEFAULT '[]',
+  failed TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS rule_events_seen ON rule_events(seen);
 `;
+
+/** Whether a rule may fire (armed), and when it last did (ms). */
+interface RuleState {
+  armed: boolean;
+  fired?: number;
+}
+
+const tableOf = (kind: WatchKind) => (kind === 'rule' ? 'rule_events' : 'events');
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 const json = <T>(s: string | null | undefined, d: T): T => {
@@ -196,11 +213,13 @@ export class Watchdog extends DurableObject<Env> {
 
   async status(): Promise<WatchdogStatus> {
     const cutoff = Date.now() - KEEP_DAYS * 86_400_000;
+    const cols = 'key, kind, acct, rid, name, metric, at, value, normal, x, level, seen, text, sent, failed';
     const rows = this.sql
       .exec<Record<string, string | number | null>>(
         // Newest first; within one check, the moves before the limits.
-        `SELECT key, kind, acct, rid, name, metric, at, value, normal, x, level, seen, text, sent, failed FROM events WHERE seen >= ?
-         ORDER BY seen DESC, CASE kind WHEN 'blind' THEN 0 WHEN 'spike' THEN 1 WHEN 'surge' THEN 2 WHEN 'new' THEN 3 WHEN 'runsOut' THEN 4 ELSE 5 END LIMIT 500`,
+        `SELECT * FROM (SELECT ${cols} FROM events WHERE seen >= ? UNION ALL SELECT ${cols} FROM rule_events WHERE seen >= ?)
+         ORDER BY seen DESC, CASE kind WHEN 'blind' THEN 0 WHEN 'rule' THEN 1 WHEN 'spike' THEN 2 WHEN 'surge' THEN 3 WHEN 'new' THEN 4 WHEN 'runsOut' THEN 5 ELSE 6 END LIMIT 500`,
+        cutoff,
         cutoff,
       )
       .toArray();
@@ -283,11 +302,12 @@ export class Watchdog extends DurableObject<Env> {
       down,
       readAt,
     };
-    const found: WatchEvent[] = [];
+    const found: (WatchEvent & { text?: string })[] = [];
     if (usage && fresh) {
       const { warn } = await getPrefs(this.env);
       found.push(
         ...watch({ account: usage.account, resources: usage.resources, dates: usage.dates, warn, now }),
+        ...this.judgeRules(usage, now),
       );
     } else if (down !== undefined && now - down >= BLIND_MS) {
       const since = new Date(down).toISOString();
@@ -307,14 +327,15 @@ export class Watchdog extends DurableObject<Env> {
   }
 
   /** Keeps what is new, and sends each to the targets that want it. */
-  private async record(found: WatchEvent[], now: number, account: string) {
+  private async record(found: (WatchEvent & { text?: string })[], now: number, account: string) {
     if (!found.length) return;
     const known = new Set<string>();
     for (let i = 0; i < found.length; i += 50) {
       const keys = found.slice(i, i + 50).map((e) => e.key);
       for (const r of this.sql
         .exec<{ key: string }>(
-          `SELECT key FROM events WHERE key IN (${keys.map(() => '?').join(',')})`,
+          `SELECT key FROM events WHERE key IN (${keys.map(() => '?').join(',')}) UNION ALL SELECT key FROM rule_events WHERE key IN (${keys.map(() => '?').join(',')})`,
+          ...keys,
           ...keys,
         )
         .toArray())
@@ -326,9 +347,9 @@ export class Watchdog extends DurableObject<Env> {
     const alerting = this.alerting();
     const origin = this.get<string>('origin', '');
     for (const e of fresh) {
-      const text = describe(e, fmt, account);
+      const text = e.text ?? describe(e, fmt, account);
       this.sql.exec(
-        'INSERT INTO events (key, kind, acct, rid, name, metric, at, value, normal, x, level, seen, text) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        `INSERT INTO ${tableOf(e.kind)} (key, kind, acct, rid, name, metric, at, value, normal, x, level, seen, text) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         e.key,
         e.kind,
         e.acct,
@@ -343,16 +364,17 @@ export class Watchdog extends DurableObject<Env> {
         now,
         text,
       );
+      const rule = e.kind === 'rule' ? `rule:${e.key.split(':')[1]}` : null;
       // Kept in the app either way; the channels hear it only when alerts are on and at its level.
       if (!alerting.on || !limitSends(e, alerting.level)) continue;
       // One send a day per thing and kind: a spike every hour on one Worker tells once.
-      const thing = `${e.kind}:${e.rid ?? e.acct}:${e.metric}:${day(now)}`;
+      const thing = rule ? `${rule}:${day(now)}` : `${e.kind}:${e.rid ?? e.acct}:${e.metric}:${day(now)}`;
       const told = this.get<string[]>('told', []).filter((t) => t.endsWith(day(now)));
       if (told.includes(thing)) continue;
-      const out = await this.send(targets, e.kind, { ...e, text }, origin);
+      const out = await this.send(targets, e.kind, { ...e, text }, origin, rule ?? e.kind);
       if (out.sent.length || out.failed.length)
         this.sql.exec(
-          'UPDATE events SET sent = ?, failed = ? WHERE key = ?',
+          `UPDATE ${tableOf(e.kind)} SET sent = ?, failed = ? WHERE key = ?`,
           JSON.stringify(out.sent),
           JSON.stringify(out.failed),
           e.key,
@@ -364,10 +386,8 @@ export class Watchdog extends DurableObject<Env> {
   /** Events older than 30 days go, a few hundred a step. */
   private trim() {
     const cutoff = Date.now() - KEEP_DAYS * 86_400_000;
-    this.sql.exec(
-      'DELETE FROM events WHERE key IN (SELECT key FROM events WHERE seen < ? LIMIT 200)',
-      cutoff,
-    );
+    for (const t of ['events', 'rule_events'])
+      this.sql.exec(`DELETE FROM ${t} WHERE key IN (SELECT key FROM ${t} WHERE seen < ? LIMIT 200)`, cutoff);
   }
 
   // ---------- Sending ----------
@@ -413,10 +433,95 @@ export class Watchdog extends DurableObject<Env> {
     return this.notifications();
   }
 
-  private async send(t: Targets, kind: WatchKind, e: WatchEvent & { text: string }, origin: string) {
-    const off = new Set(t.off[kind] ?? []);
+  // ---------- Your rules (shared/rules.ts) ----------
+
+  private rules(): Rule[] {
+    return this.get<Rule[]>('rules', []);
+  }
+
+  /**
+   * Every rule on this account, judged on the read just made: no call out. A rule fires once,
+   * then waits until its reading is clearly back. Its state is written only when it changes.
+   */
+  private judgeRules(
+    usage: {
+      account: Parameters<typeof seriesOf>[1];
+      resources: Parameters<typeof seriesOf>[2];
+      dates: string[];
+    },
+    now: number,
+  ): (WatchEvent & { text: string })[] {
+    const mine = this.rules().filter((r) => r.on && r.acct === usage.account.id);
+    if (!mine.length) return [];
+    const states = this.get<Record<string, RuleState>>('ruleState', {});
+    const next = { ...states };
+    const out: (WatchEvent & { text: string })[] = [];
+    const hour = new Date(now).toISOString().slice(0, 13);
+    for (const r of mine) {
+      const s = seriesOf(r, usage.account, usage.resources, usage.dates);
+      const read: RuleReading | null = s ? readNow(r, s) : null;
+      if (!s || !read) continue;
+      const st = states[r.id] ?? { armed: true };
+      if (st.armed && read.met) {
+        next[r.id] = { armed: false, fired: now };
+        const amount = s.days.at(-1) ?? 0;
+        out.push({
+          key: `rule:${r.id}:${hour}`,
+          kind: 'rule',
+          acct: r.acct,
+          rid: r.rid,
+          name: r.name,
+          metric: r.metric,
+          at: new Date(now).toISOString(),
+          value: r.cond === 'above' || r.cond === 'below' ? read.value : amount,
+          normal: 0,
+          x: 0,
+          text: `${usage.account.name} · ${r.name}: ${readingText(r, read, fmt)}`,
+        });
+      } else if (!st.armed && read.clear) next[r.id] = { ...st, armed: true };
+    }
+    this.put('ruleState', next);
+    return out;
+  }
+
+  /** Adds or changes one rule. A changed rule is armed again. */
+  async ruleSave(rule: Rule) {
+    const rules = this.rules();
+    const i = rules.findIndex((r) => r.id === rule.id);
+    if (i < 0 && rules.length >= MAX_RULES) throw new Error(`${MAX_RULES} rules at most`);
+    if (i < 0) rules.push(rule);
+    else rules[i] = { ...rule, created_at: rules[i]?.created_at ?? rule.created_at };
+    this.put('rules', rules);
+    const st = this.get<Record<string, RuleState>>('ruleState', {});
+    delete st[rule.id];
+    this.put('ruleState', st);
+    return this.notifications();
+  }
+
+  async ruleRemove(id: string) {
+    this.put(
+      'rules',
+      this.rules().filter((r) => r.id !== id),
+    );
+    const st = this.get<Record<string, RuleState>>('ruleState', {});
+    delete st[id];
+    this.put('ruleState', st);
+    const t = this.targets();
+    delete t.off[`rule:${id}`];
+    return this.save(t);
+  }
+
+  private async send(
+    t: Targets,
+    kind: WatchKind,
+    e: WatchEvent & { text: string },
+    origin: string,
+    /** The row of Settings ▸ Alerts it answers to: its kind, or `rule:<id>`. */
+    offKey: string = kind,
+  ) {
+    const off = new Set(t.off[offKey] ?? []);
     const link = origin ? `${origin}/app/watchdog` : '';
-    const title = `${KIND_LABEL[kind]}: ${e.name}`;
+    const title = kind === 'rule' ? e.name : `${KIND_LABEL[kind]}: ${e.name}`;
     const sent: string[] = [];
     const failed: string[] = [];
     const go = async (id: string, f: () => Promise<KeyTest>) => {
@@ -525,6 +630,7 @@ export class Watchdog extends DurableObject<Env> {
 
   async notifications() {
     const t = this.targets();
+    const rules = this.rules();
     const testing = !!this.env.MAIL;
     return {
       email: t.email
@@ -554,14 +660,27 @@ export class Watchdog extends DurableObject<Env> {
         created_at: h.created_at,
         last_test: h.last_test,
       })),
-      events: RULES.map((r) => ({
-        key: r.kind,
-        label: r.label,
-        group: r.group,
-        detail: KIND_DETAIL[r.kind],
-        off: t.off[r.kind] ?? [],
-      })),
+      events: [
+        ...RULES.map((r) => ({
+          key: r.kind,
+          label: r.label,
+          group: r.group,
+          detail: KIND_DETAIL[r.kind],
+          off: t.off[r.kind] ?? [],
+        })),
+        ...rules
+          .filter((r) => r.on)
+          .map((r) => ({
+            key: `rule:${r.id}`,
+            label: r.name,
+            group: 'Your rules',
+            detail: 'One of your own rules',
+            off: t.off[`rule:${r.id}`] ?? [],
+          })),
+      ],
       alerting: this.alerting(),
+      rules,
+      ruleState: this.get<Record<string, RuleState>>('ruleState', {}),
     };
   }
 
@@ -662,7 +781,7 @@ export class Watchdog extends DurableObject<Env> {
   async hookRemove(id: string) {
     const t = this.targets();
     t.webhooks = t.webhooks.filter((h) => h.id !== id);
-    for (const k of KINDS) if (t.off[k]) t.off[k] = t.off[k]?.filter((x) => x !== id);
+    for (const k of Object.keys(t.off)) t.off[k] = t.off[k]?.filter((x) => x !== id);
     return this.save(t);
   }
 
@@ -684,7 +803,7 @@ export class Watchdog extends DurableObject<Env> {
     return this.save(t);
   }
 
-  async setEvent(kind: WatchKind, target: string, on: boolean) {
+  async setEvent(kind: string, target: string, on: boolean) {
     const t = this.targets();
     const off = new Set(t.off[kind] ?? []);
     if (on) off.delete(target);
@@ -695,7 +814,7 @@ export class Watchdog extends DurableObject<Env> {
 }
 
 /** `9,252`, `1.4K`, `2.1M`: short enough for a phone notification. */
-function fmt(v: number, unit: string) {
+export function fmt(v: number, unit: string) {
   const a = Math.abs(v);
   const n =
     a >= 1e9
