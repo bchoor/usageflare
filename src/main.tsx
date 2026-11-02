@@ -8,7 +8,6 @@ import {
   LumenShell,
   LumenSuiteSwitcher,
   NavGroup,
-  NotificationsSettings,
   type SectionItem,
   SettingRow,
   SidebarSection,
@@ -37,6 +36,7 @@ import {
   Plus,
   Radar,
   Rows3,
+  Send,
   Shapes,
   Tag,
 } from 'lucide-react';
@@ -44,7 +44,7 @@ import { StrictMode, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { z } from 'zod';
 import { CATEGORIES, type CategoryId, PRODUCTS, type ProductId } from '../shared/catalog';
-import { AlertsSettings } from './alerts';
+import { AlertsSettings, ChannelsSettings } from './alerts';
 import { api, type Me } from './api';
 import { MeterIconsSettings } from './meter-icons';
 import { planText } from './meters';
@@ -431,21 +431,15 @@ function Shell() {
           id: 'alerts',
           title: 'Alerts',
           icon: BellRing,
-          description: 'Email or a webhook when a limit’s status changes.',
+          description: 'What is worth telling you, and on which channel.',
           content: <AlertsSettings />,
         },
         {
           id: 'notifications',
-          title: 'Watchdog alerts',
-          icon: Radar,
-          description: 'Where the watchdog tells you: email, ntfy, webhooks.',
-          content: (
-            <NotificationsSettings
-              api="/api/notifications"
-              product="usageflare"
-              sender="the hub's email relay"
-            />
-          ),
+          title: 'Channels',
+          icon: Send,
+          description: 'Where alerts go: email, ntfy, webhooks. Set up once.',
+          content: <ChannelsSettings />,
         },
         {
           id: 'meter-icons',

@@ -21,6 +21,7 @@ import {
   type WatchKind,
   watch,
 } from '../shared/watchdog';
+import { type AlertLevel, oldAlerts } from './alerts';
 import { historyDates } from './cloudflare';
 import type { Env } from './env';
 import { fixtureRefs, fixtureUsage } from './fixtures';
@@ -35,6 +36,8 @@ const NOW_MS = 2_000;
 const BLIND_MS = 60 * 60_000;
 const KEEP_DAYS = 30;
 const SEND_MS = 8_000;
+/** Settings ▸ Alerts before anything is saved: send, and limits from Will exceed. */
+const ALERTING: Alerting = { on: true, level: 'soon' };
 /** The hub's relay takes longer: it may go out over a tunnel. */
 const MAIL_MS = 20_000;
 
@@ -71,6 +74,36 @@ interface Targets {
   webhooks: Webhook[];
   /** Event kind → targets it is off for (`email`, `ntfy`, a webhook id). */
   off: Partial<Record<WatchKind, string[]>>;
+}
+
+/** Settings ▸ Alerts: sending on or off, and from which limit level a limit alert goes out. */
+export interface Alerting {
+  on: boolean;
+  level: AlertLevel;
+}
+
+/**
+ * The rows of Settings ▸ Alerts, in order, each with its group. Limits first: the old Alerts
+ * section's job, now one rule here.
+ */
+const RULES: { kind: WatchKind; group: string; label: string }[] = [
+  { kind: 'level', group: 'Limits', label: 'Limit crossed' },
+  { kind: 'runsOut', group: 'Limits', label: 'Runs out' },
+  { kind: 'spike', group: 'Watchdog', label: KIND_LABEL.spike },
+  { kind: 'surge', group: 'Watchdog', label: KIND_LABEL.surge },
+  { kind: 'new', group: 'Watchdog', label: KIND_LABEL.new },
+  { kind: 'blind', group: 'System', label: KIND_LABEL.blind },
+];
+
+/**
+ * Whether a limit event reaches the channels at this level. Watch: every level crossed and every
+ * runs out. Will exceed: runs out, and 90% or more. Over: only 100%.
+ */
+export function limitSends(e: Pick<WatchEvent, 'kind' | 'level'>, level: AlertLevel) {
+  if (e.kind === 'runsOut') return level !== 'over';
+  if (e.kind !== 'level') return true;
+  const at = e.level ?? 0;
+  return level === 'watch' ? true : level === 'soon' ? at >= 90 : at >= 100;
 }
 
 export interface AccountCheck {
@@ -207,6 +240,7 @@ export class Watchdog extends DurableObject<Env> {
     const mark = this.get<string>('mark', '');
     const id = left[0] ?? ids.find((x) => x > mark) ?? ids[0];
     try {
+      if (!this.get<string>('merged', '')) await this.merge();
       if (id) {
         this.put('mark', id);
         left = left.filter((x) => x !== id);
@@ -289,6 +323,7 @@ export class Watchdog extends DurableObject<Env> {
     const fresh = found.filter((e) => !known.has(e.key));
     if (!fresh.length) return;
     const targets = this.targets();
+    const alerting = this.alerting();
     const origin = this.get<string>('origin', '');
     for (const e of fresh) {
       const text = describe(e, fmt, account);
@@ -308,6 +343,8 @@ export class Watchdog extends DurableObject<Env> {
         now,
         text,
       );
+      // Kept in the app either way; the channels hear it only when alerts are on and at its level.
+      if (!alerting.on || !limitSends(e, alerting.level)) continue;
       // One send a day per thing and kind: a spike every hour on one Worker tells once.
       const thing = `${e.kind}:${e.rid ?? e.acct}:${e.metric}:${day(now)}`;
       const told = this.get<string[]>('told', []).filter((t) => t.endsWith(day(now)));
@@ -336,9 +373,44 @@ export class Watchdog extends DurableObject<Env> {
   // ---------- Sending ----------
 
   private targets(): Targets {
-    // Limits crossed already reach email and webhooks through Alerts (worker/watch.ts), so the
-    // watchdog keeps them in the app unless a channel is turned on for them here.
-    return this.get<Targets>('targets', { webhooks: [], off: { level: ['email', 'ntfy'] } });
+    return this.get<Targets>('targets', { webhooks: [], off: {} });
+  }
+
+  private alerting(): Alerting {
+    return { ...ALERTING, ...this.get<Partial<Alerting>>('alerting', {}) };
+  }
+
+  /**
+   * Once: the old Settings ▸ Alerts (limit emails on their own 15 minute check) folds in here.
+   * Its level becomes Settings ▸ Alerts' limit level. When it was on, its email address and
+   * webhook become channels and limits go to every channel; when it was off, limits stay where
+   * they were (in the app), so nobody starts getting mail they never had. Sending stays on: the
+   * watchdog always sent. One KV read; the old record stays for a rollback.
+   */
+  private async merge() {
+    const old = await oldAlerts(this.env).catch(() => null);
+    const t = this.targets();
+    this.put('alerting', { on: true, level: old?.level ?? ALERTING.level } satisfies Alerting);
+    if (old) {
+      if (old.on) {
+        if (old.emailTo && !t.email && this.env.MAIL)
+          t.email = { address: old.emailTo, created_at: new Date().toISOString(), last_test: null };
+        if (old.webhook && t.webhooks.length < 10) {
+          await this.hookAdd({ name: 'Alerts webhook', url: old.webhook, headers: [] });
+          Object.assign(t, { webhooks: this.targets().webhooks });
+        }
+        t.off.level = [];
+        t.off.runsOut = [];
+      }
+    }
+    this.put('targets', t);
+    this.put('merged', new Date().toISOString());
+  }
+
+  /** Settings ▸ Alerts: sending on or off, and the limit level. */
+  async setAlerting(a: Alerting) {
+    this.put('alerting', a);
+    return this.notifications();
   }
 
   private async send(t: Targets, kind: WatchKind, e: WatchEvent & { text: string }, origin: string) {
@@ -387,7 +459,7 @@ export class Watchdog extends DurableObject<Env> {
         title,
         lines: [text],
         links: link ? [{ text: 'Open the watchdog', href: link }] : undefined,
-        footer: { text: 'Sent by the usageflare watchdog. Turn it off in Settings ▸ Notifications.' },
+        footer: { text: 'Sent by usageflare. Choose what you hear in Settings ▸ Alerts.' },
       }),
       MAIL_MS,
       'The email relay',
@@ -482,12 +554,14 @@ export class Watchdog extends DurableObject<Env> {
         created_at: h.created_at,
         last_test: h.last_test,
       })),
-      events: KINDS.map((k) => ({
-        key: k,
-        label: KIND_LABEL[k],
-        detail: KIND_DETAIL[k],
-        off: t.off[k] ?? [],
+      events: RULES.map((r) => ({
+        key: r.kind,
+        label: r.label,
+        group: r.group,
+        detail: KIND_DETAIL[r.kind],
+        off: t.off[r.kind] ?? [],
       })),
+      alerting: this.alerting(),
     };
   }
 
@@ -582,7 +656,6 @@ export class Watchdog extends DurableObject<Env> {
       created_at: new Date().toISOString(),
       last_test: null,
     });
-    t.off.level = [...(t.off.level ?? []), id];
     return this.save(t);
   }
 
