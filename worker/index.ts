@@ -95,6 +95,7 @@ const viewPage = z.object({
     'watchdog',
     // Since Amount and Baseline: a fresh default, older saved columns left behind.
     'watchdog-amounts',
+    'watchdog-distance',
   ]),
 });
 const prefsBody = z.object({
