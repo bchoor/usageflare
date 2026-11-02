@@ -35,9 +35,6 @@ export const api = {
     ),
   testSecret: (name: string) =>
     apiJson<{ secret: SecretInfo }>(`/api/secrets/${name}/test`, json('POST'), 'secrets.test'),
-  alerts: () => apiJson<AlertsReply>('/api/alerts', undefined, 'alerts'),
-  putAlerts: (body: AlertsInput) => apiJson<AlertsReply>('/api/alerts', json('PUT', body), 'alerts.put'),
-  testAlerts: () => apiJson<AlertsReply>('/api/alerts/test', json('POST'), 'alerts.test'),
   deleteSecret: (name: string) =>
     fetch(`/api/secrets/${name}`, { method: 'DELETE' }).then((r) => {
       if (!r.ok) throw new Error(`Delete failed (${r.status})`);
@@ -58,33 +55,5 @@ export interface Me {
   suite?: { list?: string; prefsCookie?: string; prefsDomain?: string };
 }
 
-/** The lowest status that sends an alert. */
+/** The lowest limit level that sends an alert (Settings ▸ Alerts). */
 export type AlertLevel = 'watch' | 'soon' | 'over';
-
-/** Settings ▸ Alerts as the Worker answers it (worker/alerts.ts, worker/watch.ts): nothing sealed. */
-export interface AlertsReply {
-  alerts: {
-    on: boolean;
-    level: AlertLevel;
-    email: { url: string; from: string; to: string; keyHint: string } | null;
-    webhook: { hint: string } | null;
-    test: KeyTestResult | null;
-    updatedAt: string | null;
-    updatedBy: string | null;
-  };
-  state: {
-    checkedAt: string | null;
-    accounts: number;
-    firing: { acct: string; account: string; metric: string; st: string }[];
-    nextAt: string | null;
-    error: string | null;
-  };
-}
-
-/** A save: a key or webhook address left out keeps the saved one; `null` removes that target. */
-export interface AlertsInput {
-  on: boolean;
-  level: AlertLevel;
-  email?: { url: string; from: string; to: string; key?: string } | null;
-  webhook?: { url?: string } | null;
-}

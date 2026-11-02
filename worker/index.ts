@@ -6,7 +6,6 @@ import { secureHeaders } from 'hono/secure-headers';
 import { z } from 'zod';
 import { CATEGORIES, METRIC } from '../shared/catalog';
 import { requireAccess, sameOrigin } from './access';
-import { getAlerts, putAlerts, testAlerts } from './alerts';
 import changelog from './changelog.json';
 import { historyDates } from './cloudflare';
 import type { AppEnv, Env } from './env';
@@ -144,29 +143,8 @@ const REFUSALS = [
 
 /** The watchdog's alarm is set by the first API call an isolate sees (and on every write here). */
 let watching = false;
-const https = z
-  .string()
-  .trim()
-  .url()
-  .max(2048)
-  .refine((u) => u.startsWith('https://'), 'Must be an https address');
-const alertsBody = z.object({
-  on: z.boolean(),
-  level: z.enum(['watch', 'soon', 'over']),
-  email: z
-    .object({
-      url: https,
-      from: z.string().trim().min(3).max(200),
-      to: z.string().trim().email().max(200),
-      key: z.string().trim().min(8).max(4096).optional(),
-    })
-    .nullable()
-    .optional(),
-  webhook: z.object({ url: https.optional() }).nullable().optional(),
-});
-
-/** The alert check's one Durable Object, told the settings changed (it sets or clears its alarm). */
-const watch = (env: Env, url: string) => env.WATCH.getByName('alerts').sync(new URL(url).origin);
+/** Settings ▸ Alerts: sending on or off, and the limit level that sends. */
+const alertingBody = z.object({ on: z.boolean(), level: z.enum(['watch', 'soon', 'over']) });
 
 const secretBody = z.object({
   kind: z.enum(['cf_api_token', 'cf_tags_token']),
@@ -208,7 +186,7 @@ const api = new Hono<AppEnv>()
   // The watchdog: what it found (30 days) and each account's last check; Check now runs every account.
   .get('/watchdog', async (c) => c.json(await watchdog(c.env).status()))
   .post('/watchdog/run', async (c) => c.json(await watchdog(c.env).run()))
-  // Settings ▸ Notifications (Lumen's NotificationsSettings): where the watchdog tells you.
+  // Settings ▸ Alerts and ▸ Channels (Lumen's NotificationsSettings): what is sent, and where.
   .get('/notifications', async (c) => c.json(await watchdog(c.env).notifications()))
   .post('/notifications/email', async (c) => c.json(await watchdog(c.env).emailOn(c.get('email'))))
   .delete('/notifications/email', async (c) => c.json(await watchdog(c.env).emailOff()))
@@ -237,6 +215,9 @@ const api = new Hono<AppEnv>()
   )
   .post('/notifications/webhooks/:id/test', zValidator('param', hookParam), async (c) =>
     c.json(await watchdog(c.env).hookTest(c.req.valid('param').id)),
+  )
+  .put('/notifications/alerting', zValidator('json', alertingBody), async (c) =>
+    c.json(await watchdog(c.env).setAlerting(c.req.valid('json'))),
   )
   .put(
     '/notifications/events/:key',
@@ -300,23 +281,6 @@ const api = new Hono<AppEnv>()
       c.executionCtx.waitUntil(w),
     );
     return usage ? c.json(usage) : c.json({ error: 'No token reaches that account' }, 404);
-  })
-  // Alerts: the settings (nothing sealed comes back) and the check's last round.
-  .get('/alerts', async (c) => {
-    const [alerts, state] = await Promise.all([getAlerts(c.env), watch(c.env, c.req.url)]);
-    return c.json({ alerts, state });
-  })
-  .put('/alerts', zValidator('json', alertsBody), async (c) => {
-    try {
-      const alerts = await putAlerts(c.env, c.req.valid('json'), c.get('email'));
-      return c.json({ alerts, state: await watch(c.env, c.req.url) });
-    } catch (e) {
-      return c.json({ error: e instanceof Error ? e.message : 'Save failed' }, 400);
-    }
-  })
-  .post('/alerts/test', async (c) => {
-    const alerts = await testAlerts(c.env, `${new URL(c.req.url).origin}/app/`);
-    return c.json({ alerts, state: await watch(c.env, c.req.url) });
   })
   .get('/prefs', async (c) => c.json(await getPrefs(c.env)))
   .put('/prefs', zValidator('json', prefsBody), async (c) => {
