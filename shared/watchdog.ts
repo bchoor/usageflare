@@ -19,7 +19,8 @@
  */
 import { type Account, HOURLY_SLOTS, METRIC, type Metric, PRODUCT, type Resource } from './catalog';
 
-export type WatchKind = 'spike' | 'surge' | 'new' | 'level' | 'runsOut' | 'blind';
+/** `rule`: one of the person's own rules (shared/rules.ts) fired. */
+export type WatchKind = 'spike' | 'surge' | 'new' | 'level' | 'runsOut' | 'blind' | 'rule';
 
 export interface WatchEvent {
   /** One per thing that happened: the same spike seen on the next check has the same key. */
@@ -278,6 +279,8 @@ function says(e: WatchEvent, fmt: (v: number, unit: string) => string) {
       return `${meter}: ${Math.round(e.x * 100)}% of its allowance (${fmt(e.value, unit)} of ${fmt(e.normal, unit)})`;
     case 'runsOut':
       return `${meter}: at this pace it reaches its allowance in about ${e.level ?? 0} h, before it resets`;
+    case 'rule':
+      return e.name;
     case 'blind':
       return `Can't read ${e.name} since ${e.at.slice(0, 16).replace('T', ' ')} UTC: nothing about it is checked until it can`;
   }
@@ -290,6 +293,7 @@ export const KIND_LABEL: Record<WatchKind, string> = {
   level: 'Limit',
   runsOut: 'Runs out',
   blind: "Can't see",
+  rule: 'Your rule',
 };
 
 /** What each kind means, one line (Settings ▸ Notifications lists them). */
@@ -300,6 +304,7 @@ export const KIND_DETAIL: Record<WatchKind, string> = {
   level: 'An account meter passes Watch, 90% or 100% of its allowance',
   runsOut: 'At this pace a meter runs out before it resets',
   blind: "The watchdog can't read an account for over an hour",
+  rule: 'One of your own rules on a meter',
 };
 
 export const KINDS = Object.keys(KIND_LABEL) as WatchKind[];

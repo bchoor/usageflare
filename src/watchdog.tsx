@@ -75,7 +75,7 @@ const xText = (e: StoredEvent) =>
     ? `${Math.round(e.x * 100)}%`
     : e.kind === 'new'
       ? 'New'
-      : e.kind === 'blind'
+      : e.kind === 'blind' || e.kind === 'rule'
         ? '—'
         : `${e.x >= 10 ? Math.round(e.x) : e.x.toFixed(1)}×`;
 
@@ -97,7 +97,15 @@ const meterOf = (e: StoredEvent) => {
 
 /** Newest first, and within one check: can't read, spike, surge, new mover, pace, limit. */
 const BUCKET = 10 * 60_000;
-const RANK: Record<WatchKind, number> = { blind: 5, spike: 4, surge: 3, new: 2, runsOut: 1, level: 0 };
+const RANK: Record<WatchKind, number> = {
+  blind: 6,
+  rule: 5,
+  spike: 4,
+  surge: 3,
+  new: 2,
+  runsOut: 1,
+  level: 0,
+};
 
 const TONE: Record<WatchKind, string> = {
   spike: 'text-warning',
@@ -106,6 +114,7 @@ const TONE: Record<WatchKind, string> = {
   level: '',
   runsOut: 'text-warning',
   blind: 'text-destructive',
+  rule: 'text-warning',
 };
 
 function watchDomain(accountName: (id: string) => string): ViewDomain<StoredEvent> {
