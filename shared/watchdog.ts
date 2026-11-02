@@ -41,6 +41,12 @@ export interface WatchEvent {
   x: number;
   /** level: the crossed share in percent (75, 90, 100). runsOut: hours to the cap. */
   level?: number;
+  /**
+   * spike, surge, new: where the account's meter stands (distance beside the speed): the share of
+   * its allowance used this period, and where the last 3 hours' pace lands it at reset. Only in
+   * the text a person reads; not stored on its own.
+   */
+  cap?: { used: number; lands: number; per: 'day' | 'mo' };
 }
 
 export const SPIKE_X = 5;
@@ -179,16 +185,47 @@ export interface WatchInput {
 }
 
 /** Everything abnormal in one account's read, at most one event of a kind per thing. */
+/** Where each account meter stands: share used this period and where its pace lands it at reset. */
+function capsOf(a: Account, resources: Resource[], dates: string[], now: number) {
+  const out = new Map<string, NonNullable<WatchEvent['cap']>>();
+  const day = new Date(now).getUTCDate();
+  const last = HOURLY_SLOTS - 1;
+  const d = new Date(now);
+  for (const m of Object.values(METRIC)) {
+    const cap = allowanceOf(m, a.plan);
+    if (!cap || m.kind !== 'sum' || m.noApi) continue;
+    const mine = resources.filter((r) => r.series[m.key]);
+    if (!mine.length) continue;
+    const n = mine[0]?.series[m.key]?.length ?? dates.length;
+    const sumDay = (i: number) => mine.reduce((s, r) => s + (r.series[m.key]?.[i] ?? 0), 0);
+    let used = 0;
+    if (cap.per === 'day') used = sumDay(n - 1);
+    else for (let i = Math.max(0, n - day); i < n; i++) used += sumDay(i);
+    const pace = mean(
+      [last - 3, last - 2, last - 1].map((s) => mine.reduce((t, r) => t + (r.hourly?.[m.key]?.[s] ?? 0), 0)),
+    );
+    const reset =
+      cap.per === 'day'
+        ? Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1)
+        : Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1);
+    const left = Math.max(0, (reset - now) / 3_600_000);
+    out.set(m.key, { used: used / cap.limit, lands: (used + pace * left) / cap.limit, per: cap.per });
+  }
+  return out;
+}
+
 export function watch({ account: a, resources, dates, warn, now = Date.now() }: WatchInput): WatchEvent[] {
   const out: WatchEvent[] = [];
   const from = a.hoursFrom ? Date.parse(a.hoursFrom) : Number.NaN;
   const hourly = new Set(a.hourly ?? []);
+  const caps = capsOf(a, resources, dates, now);
   const keys = new Set(resources.flatMap((r) => Object.keys(r.hourly ?? {})));
   for (const r of resources) {
     if (r.state === 'deleted' || !Number.isFinite(from) || !hourly.has(r.product)) continue;
     for (const [k, hours] of Object.entries(r.hourly ?? {})) {
       const m = METRIC[k];
       if (!m || m.kind !== 'sum' || hours.length !== HOURLY_SLOTS) continue;
+      const cap = caps.get(k);
       out.push(
         ...velocity(
           hours,
@@ -197,7 +234,7 @@ export function watch({ account: a, resources, dates, warn, now = Date.now() }: 
           floorOf(m, a.plan),
           { acct: a.id, rid: r.id, name: r.name, metric: k },
           moveOf(m, a.plan),
-        ),
+        ).map((e) => (cap ? { ...e, cap } : e)),
       );
     }
   }
@@ -263,6 +300,14 @@ export function describe(
   return account && e.kind !== 'blind' ? `${account} · ${line}` : line;
 }
 
+/** `· 34% of today's allowance used, on pace for 140% by reset`: the distance beside the speed. */
+export function capText(cap: WatchEvent['cap']) {
+  if (!cap) return '';
+  const pct = (v: number) => `${v >= 10 ? '>999' : Math.round(v * 100)}%`;
+  const whose = cap.per === 'day' ? "today's" : "this month's";
+  return ` · ${pct(cap.used)} of ${whose} allowance used, on pace for ${pct(cap.lands)} by reset`;
+}
+
 function says(e: WatchEvent, fmt: (v: number, unit: string) => string) {
   const m = METRIC[e.metric];
   const meter = m ? `${PRODUCT[m.product]?.label ?? m.product} ${m.label}` : e.metric;
@@ -270,11 +315,11 @@ function says(e: WatchEvent, fmt: (v: number, unit: string) => string) {
   const x = e.x >= 10 ? `${Math.round(e.x)}×` : `${e.x.toFixed(1)}×`;
   switch (e.kind) {
     case 'spike':
-      return `${meter} on ${e.name}: ${x} its normal hour (${fmt(e.value, unit)} vs ${fmt(e.normal, unit)})`;
+      return `${meter} on ${e.name}: ${x} its normal hour (${fmt(e.value, unit)} vs ${fmt(e.normal, unit)})${capText(e.cap)}`;
     case 'surge':
-      return `${meter} on ${e.name}: ${x} normal for ${SURGE_HOURS} hours (${fmt(e.value, unit)}/h vs ${fmt(e.normal, unit)}/h)`;
+      return `${meter} on ${e.name}: ${x} normal for ${SURGE_HOURS} hours (${fmt(e.value, unit)}/h vs ${fmt(e.normal, unit)}/h)${capText(e.cap)}`;
     case 'new':
-      return `${meter} on ${e.name}: new, ${fmt(e.value, unit)}/h with no history`;
+      return `${meter} on ${e.name}: new, ${fmt(e.value, unit)}/h with no history${capText(e.cap)}`;
     case 'level':
       return `${meter}: ${Math.round(e.x * 100)}% of its allowance (${fmt(e.value, unit)} of ${fmt(e.normal, unit)})`;
     case 'runsOut':
@@ -288,7 +333,7 @@ function says(e: WatchEvent, fmt: (v: number, unit: string) => string) {
 
 export const KIND_LABEL: Record<WatchKind, string> = {
   spike: 'Spike',
-  surge: 'Surge',
+  surge: 'Sustained',
   new: 'New mover',
   level: 'Limit',
   runsOut: 'Runs out',

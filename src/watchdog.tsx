@@ -9,11 +9,15 @@ import {
   LumenLayout,
   lumenToast,
   NoteLine,
+  type PaceWindow,
+  PaceWindowPicker,
+  ShareMeter,
   type StatusMessage,
   Tile,
   TileRow,
   UnitValue,
   useLumenLoad,
+  usePaceWindow,
   type ViewDomain,
 } from '@columenlabs/lumen-ui';
 import { Button } from '@columenlabs/lumen-ui/ui/button';
@@ -23,7 +27,8 @@ import { useMemo } from 'react';
 import { METRIC, PRODUCT } from '../shared/catalog';
 import { KIND_LABEL, type WatchEvent, type WatchKind } from '../shared/watchdog';
 import { amountParts, view } from './domains';
-import { useModel } from './model';
+import { pctText, type Usage, useModel } from './model';
+import { MeterPaceCell, paceOf } from './pace';
 import { useSavedView } from './pages';
 import { ProductIcon } from './products';
 
@@ -117,7 +122,15 @@ const TONE: Record<WatchKind, string> = {
   rule: 'text-warning',
 };
 
-function watchDomain(accountName: (id: string) => string): ViewDomain<StoredEvent> {
+/**
+ * The distance beside the speed: where the event's account meter stands now (share of its
+ * allowance used this period) and when the pace window's rate takes it to the cap.
+ */
+function watchDomain(
+  accountName: (id: string) => string,
+  usageOf: (e: StoredEvent) => Usage | undefined,
+  w: PaceWindow,
+): ViewDomain<StoredEvent> {
   return {
     id: 'watchdog',
     rowKey: (e) => e.key,
@@ -185,6 +198,39 @@ function watchDomain(accountName: (id: string) => string): ViewDomain<StoredEven
         hideOnPhone: true,
       },
       {
+        key: 'used',
+        label: 'Limit used',
+        icon: Gauge,
+        format: 'percent',
+        note: "the account meter's share of its allowance this period, now",
+        value: (e) => {
+          const u = usageOf(e);
+          return u && !u.payg && e.kind !== 'blind' ? u.pct : null;
+        },
+        render: (e) => {
+          const u = usageOf(e);
+          if (!u || u.payg || e.kind === 'blind') return null;
+          return <ShareMeter value={u.pct} label={pctText(u.pct)} />;
+        },
+      },
+      {
+        key: 'lands',
+        label: 'Hits limit',
+        icon: Clock,
+        format: 'number',
+        note: "when the account meter reaches its allowance at the pace window's rate, now",
+        value: (e) => {
+          const u = usageOf(e);
+          const p = u && e.kind !== 'blind' ? paceOf(u, w) : null;
+          return p ? (p.hits ? p.eta : null) : null;
+        },
+        render: (e) => {
+          const u = usageOf(e);
+          if (!u || u.payg || e.kind === 'blind') return null;
+          return <MeterPaceCell u={u} w={w} />;
+        },
+      },
+      {
         key: 'meter',
         label: 'Meter',
         icon: Gauge,
@@ -250,7 +296,7 @@ function watchDomain(accountName: (id: string) => string): ViewDomain<StoredEven
 
 const WATCHDOG = view({
   name: 'Watchdog',
-  columns: ['what', 'kind', 'x', 'value', 'normal', 'meter', 'account', 'when', 'sent'],
+  columns: ['what', 'kind', 'x', 'value', 'normal', 'used', 'lands', 'account', 'when', 'sent'],
   group: { fields: ['kind', 'account', 'meter'], default: null },
   sort: { key: 'when', desc: true },
 });
@@ -260,7 +306,8 @@ export function WatchdogPage() {
   const q = useWatchdog();
   const qc = useQueryClient();
   const load = useLumenLoad(q);
-  const saved = useSavedView('watchdog-amounts', WATCHDOG);
+  const saved = useSavedView('watchdog-distance', WATCHDOG);
+  const [w] = usePaceWindow();
   const run = useMutation({
     mutationFn: () => apiJson<WatchdogStatus>('/api/watchdog/run', { method: 'POST' }, 'watchdog.run'),
     onSuccess: (s) => {
@@ -277,7 +324,15 @@ export function WatchdogPage() {
     }),
     [m.accounts, q.data],
   );
-  const domain = useMemo(() => watchDomain((id) => names[id] ?? id), [names]);
+  const domain = useMemo(
+    () =>
+      watchDomain(
+        (id) => names[id] ?? id,
+        (e) => m.usage.find((u) => u.a.id === e.acct && u.m.key === e.metric),
+        w,
+      ),
+    [names, m.usage, w],
+  );
   const rows = q.data?.events ?? [];
   const today = lastDay(q.data);
   const checks = Object.values(q.data?.accounts ?? {});
@@ -292,10 +347,13 @@ export function WatchdogPage() {
       crumbs={[{ label: 'Watchdog' }]}
       meta="Usage that moves far from its normal, beside the fixed limits"
       actions={
-        <Button size="sm" variant="outline" disabled={run.isPending} onClick={() => run.mutate()}>
-          <RefreshCw className={run.isPending ? 'animate-spin' : undefined} />
-          Check now
-        </Button>
+        <>
+          <PaceWindowPicker />
+          <Button size="sm" variant="outline" disabled={run.isPending} onClick={() => run.mutate()}>
+            <RefreshCw className={run.isPending ? 'animate-spin' : undefined} />
+            Check now
+          </Button>
+        </>
       }
       intro={
         <>
@@ -307,7 +365,7 @@ export function WatchdogPage() {
             />
           )}
           <TileRow fill aria-label="Watchdog">
-            <Tile label="Spikes and surges" value={count(['spike', 'surge'])} caption="Last 24 hours" />
+            <Tile label="Spikes and sustained" value={count(['spike', 'surge'])} caption="Last 24 hours" />
             <Tile label="New movers" value={count(['new'])} caption="No history, now busy" />
             <Tile label="Limits" value={count(['level', 'runsOut'])} caption="Crossed or on pace to" />
             <Tile
