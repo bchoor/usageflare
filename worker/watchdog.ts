@@ -15,6 +15,7 @@
  */
 import { DurableObject } from 'cloudflare:workers';
 import { BURN_DEFAULT, type BurnSettings, type BurnSnap, burn } from '../shared/burn';
+import { COST_DEFAULT, type CostSettings, cost } from '../shared/cost';
 import { inferPlan } from '../shared/judge';
 import { MAX_RULES, type Rule, type RuleReading, readingText, readNow, seriesOf } from '../shared/rules';
 import {
@@ -93,6 +94,7 @@ export interface Alerting {
 const RULES: { kind: WatchKind; group: string; label: string }[] = [
   { kind: 'burn', group: 'Limits', label: KIND_LABEL.burn },
   { kind: 'level', group: 'Limits', label: 'Limit crossed' },
+  { kind: 'cost', group: 'Money', label: KIND_LABEL.cost },
   { kind: 'blind', group: 'System', label: KIND_LABEL.blind },
 ];
 
@@ -159,12 +161,13 @@ interface RuleState {
 }
 
 /** Kinds an older build doesn't know live in `rule_events`, so a rollback never reads them. */
-const tableOf = (kind: WatchKind) => (kind === 'rule' || kind === 'burn' ? 'rule_events' : 'events');
+const tableOf = (kind: WatchKind) =>
+  kind === 'rule' || kind === 'burn' || kind === 'cost' ? 'rule_events' : 'events';
 /**
  * What reaches the channels. Spikes, sustained runs and new movers are kept in the app only: a
  * move alone is no reason to act; one that eats the limit is `burn`.
  */
-const SENT = new Set<WatchKind>(['burn', 'level', 'blind', 'rule']);
+const SENT = new Set<WatchKind>(['burn', 'level', 'blind', 'rule', 'cost']);
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 const json = <T>(s: string | null | undefined, d: T): T => {
@@ -330,7 +333,12 @@ export class Watchdog extends DurableObject<Env> {
         settings: this.burnSettings(),
       });
       this.put(`burn:${id}`, b.snap);
-      found.push(...seen.filter((e) => e.kind !== 'runsOut'), ...b.events, ...this.judgeRules(usage, now));
+      found.push(
+        ...seen.filter((e) => e.kind !== 'runsOut'),
+        ...b.events,
+        ...cost({ account: usage.account, resources: usage.resources, now, settings: this.costSettings() }),
+        ...this.judgeRules(usage, now),
+      );
     } else if (down !== undefined && now - down >= BLIND_MS) {
       const since = new Date(down).toISOString();
       found.push({
@@ -451,6 +459,16 @@ export class Watchdog extends DurableObject<Env> {
 
   private burnSettings(): BurnSettings {
     return { ...BURN_DEFAULT, ...this.get<Partial<BurnSettings>>('burnSet', {}) };
+  }
+
+  private costSettings(): CostSettings {
+    return { ...COST_DEFAULT, ...this.get<Partial<CostSettings>>('costSet', {}) };
+  }
+
+  /** Settings ▸ Alerts ▸ Over budget: on or off, and the month's budget per Paid account. */
+  async setCost(c: CostSettings) {
+    this.put('costSet', c);
+    return this.notifications();
   }
 
   /** Settings ▸ Alerts ▸ Burning fast: the dials. */
@@ -623,7 +641,7 @@ export class Watchdog extends DurableObject<Env> {
             : kind === 'blind'
               ? 'see_no_evil'
               : 'chart_with_upwards_trend',
-        Priority: kind === 'burn' ? '5' : kind === 'level' || kind === 'rule' ? '4' : '3',
+        Priority: kind === 'burn' ? '5' : kind === 'level' || kind === 'rule' || kind === 'cost' ? '4' : '3',
         ...(link ? { Click: link } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
@@ -712,6 +730,7 @@ export class Watchdog extends DurableObject<Env> {
       ],
       alerting: this.alerting(),
       burn: this.burnSettings(),
+      cost: this.costSettings(),
       rules,
       ruleState: this.get<Record<string, RuleState>>('ruleState', {}),
     };

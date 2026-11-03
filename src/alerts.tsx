@@ -11,9 +11,10 @@ import { Switch } from '@columenlabs/lumen-ui/ui/switch';
 import { ToggleGroup, ToggleGroupItem } from '@columenlabs/lumen-ui/ui/toggle-group';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { BurnSettings } from '../shared/burn';
+import type { CostSettings } from '../shared/cost';
 import type { Rule } from '../shared/rules';
 import type { AlertLevel } from './api';
-import { BurnSettingsBlock } from './burn';
+import { BurnSettingsBlock, CostSettingsBlock } from './burn';
 import { RulesSettings } from './rules';
 import { useWatchdog } from './watchdog';
 
@@ -38,7 +39,11 @@ function useAlerting() {
   const q = useQuery({
     queryKey: KEY,
     queryFn: () =>
-      apiJson<{ alerting?: Alerting; rules?: Rule[]; burn?: BurnSettings }>(API, undefined, 'notifications'),
+      apiJson<{ alerting?: Alerting; rules?: Rule[]; burn?: BurnSettings; cost?: CostSettings }>(
+        API,
+        undefined,
+        'notifications',
+      ),
   });
   const save = useMutation({
     mutationFn: (a: Alerting) =>
@@ -75,6 +80,7 @@ export function AlertsSettings() {
         />
       </SettingRow>
       <BurnSettingsBlock value={q.data?.burn} />
+      <CostSettingsBlock value={q.data?.cost} />
       <SettingRow label="Limit alert at" description={LEVELS.find((l) => l.id === a.level)?.note}>
         <ToggleGroup
           type="single"
