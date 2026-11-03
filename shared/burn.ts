@@ -2,7 +2,8 @@
  * Burning fast: the watchdog's main alarm. A share of an account meter's limit used within a short
  * window ("10% of today's limit in 15 minutes") is a runaway, whatever the raw count: 1M KV reads
  * in 10 minutes is 10% of a 10M month and fires; 1M D1 rows read is 0.004% of 25B and stays quiet.
- * A daily limit empties within hours, so it gets stricter dials than a monthly one.
+ * Every limit is judged as a daily budget: a daily limit is its own, a monthly one is the limit
+ * over 30 days (50M a month is 1.67M a day). One set of dials then fits every meter.
  *
  * Windows of an hour or more read the account's hourly series. The 15 minute window reads the
  * difference from the watchdog's last read of the same account (each is read every 15 minutes),
@@ -21,11 +22,21 @@ export interface BurnDial {
 
 export interface BurnSettings {
   on: boolean;
-  /** Dials for limits that reset daily (most Free plan meters), fastest first. */
+  /** The dials, as a share of a day's budget, fastest first. They apply to every limit. */
   day: BurnDial[];
-  /** Dials for limits that reset monthly (Paid plan meters), fastest first. */
+  /**
+   * Older builds judged monthly limits on these, as a share of the month. Kept (and saved as it
+   * was) so a rollback still reads its dials; this build ignores them.
+   */
   mo: BurnDial[];
 }
+
+/** The days a monthly limit is spread over for its daily budget. */
+export const BUDGET_DAYS = 30;
+
+/** A limit's daily budget: a daily limit as it is, a monthly one over `BUDGET_DAYS`. */
+export const dailyBudget = (limit: number, per: 'day' | 'mo') =>
+  per === 'day' ? limit : limit / BUDGET_DAYS;
 
 export const BURN_WINDOWS = [15, 60, 360, 1440] as const;
 export const BURN_DEFAULT: BurnSettings = {
@@ -145,7 +156,8 @@ export function burn({
     new Date(now).getUTCDate(),
   );
   for (const x of meters) {
-    for (const dial of settings[x.per]) {
+    const budget = dailyBudget(x.limit, x.per);
+    for (const dial of settings.day) {
       let burned = 0;
       let mins = dial.mins;
       let parts: Record<string, number> = {};
@@ -173,7 +185,7 @@ export function burn({
           if (v > 0) parts[rid] = v;
         }
       }
-      const share = burned / x.limit;
+      const share = burned / budget;
       if (!(burned > 0) || share * 100 < dial.pct) continue;
       const top = Object.entries(parts).sort((p, q) => q[1] - p[1])[0];
       const by = top && top[1] > 0 ? { rid: top[0], share: top[1] / burned } : null;
@@ -188,7 +200,7 @@ export function burn({
         metric: x.key,
         at: new Date(now).toISOString(),
         value: burned,
-        normal: x.limit,
+        normal: budget,
         x: share,
         level: mins,
         cap: { used: x.used / x.limit, lands: 0, per: x.per },

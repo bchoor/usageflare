@@ -332,17 +332,20 @@ function says(e: WatchEvent, fmt: (v: number, unit: string) => string) {
     case 'rule':
       return e.name;
     case 'burn': {
-      const whose = e.cap?.per === 'day' ? "today's" : "the month's";
       const win = (e.level ?? 0) < 60 ? `${e.level} min` : `${(e.level ?? 0) / 60} h`;
       const pct = (v: number) => `${v >= 0.1 ? Math.round(v * 100) : (v * 100).toFixed(1)}%`;
       const by = e.by ? `, ${Math.round(e.by.share * 100)}% from ${e.by.name}` : '';
+      const budget =
+        e.cap?.per === 'mo'
+          ? `a day's budget (${fmt(e.normal, unit)}: ${fmt(e.normal * 30, unit)} a month ÷ 30)`
+          : `today's ${fmt(e.normal, unit)}`;
       const left =
         (e.cap?.used ?? 0) >= 1
           ? ' Already past the limit.'
           : e.empties !== undefined
-            ? ` Used up in ${e.empties < 1 ? 'under 1 h' : `${Math.round(e.empties)} h`} at this rate.`
+            ? ` The ${e.cap?.per === 'mo' ? "month's" : "day's"} limit is used up in ${e.empties < 1 ? 'under 1 h' : `${Math.round(e.empties)} h`} at this rate.`
             : '';
-      return `${meter}: ${pct(e.x)} of ${whose} ${fmt(e.normal, unit)} in ${win} (${fmt(e.value, unit)})${by}.${left}`;
+      return `${meter}: ${pct(e.x)} of ${budget} in ${win} (${fmt(e.value, unit)})${by}.${left}`;
     }
     case 'blind':
       return `Can't read ${e.name} since ${e.at.slice(0, 16).replace('T', ' ')} UTC: nothing about it is checked until it can`;
@@ -369,7 +372,7 @@ export const KIND_DETAIL: Record<WatchKind, string> = {
   runsOut: 'At this pace a meter runs out before it resets',
   blind: "The watchdog can't read an account for over an hour",
   rule: 'One of your own rules on a meter',
-  burn: 'A share of a limit used within a short window (set below)',
+  burn: "A share of a day's budget used within a short window (set below)",
 };
 
 export const KINDS = Object.keys(KIND_LABEL) as WatchKind[];

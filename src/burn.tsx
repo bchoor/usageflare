@@ -1,7 +1,7 @@
 /**
  * Settings ▸ Alerts ▸ Burning fast: the dials of the watchdog's main alarm (shared/burn.ts). A
- * share of a limit used within a window, set apart for limits that reset daily and monthly. Each
- * line reads as a sentence: "Alert at 10% of a daily limit in 15 min".
+ * share of a day's budget used within a window; a monthly limit's day is the limit over 30. Each
+ * line reads as a sentence: "Runaway: 10% in 15 min".
  */
 import { apiJson, ErrorLine, LumenSelector, lumenToast, SaveButton, SettingRow } from '@columenlabs/lumen-ui';
 import { Button } from '@columenlabs/lumen-ui/ui/button';
@@ -14,13 +14,12 @@ import { BURN_DEFAULT, BURN_WINDOWS, type BurnDial, type BurnSettings, windowTex
 const API = '/api/notifications';
 const KEY = ['notifications', API];
 const WINDOWS = BURN_WINDOWS.map((w) => ({ value: String(w), label: windowText(w) }));
-const PER: { id: 'day' | 'mo'; label: string; note: string }[] = [
+const PER: { id: 'day'; label: string; note: string }[] = [
   {
     id: 'day',
-    label: 'Daily limits',
-    note: 'Free plan meters reset at 00:00 UTC: 4% an hour empties one in a day',
+    label: 'Per day',
+    note: "Share of a day's budget; a monthly limit's day is 1/30 of it",
   },
-  { id: 'mo', label: 'Monthly limits', note: 'Paid plan meters: 0.14% an hour empties one in a month' },
 ];
 const LINE = ['Runaway', 'Climbing', 'Third'];
 
@@ -44,15 +43,15 @@ export function BurnSettingsBlock({ value }: { value: BurnSettings | undefined }
     },
   });
   const dirty = JSON.stringify(d) !== stamp;
-  const setDial = (per: 'day' | 'mo', i: number, p: Partial<BurnDial>) =>
+  const setDial = (per: 'day', i: number, p: Partial<BurnDial>) =>
     setD((x) => ({ ...x, [per]: x[per].map((g, j) => (j === i ? { ...g, ...p } : g)) }));
-  const issues = (['day', 'mo'] as const).flatMap((per) =>
+  const issues = (['day'] as const).flatMap((per) =>
     d[per].flatMap((g, i) =>
       Number.isFinite(g.pct) && g.pct > 0 && g.pct <= 100
         ? []
         : [
             {
-              where: `${per === 'day' ? 'Daily' : 'Monthly'} ${LINE[i]}`,
+              where: LINE[i] ?? 'Dial',
               message: 'A % from 0.01 to 100',
               target: `burn-${per}-${i}`,
             },
@@ -64,7 +63,7 @@ export function BurnSettingsBlock({ value }: { value: BurnSettings | undefined }
       <SettingRow
         label="Burning fast"
         htmlFor="burn-on"
-        description="Alert when a share of a limit is used within a short window"
+        description="Alert when a day's budget is used up too fast"
       >
         <Switch
           id="burn-on"
@@ -111,8 +110,8 @@ export function BurnSettingsBlock({ value }: { value: BurnSettings | undefined }
       <ErrorLine error={save.error} />
       {d.on && (
         <div className="flex items-center justify-end gap-2">
-          {JSON.stringify(d) !== JSON.stringify(BURN_DEFAULT) && (
-            <Button size="sm" variant="ghost" onClick={() => setD(BURN_DEFAULT)}>
+          {JSON.stringify(d.day) !== JSON.stringify(BURN_DEFAULT.day) && (
+            <Button size="sm" variant="ghost" onClick={() => setD((x) => ({ ...x, day: BURN_DEFAULT.day }))}>
               Defaults
             </Button>
           )}
