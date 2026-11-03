@@ -6,7 +6,14 @@
  * NotificationsSettings, drawn in two sections (`parts`). Below the grid, your own rules on any
  * meter (src/rules.tsx).
  */
-import { apiJson, ErrorLine, NotificationsSettings, SettingRow, useClock } from '@columenlabs/lumen-ui';
+import {
+  apiJson,
+  ErrorLine,
+  NotificationsSettings,
+  SettingRow,
+  SettingsFooter,
+  useClock,
+} from '@columenlabs/lumen-ui';
 import { Switch } from '@columenlabs/lumen-ui/ui/switch';
 import { ToggleGroup, ToggleGroupItem } from '@columenlabs/lumen-ui/ui/toggle-group';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -101,14 +108,16 @@ export function AlertsSettings() {
       <ErrorLine error={save.error} />
       <NotificationsSettings api={API} product="usageflare" sender={SENDER} parts="events" />
       <div className="flex flex-col gap-2">
-        <p className="font-medium text-sm">Your rules</p>
+        <h4 className="font-semibold text-muted-foreground text-xs uppercase tracking-wide">Your rules</h4>
         <RulesSettings rules={q.data?.rules ?? []} />
       </div>
-      <p className="truncate text-muted-foreground text-xs">
-        {a.on ? '' : 'Off: found and shown here, sent nowhere · '}
-        {last ? `Checked ${clock(last)}` : 'First check within 5 minutes'}
-        {next ? ` · next ${clock(new Date(next).toISOString())}` : ''} · each alert once a day per channel
-      </p>
+      <SettingsFooter>
+        <span className="min-w-0 truncate text-muted-foreground text-xs">
+          {a.on ? '' : 'Off: found and shown here, sent nowhere · '}
+          {last ? `Checked ${clock(last)}` : 'First check within 5 minutes'}
+          {next ? ` · next ${clock(new Date(next).toISOString())}` : ''} · each alert once a day per channel
+        </span>
+      </SettingsFooter>
     </div>
   );
 }
