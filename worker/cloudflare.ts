@@ -122,6 +122,19 @@ const GB = 1e9;
 const NONE: Record<string, number> = {};
 const norm = (id: string) => id.replaceAll('-', '').toLowerCase();
 
+/** Cloudflare regions whose container egress bills at the North America & Europe rate. */
+const NA_EU = new Set(['WNAM', 'ENAM', 'WEUR', 'EEUR']);
+/** Korea and Taiwan data centers (IATA codes), billed with Oceania. */
+const KR_TW = /^(icn|tpe|khh)/i;
+
+/** The egress pool a container's bytes count against, from where it ran. */
+export function egressPool(region = '', location = ''): 'ct.egress' | 'ct.egress.oc' | 'ct.egress.row' {
+  const r = region.toUpperCase();
+  if (NA_EU.has(r)) return 'ct.egress';
+  if (r === 'OC' || KR_TW.test(location)) return 'ct.egress.oc';
+  return 'ct.egress.row';
+}
+
 // R2 operation classes (https://developers.cloudflare.com/r2/pricing/#class-a-operations).
 const R2_CLASS_A = new Set([
   'ListBuckets',
@@ -276,17 +289,23 @@ const DATASETS: Dataset[] = [
     values: (r) => ({ 'wf.req': r.dimensions.eventType === 'WORKFLOW_START' ? (r.count ?? 0) : 0 }),
   },
   {
+    // Sandboxes are container applications too, so they're read here with the rest.
+    // containersUsageAdaptiveGroups is the billing dataset (CPU in 10 ms steps, the billed egress);
+    // the metrics dataset counts more bytes than are billed.
     name: 'Containers',
-    field: 'containersMetricsAdaptiveGroups',
-    select: 'sum { cpuTimeSec allocatedMemory allocatedDisk }',
-    dims: ['applicationId'],
+    field: 'containersUsageAdaptiveGroups',
+    select: 'sum { cpuTimeSec allocatedMemory allocatedDisk txBytes }',
+    dims: ['applicationId', 'region', 'location'],
     product: 'containers',
+    recent: true,
     key: (r) => norm(r.dimensions.applicationId ?? ''),
-    // CPU is billed on use; memory and disk on what's provisioned (allocated*: unit-seconds).
+    // CPU is billed on use; memory and disk on what's provisioned (allocated*: unit-seconds);
+    // egress by the region the container ran in.
     values: (r) => ({
       'ct.cpu': (r.sum?.cpuTimeSec ?? 0) / 60,
       'ct.mem': (r.sum?.allocatedMemory ?? 0) / 2 ** 30 / 3600,
       'ct.disk': (r.sum?.allocatedDisk ?? 0) / 1e9 / 3600,
+      [egressPool(r.dimensions.region, r.dimensions.location)]: (r.sum?.txBytes ?? 0) / GB,
     }),
   },
   {
@@ -520,6 +539,7 @@ const UNLISTED_DETAIL: Partial<Record<ProductId, string>> = {
   basin: 'Data Catalog warehouse',
   email: 'Sending domain',
   logpush: 'Logpush job',
+  containers: 'Container app: add Containers Read to the token to name it',
 };
 
 const REST_ROW = 'REST API';
@@ -814,6 +834,28 @@ const slimBinding = ({
   index_name,
 });
 
+type ContainerApp = {
+  id: string;
+  name: string;
+  instance_type?: unknown;
+  configuration?: { image?: string; instance_type?: unknown };
+  durable_objects?: { namespace_id?: string };
+};
+
+/**
+ * The account's container applications (Containers Read, optional like Images Read): a token
+ * without it leaves container rows by id, never flags a missing scope.
+ */
+async function containerApps(token: string, a: string, inv: Inventory): Promise<ContainerApp[]> {
+  try {
+    const apps = await rest<ContainerApp[]>(token, `${a}/containers/applications`);
+    inv.listed.add('containers');
+    return Array.isArray(apps) ? apps : [];
+  } catch {
+    return [];
+  }
+}
+
 async function inventory(
   token: string,
   acct: string,
@@ -851,7 +893,7 @@ async function inventory(
       return [];
     }
   };
-  const [allScripts, domains, kvs, d1s, r2, dos, queues, workflows, hyper, vec] = await Promise.all([
+  const [allScripts, domains, kvs, d1s, r2, dos, queues, workflows, hyper, vec, apps] = await Promise.all([
     tryList(
       'Workers scripts',
       () => restList<{ id: string; tag?: string; modified_on?: string }>(token, `${a}/workers/scripts`),
@@ -902,6 +944,7 @@ async function inventory(
       () => rest<{ name: string; config?: { dimensions?: number } }[]>(token, `${a}/vectorize/v2/indexes`),
       'vectorize',
     ),
+    containerApps(token, a, inv),
   ]);
 
   // Some lists ignore paging and answer every page in full: keep each script once.
@@ -924,6 +967,24 @@ async function inventory(
       type: d.use_sqlite ? 'SQLite' : 'KV storage',
       detail: d.script ? `Worker ${d.script}` : undefined,
     });
+  // Container applications, Sandboxes among them: a Sandbox is a container app whose image or
+  // Durable Object class is Cloudflare's sandbox. The app's Durable Object names the Worker behind it.
+  const doById = new Map(dos.map((d) => [norm(d.id), d]));
+  const appByClass = new Map<string, string>();
+  for (const c of apps) {
+    const ns = c.durable_objects?.namespace_id ? doById.get(norm(c.durable_objects.namespace_id)) : undefined;
+    const sandbox = /sandbox/i.test(c.configuration?.image ?? '') || /sandbox/i.test(ns?.class ?? '');
+    const size = c.instance_type ?? c.configuration?.instance_type;
+    const id = add(inv, acct, 'containers', c.name, [norm(c.id)], {
+      cfId: c.id,
+      type: sandbox ? 'Sandbox' : 'Container',
+      detail:
+        [ns?.script ? `Worker ${ns.script}` : '', typeof size === 'string' ? size : '']
+          .filter(Boolean)
+          .join(' · ') || undefined,
+    });
+    if (ns?.class) appByClass.set(ns.class, id);
+  }
   for (const q of queues) add(inv, acct, 'queues', q.queue_name, [norm(q.queue_id)], { cfId: q.queue_id });
   for (const w of workflows) add(inv, acct, 'workflows', w.name, [w.name]);
   for (const h of hyper) add(inv, acct, 'hyperdrive', h.name, [norm(h.id)]);
@@ -967,8 +1028,11 @@ async function inventory(
           const d1 = b.type === 'd1' && b.id ? d1ById.get(norm(b.id)) : undefined;
           if (d1) return [rid(acct, 'd1', d1)];
           if (b.type === 'r2_bucket' && b.bucket_name) return [rid(acct, 'r2', b.bucket_name)];
-          if (b.type === 'durable_object_namespace' && b.class_name && doByClass.has(b.class_name))
-            return [rid(acct, 'do', b.class_name)];
+          if (b.type === 'durable_object_namespace' && b.class_name && doByClass.has(b.class_name)) {
+            // A container's Durable Object binding binds its container too, so the Worker's tags reach it.
+            const app = appByClass.get(b.class_name);
+            return app ? [rid(acct, 'do', b.class_name), app] : [rid(acct, 'do', b.class_name)];
+          }
           if (b.type === 'queue' && b.queue_name) return [rid(acct, 'queues', b.queue_name)];
           if (b.type === 'workflow' && b.workflow_name) return [rid(acct, 'workflows', b.workflow_name)];
           if (b.type === 'vectorize' && b.index_name) return [rid(acct, 'vectorize', b.index_name)];
