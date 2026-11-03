@@ -13,7 +13,7 @@ import {
   type PaceWindow,
   PaceWindowPicker,
   ShareMeter,
-  type StatusMessage,
+  type Signal,
   Tile,
   TileRow,
   UnitValue,
@@ -74,14 +74,99 @@ const tierOf = (e: StoredEvent) => (ACTION.has(e.kind) ? 'Needs action' : 'Unusu
 export const unusual = (s: WatchdogStatus | undefined) =>
   lastDay(s).filter((e) => ACTION.has(e.kind) && e.kind !== 'level').length;
 
-/** The status bar's line: the newest finding, and how many more there were today. */
-export function watchdogMessages(s: WatchdogStatus | undefined): StatusMessage[] {
-  const recent = lastDay(s).filter((e) => ACTION.has(e.kind) && e.kind !== 'level');
-  const blind = Object.values(s?.accounts ?? {}).filter((a) => !a.ok);
-  return [
-    ...blind.map((a) => ({ text: `Watchdog can't read ${a.name}`, tone: 'warning' as const })),
-    ...recent.map((e) => ({ text: `${KIND_LABEL[e.kind]}: ${e.text}`, tone: 'warning' as const })),
-  ];
+/** `45m`, `2h`, `3d`: how long until a limit is used up. */
+function runsOutText(hours: number | undefined) {
+  if (hours == null || !Number.isFinite(hours)) return undefined;
+  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))}m`;
+  if (hours < 48) return `${Math.round(hours)}h`;
+  return `${Math.round(hours / 24)}d`;
+}
+
+const peak = (x: number) => `${x >= 10 ? Math.round(x) : x.toFixed(1)}× peak`;
+
+/**
+ * The watchdog's findings as signals (lumen Signals): Needs action for a limit burning fast or
+ * crossed, an account it can't read and your rules; Worth a look for a limit nearing its cap;
+ * Harmless for spikes, sustained runs and new movers. One row per event key, last 24 hours.
+ */
+export function watchdogSignals(s: WatchdogStatus | undefined): Signal[] {
+  const acctName = (id: string) => s?.accounts[id]?.name ?? id;
+  const out: Signal[] = [];
+  for (const [id, a] of Object.entries(s?.accounts ?? {})) {
+    if (a.ok) continue;
+    out.push({
+      key: `blind:${id}`,
+      level: 'act',
+      kind: "Can't see",
+      what: a.name,
+      where: 'every meter',
+      group: a.name,
+      at: a.at,
+      why: a.error
+        ? `The watchdog can't read this account (${a.error}). Nothing on it is checked until it can.`
+        : "The watchdog can't read this account. Nothing on it is checked until it can.",
+      banner: true,
+      fix: { label: 'Check token', settings: 'tokens' },
+    });
+  }
+  for (const e of lastDay(s)) {
+    if (e.kind === 'blind') continue; // the account line above says it, with its fix
+    const group = acctName(e.acct);
+    const base = { key: e.key, group, at: e.at, to: '/watchdog', why: e.text, what: meterOf(e) };
+    switch (e.kind) {
+      case 'burn':
+        out.push({
+          ...base,
+          key: `burn:${e.acct}:${e.metric}`,
+          level: 'act',
+          kind: 'Burning fast',
+          where: e.by?.name,
+          pace: `${xText(e)} in ${e.level ?? 15}m`,
+          used: e.cap?.used,
+          runsOut: runsOutText(e.empties),
+        });
+        break;
+      case 'level': {
+        const over = e.x >= 1;
+        out.push({
+          ...base,
+          key: `level:${e.acct}:${e.metric}`,
+          level: over ? 'act' : 'look',
+          kind: over ? 'Over a limit' : 'Near a limit',
+          where: group,
+          pace: `${fmt(e.value, METRIC[e.metric]?.unit)}/${fmt(e.normal, METRIC[e.metric]?.unit)}`,
+          used: e.x,
+          banner: over,
+        });
+        break;
+      }
+      case 'runsOut':
+        out.push({
+          ...base,
+          level: 'look',
+          kind: 'Runs out',
+          where: 'account',
+          used: e.x,
+          runsOut: runsOutText(e.level),
+        });
+        break;
+      case 'rule':
+        out.push({ ...base, level: 'act', kind: 'Your rule', what: e.name });
+        break;
+      default:
+        out.push({
+          ...base,
+          key: `${e.kind}:${e.acct}:${e.rid ?? ''}:${e.metric}`,
+          level: 'fyi',
+          kind: e.kind === 'new' ? 'New' : e.kind === 'surge' ? 'Sustained' : 'Unusual',
+          where: e.name,
+          pace: e.kind === 'new' ? 'new today' : peak(e.x),
+          used: e.cap?.used,
+          lands: e.cap?.lands,
+        });
+    }
+  }
+  return out;
 }
 
 const xText = (e: StoredEvent) =>
