@@ -10,8 +10,10 @@ import { apiJson, ErrorLine, NotificationsSettings, SettingRow, useClock } from 
 import { Switch } from '@columenlabs/lumen-ui/ui/switch';
 import { ToggleGroup, ToggleGroupItem } from '@columenlabs/lumen-ui/ui/toggle-group';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { BurnSettings } from '../shared/burn';
 import type { Rule } from '../shared/rules';
 import type { AlertLevel } from './api';
+import { BurnSettingsBlock } from './burn';
 import { RulesSettings } from './rules';
 import { useWatchdog } from './watchdog';
 
@@ -26,8 +28,8 @@ interface Alerting {
 }
 
 const LEVELS: { id: AlertLevel; label: string; note: string }[] = [
-  { id: 'watch', label: 'Watch', note: 'Every level crossed (Watch, 90%, 100%) and every Runs out' },
-  { id: 'soon', label: 'Will exceed', note: '90% and 100% of an allowance, and Runs out' },
+  { id: 'watch', label: 'Watch', note: 'Every level crossed: Watch, 90% and 100%' },
+  { id: 'soon', label: 'Will exceed', note: '90% and 100% of an allowance' },
   { id: 'over', label: 'Over', note: 'Only past 100% of an allowance' },
 ];
 
@@ -35,7 +37,8 @@ function useAlerting() {
   const qc = useQueryClient();
   const q = useQuery({
     queryKey: KEY,
-    queryFn: () => apiJson<{ alerting?: Alerting; rules?: Rule[] }>(API, undefined, 'notifications'),
+    queryFn: () =>
+      apiJson<{ alerting?: Alerting; rules?: Rule[]; burn?: BurnSettings }>(API, undefined, 'notifications'),
   });
   const save = useMutation({
     mutationFn: (a: Alerting) =>
@@ -71,6 +74,7 @@ export function AlertsSettings() {
           onCheckedChange={(on) => save.mutate({ ...a, on })}
         />
       </SettingRow>
+      <BurnSettingsBlock value={q.data?.burn} />
       <SettingRow label="Limit alert at" description={LEVELS.find((l) => l.id === a.level)?.note}>
         <ToggleGroup
           type="single"
