@@ -96,6 +96,7 @@ const viewPage = z.object({
     // Since Amount and Baseline: a fresh default, older saved columns left behind.
     'watchdog-amounts',
     'watchdog-distance',
+    'watchdog-burn',
   ]),
 });
 const prefsBody = z.object({
@@ -134,6 +135,15 @@ const hookBody = z.object({
 });
 const eventParam = z.object({
   key: z.string().regex(/^(spike|surge|new|level|runsOut|blind|rule:r_[0-9a-f]{8})$/),
+});
+const dial = z.object({
+  pct: z.number().finite().min(0.01).max(100),
+  mins: z.union([z.literal(15), z.literal(60), z.literal(360), z.literal(1440)]),
+});
+const burnBody = z.object({
+  on: z.boolean(),
+  day: z.array(dial).min(1).max(3),
+  mo: z.array(dial).min(1).max(3),
 });
 const ruleParam = z.object({ id: z.string().regex(/^r_[0-9a-f]{8}$/) });
 const ruleBody = z.object({
@@ -236,6 +246,9 @@ const api = new Hono<AppEnv>()
   )
   .put('/notifications/alerting', zValidator('json', alertingBody), async (c) =>
     c.json(await watchdog(c.env).setAlerting(c.req.valid('json'))),
+  )
+  .put('/notifications/burn', zValidator('json', burnBody), async (c) =>
+    c.json(await watchdog(c.env).setBurn(c.req.valid('json'))),
   )
   .put('/notifications/rules/:id', zValidator('param', ruleParam), zValidator('json', ruleBody), async (c) =>
     c.json(

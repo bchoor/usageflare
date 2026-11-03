@@ -6,6 +6,7 @@
  */
 import {
   apiJson,
+  DetailsTable,
   LumenLayout,
   lumenToast,
   NoteLine,
@@ -22,12 +23,12 @@ import {
 } from '@columenlabs/lumen-ui';
 import { Button } from '@columenlabs/lumen-ui/ui/button';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Activity, Building2, Clock, Gauge, RefreshCw, ShieldCheck, Zap } from 'lucide-react';
+import { Activity, Building2, Clock, Gauge, RefreshCw, Server, ShieldCheck, Zap } from 'lucide-react';
 import { useMemo } from 'react';
-import { METRIC, PRODUCT } from '../shared/catalog';
+import { HOURLY_SLOTS, METRIC, PRODUCT } from '../shared/catalog';
 import { KIND_LABEL, type WatchEvent, type WatchKind } from '../shared/watchdog';
-import { amountParts, view } from './domains';
-import { pctText, type Usage, useModel } from './model';
+import { amountParts, limitDomain, view } from './domains';
+import { fmt, type Model, pctText, type Usage, useModel } from './model';
 import { MeterPaceCell, paceOf } from './pace';
 import { useSavedView } from './pages';
 import { ProductIcon } from './products';
@@ -62,12 +63,20 @@ export function useWatchdog() {
 export const lastDay = (s: WatchdogStatus | undefined) =>
   (s?.events ?? []).filter((e) => Date.now() - e.seen < DAY);
 
-/** The sidebar's count: what moved today; limits crossed have their own page. */
-export const unusual = (s: WatchdogStatus | undefined) => lastDay(s).filter((e) => e.kind !== 'level').length;
+/**
+ * What needs doing: a limit burning fast or crossed, an account it can't read, one of your rules.
+ * Spikes, sustained runs and new movers are kept as context and never sent.
+ */
+export const ACTION = new Set<WatchKind>(['burn', 'level', 'blind', 'rule']);
+const tierOf = (e: StoredEvent) => (ACTION.has(e.kind) ? 'Needs action' : 'Unusual, not sent');
+
+/** The sidebar's count: what needs doing today. */
+export const unusual = (s: WatchdogStatus | undefined) =>
+  lastDay(s).filter((e) => ACTION.has(e.kind) && e.kind !== 'level').length;
 
 /** The status bar's line: the newest finding, and how many more there were today. */
 export function watchdogMessages(s: WatchdogStatus | undefined): StatusMessage[] {
-  const recent = lastDay(s).filter((e) => e.kind !== 'level');
+  const recent = lastDay(s).filter((e) => ACTION.has(e.kind) && e.kind !== 'level');
   const blind = Object.values(s?.accounts ?? {}).filter((a) => !a.ok);
   return [
     ...blind.map((a) => ({ text: `Watchdog can't read ${a.name}`, tone: 'warning' as const })),
@@ -76,13 +85,15 @@ export function watchdogMessages(s: WatchdogStatus | undefined): StatusMessage[]
 }
 
 const xText = (e: StoredEvent) =>
-  e.kind === 'level' || e.kind === 'runsOut'
-    ? `${Math.round(e.x * 100)}%`
-    : e.kind === 'new'
-      ? 'New'
-      : e.kind === 'blind' || e.kind === 'rule'
-        ? '—'
-        : `${e.x >= 10 ? Math.round(e.x) : e.x.toFixed(1)}×`;
+  e.kind === 'burn'
+    ? `${e.x >= 0.1 ? Math.round(e.x * 100) : (e.x * 100).toFixed(1)}%`
+    : e.kind === 'level' || e.kind === 'runsOut'
+      ? `${Math.round(e.x * 100)}%`
+      : e.kind === 'new'
+        ? 'New'
+        : e.kind === 'blind' || e.kind === 'rule'
+          ? '—'
+          : `${e.x >= 10 ? Math.round(e.x) : e.x.toFixed(1)}×`;
 
 /** An amount in its meter's unit, or nothing (a dash) when there is none to show. */
 function Amount({ e, v }: { e: StoredEvent; v: number }) {
@@ -103,6 +114,7 @@ const meterOf = (e: StoredEvent) => {
 /** Newest first, and within one check: can't read, spike, surge, new mover, pace, limit. */
 const BUCKET = 10 * 60_000;
 const RANK: Record<WatchKind, number> = {
+  burn: 7,
   blind: 6,
   rule: 5,
   spike: 4,
@@ -120,18 +132,133 @@ const TONE: Record<WatchKind, string> = {
   runsOut: 'text-warning',
   blind: 'text-destructive',
   rule: 'text-warning',
+  burn: 'text-destructive',
 };
+
+/** The hourly slots a burn's window covers (ending at its check), or null when outside the read. */
+function windowSlots(e: StoredEvent, hoursFrom: string | undefined): [number, number] | null {
+  const from = hoursFrom ? Date.parse(hoursFrom) : Number.NaN;
+  if (!Number.isFinite(from)) return null;
+  const end = Math.floor((Date.parse(e.at) - from) / 3_600_000);
+  const k = Math.max(1, Math.ceil((e.level ?? 60) / 60));
+  if (end < 0 || end > HOURLY_SLOTS - 1) return null;
+  return [Math.max(0, end - k + 1), end];
+}
+
+/** Who used the meter in the event's window, most first: the culprit is the top row. */
+function Culprits({ m, e, u }: { m: Model; e: StoredEvent; u: Usage }) {
+  const win = e.kind === 'burn' ? windowSlots(e, u.a.hoursFrom) : null;
+  const unit = u.m.unit;
+  const rows = (
+    win
+      ? m.resources
+          .filter((r) => r.acct === e.acct && r.hourly?.[e.metric])
+          .map((r) => {
+            const h = r.hourly?.[e.metric] ?? [];
+            let v = 0;
+            for (let i = win[0]; i <= win[1]; i++) v += h[i] ?? 0;
+            return { r, v };
+          })
+      : u.parts.map((p) => ({ r: p.r, v: p.v }))
+  )
+    .filter((x) => x.v > 0)
+    .sort((a, b) => b.v - a.v)
+    .slice(0, 12);
+  const total = rows.reduce((t, x) => t + x.v, 0);
+  if (!rows.length)
+    return <p className="text-muted-foreground text-sm">No resource used it in this window.</p>;
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-muted-foreground text-xs">
+        {win
+          ? `Use in the alarm's window (${win[1] - win[0] + 1} h ending at its check), most first.`
+          : 'Use this period, most first.'}
+      </p>
+      <DetailsTable
+        head={[
+          { label: 'Resource', grow: true },
+          { label: win ? 'In window' : 'Used', right: true },
+          { label: 'Share', right: true },
+          { label: 'This period', right: true },
+        ]}
+        rows={rows.map((x, i) => ({
+          key: x.r.id,
+          cells: [
+            <span key="n" className="inline-flex min-w-0 items-center gap-2">
+              <ProductIcon id={x.r.product} />
+              <span
+                className={`truncate ${i === 0 && x.v / total >= 0.5 ? 'font-medium text-destructive' : ''}`}
+              >
+                {x.r.name}
+              </span>
+            </span>,
+            <span key="v" className="num">
+              {fmt(x.v, unit)}
+            </span>,
+            <span key="s" className="num">
+              {pctText(x.v / total)}
+            </span>,
+            <span key="p" className="num">
+              {fmt(u.parts.find((p) => p.r.id === x.r.id)?.v ?? 0, unit)}
+            </span>,
+          ],
+        }))}
+      />
+    </div>
+  );
+}
 
 /**
  * The distance beside the speed: where the event's account meter stands now (share of its
  * allowance used this period) and when the pace window's rate takes it to the cap.
  */
 function watchDomain(
+  m: Model,
   accountName: (id: string) => string,
   usageOf: (e: StoredEvent) => Usage | undefined,
   w: PaceWindow,
 ): ViewDomain<StoredEvent> {
+  const meter = limitDomain(m, w).details ?? [];
+  const reuse = (id: string) => {
+    const d = meter.find((x) => x.id === id);
+    return d
+      ? [
+          {
+            id: d.id,
+            label: d.label,
+            icon: d.icon,
+            open: true,
+            render: (e: StoredEvent) => {
+              const u = usageOf(e);
+              return u ? (
+                d.render(u)
+              ) : (
+                <p className="text-muted-foreground text-sm">No limit on this meter.</p>
+              );
+            },
+          },
+        ]
+      : [];
+  };
   return {
+    details: [
+      {
+        id: 'culprit',
+        label: 'Who used it',
+        icon: Server,
+        open: true,
+        render: (e) => {
+          const u = usageOf(e);
+          return u ? (
+            <Culprits m={m} e={e} u={u} />
+          ) : (
+            <p className="text-muted-foreground text-sm">{e.text}</p>
+          );
+        },
+      },
+      ...reuse('pace'),
+      ...reuse('daily'),
+    ],
     id: 'watchdog',
     rowKey: (e) => e.key,
     text: (e) => [e.text, e.name, KIND_LABEL[e.kind], accountName(e.acct)],
@@ -151,6 +278,33 @@ function watchDomain(
             </span>
           );
         },
+      },
+      {
+        key: 'tier',
+        label: 'Tier',
+        icon: ShieldCheck,
+        format: 'text',
+        value: tierOf,
+        filterable: true,
+        groupable: true,
+        hideOnPhone: true,
+      },
+      {
+        key: 'by',
+        label: 'Culprit',
+        icon: Server,
+        format: 'text',
+        value: (e) => (e.kind === 'burn' && e.rid ? (m.resource[e.rid]?.name ?? null) : null),
+        render: (e) => {
+          const r = e.kind === 'burn' && e.rid ? m.resource[e.rid] : undefined;
+          return r ? (
+            <span className="inline-flex min-w-0 items-center gap-2" title={e.text}>
+              <ProductIcon id={r.product} />
+              <span className="truncate">{r.name}</span>
+            </span>
+          ) : null;
+        },
+        filterable: true,
       },
       {
         key: 'kind',
@@ -296,8 +450,8 @@ function watchDomain(
 
 const WATCHDOG = view({
   name: 'Watchdog',
-  columns: ['what', 'kind', 'x', 'value', 'normal', 'used', 'lands', 'account', 'when', 'sent'],
-  group: { fields: ['kind', 'account', 'meter'], default: null },
+  columns: ['what', 'by', 'kind', 'x', 'value', 'used', 'lands', 'account', 'when', 'sent'],
+  group: { fields: ['tier', 'kind', 'account', 'meter'], default: 'tier' },
   sort: { key: 'when', desc: true },
 });
 
@@ -306,7 +460,7 @@ export function WatchdogPage() {
   const q = useWatchdog();
   const qc = useQueryClient();
   const load = useLumenLoad(q);
-  const saved = useSavedView('watchdog-distance', WATCHDOG);
+  const saved = useSavedView('watchdog-burn', WATCHDOG);
   const [w] = usePaceWindow();
   const run = useMutation({
     mutationFn: () => apiJson<WatchdogStatus>('/api/watchdog/run', { method: 'POST' }, 'watchdog.run'),
@@ -327,11 +481,12 @@ export function WatchdogPage() {
   const domain = useMemo(
     () =>
       watchDomain(
+        m,
         (id) => names[id] ?? id,
         (e) => m.usage.find((u) => u.a.id === e.acct && u.m.key === e.metric),
         w,
       ),
-    [names, m.usage, w],
+    [m, names, w],
   );
   const rows = q.data?.events ?? [];
   const today = lastDay(q.data);
@@ -345,7 +500,7 @@ export function WatchdogPage() {
   return (
     <LumenLayout
       crumbs={[{ label: 'Watchdog' }]}
-      meta="Usage that moves far from its normal, beside the fixed limits"
+      meta="A limit used up too fast, and who is using it"
       actions={
         <>
           <PaceWindowPicker />
@@ -365,9 +520,18 @@ export function WatchdogPage() {
             />
           )}
           <TileRow fill aria-label="Watchdog">
-            <Tile label="Spikes and sustained" value={count(['spike', 'surge'])} caption="Last 24 hours" />
-            <Tile label="New movers" value={count(['new'])} caption="No history, now busy" />
-            <Tile label="Limits" value={count(['level', 'runsOut'])} caption="Crossed or on pace to" />
+            <Tile
+              label="Burning fast"
+              value={count(['burn'])}
+              caption="A limit used too fast, last 24 h"
+              valueClassName={count(['burn']) ? 'text-loss' : undefined}
+            />
+            <Tile label="Limits crossed" value={count(['level'])} caption="Last 24 hours" />
+            <Tile
+              label="Unusual, not sent"
+              value={count(['spike', 'surge', 'new'])}
+              caption="Moves that use little of a limit"
+            />
             <Tile
               label="Last check"
               value={

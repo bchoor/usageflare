@@ -20,7 +20,8 @@
 import { type Account, HOURLY_SLOTS, METRIC, type Metric, PRODUCT, type Resource } from './catalog';
 
 /** `rule`: one of the person's own rules (shared/rules.ts) fired. */
-export type WatchKind = 'spike' | 'surge' | 'new' | 'level' | 'runsOut' | 'blind' | 'rule';
+/** `burn`: a share of an account meter's limit used too fast (shared/burn.ts), the main alarm. */
+export type WatchKind = 'spike' | 'surge' | 'new' | 'level' | 'runsOut' | 'blind' | 'rule' | 'burn';
 
 export interface WatchEvent {
   /** One per thing that happened: the same spike seen on the next check has the same key. */
@@ -47,6 +48,10 @@ export interface WatchEvent {
    * the text a person reads; not stored on its own.
    */
   cap?: { used: number; lands: number; per: 'day' | 'mo' };
+  /** burn: the resource that used the most in the window, and its share of the burn. */
+  by?: { name: string; share: number };
+  /** burn: hours until the limit is used up at the window's rate. */
+  empties?: number;
 }
 
 export const SPIKE_X = 5;
@@ -326,6 +331,19 @@ function says(e: WatchEvent, fmt: (v: number, unit: string) => string) {
       return `${meter}: at this pace it reaches its allowance in about ${e.level ?? 0} h, before it resets`;
     case 'rule':
       return e.name;
+    case 'burn': {
+      const whose = e.cap?.per === 'day' ? "today's" : "the month's";
+      const win = (e.level ?? 0) < 60 ? `${e.level} min` : `${(e.level ?? 0) / 60} h`;
+      const pct = (v: number) => `${v >= 0.1 ? Math.round(v * 100) : (v * 100).toFixed(1)}%`;
+      const by = e.by ? `, ${Math.round(e.by.share * 100)}% from ${e.by.name}` : '';
+      const left =
+        (e.cap?.used ?? 0) >= 1
+          ? ' Already past the limit.'
+          : e.empties !== undefined
+            ? ` Used up in ${e.empties < 1 ? 'under 1 h' : `${Math.round(e.empties)} h`} at this rate.`
+            : '';
+      return `${meter}: ${pct(e.x)} of ${whose} ${fmt(e.normal, unit)} in ${win} (${fmt(e.value, unit)})${by}.${left}`;
+    }
     case 'blind':
       return `Can't read ${e.name} since ${e.at.slice(0, 16).replace('T', ' ')} UTC: nothing about it is checked until it can`;
   }
@@ -339,6 +357,7 @@ export const KIND_LABEL: Record<WatchKind, string> = {
   runsOut: 'Runs out',
   blind: "Can't see",
   rule: 'Your rule',
+  burn: 'Burning fast',
 };
 
 /** What each kind means, one line (Settings ▸ Notifications lists them). */
@@ -350,6 +369,7 @@ export const KIND_DETAIL: Record<WatchKind, string> = {
   runsOut: 'At this pace a meter runs out before it resets',
   blind: "The watchdog can't read an account for over an hour",
   rule: 'One of your own rules on a meter',
+  burn: 'A share of a limit used within a short window (set below)',
 };
 
 export const KINDS = Object.keys(KIND_LABEL) as WatchKind[];

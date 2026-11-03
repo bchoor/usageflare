@@ -105,7 +105,8 @@ type PageId =
   | 'account-tags'
   | 'watchdog'
   | 'watchdog-amounts'
-  | 'watchdog-distance';
+  | 'watchdog-distance'
+  | 'watchdog-burn';
 
 /**
  * A page's numbers live in a Row of numbers card of built-in tiles (`usageTile`). A layout saved

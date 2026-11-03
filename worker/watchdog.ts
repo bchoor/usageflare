@@ -14,6 +14,7 @@
  * Every call out has a timeout, and a failed one is recorded, never thrown.
  */
 import { DurableObject } from 'cloudflare:workers';
+import { BURN_DEFAULT, type BurnSettings, type BurnSnap, burn } from '../shared/burn';
 import { MAX_RULES, type Rule, type RuleReading, readingText, readNow, seriesOf } from '../shared/rules';
 import {
   describe,
@@ -89,11 +90,8 @@ export interface Alerting {
  * section's job, now one rule here.
  */
 const RULES: { kind: WatchKind; group: string; label: string }[] = [
+  { kind: 'burn', group: 'Limits', label: KIND_LABEL.burn },
   { kind: 'level', group: 'Limits', label: 'Limit crossed' },
-  { kind: 'runsOut', group: 'Limits', label: 'Runs out' },
-  { kind: 'spike', group: 'Watchdog', label: KIND_LABEL.spike },
-  { kind: 'surge', group: 'Watchdog', label: KIND_LABEL.surge },
-  { kind: 'new', group: 'Watchdog', label: KIND_LABEL.new },
   { kind: 'blind', group: 'System', label: KIND_LABEL.blind },
 ];
 
@@ -159,7 +157,13 @@ interface RuleState {
   fired?: number;
 }
 
-const tableOf = (kind: WatchKind) => (kind === 'rule' ? 'rule_events' : 'events');
+/** Kinds an older build doesn't know live in `rule_events`, so a rollback never reads them. */
+const tableOf = (kind: WatchKind) => (kind === 'rule' || kind === 'burn' ? 'rule_events' : 'events');
+/**
+ * What reaches the channels. Spikes, sustained runs and new movers are kept in the app only: a
+ * move alone is no reason to act; one that eats the limit is `burn`.
+ */
+const SENT = new Set<WatchKind>(['burn', 'level', 'blind', 'rule']);
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 const json = <T>(s: string | null | undefined, d: T): T => {
@@ -305,10 +309,24 @@ export class Watchdog extends DurableObject<Env> {
     const found: (WatchEvent & { text?: string })[] = [];
     if (usage && fresh) {
       const { warn } = await getPrefs(this.env);
-      found.push(
-        ...watch({ account: usage.account, resources: usage.resources, dates: usage.dates, warn, now }),
-        ...this.judgeRules(usage, now),
-      );
+      // Runs out guessed a month from 3 hours; burning fast measures what was used instead.
+      const seen = watch({
+        account: usage.account,
+        resources: usage.resources,
+        dates: usage.dates,
+        warn,
+        now,
+      });
+      const b = burn({
+        account: usage.account,
+        resources: usage.resources,
+        dates: usage.dates,
+        now,
+        prev: this.get<BurnSnap | null>(`burn:${id}`, null),
+        settings: this.burnSettings(),
+      });
+      this.put(`burn:${id}`, b.snap);
+      found.push(...seen.filter((e) => e.kind !== 'runsOut'), ...b.events, ...this.judgeRules(usage, now));
     } else if (down !== undefined && now - down >= BLIND_MS) {
       const since = new Date(down).toISOString();
       found.push({
@@ -366,7 +384,7 @@ export class Watchdog extends DurableObject<Env> {
       );
       const rule = e.kind === 'rule' ? `rule:${e.key.split(':')[1]}` : null;
       // Kept in the app either way; the channels hear it only when alerts are on and at its level.
-      if (!alerting.on || !limitSends(e, alerting.level)) continue;
+      if (!alerting.on || !SENT.has(e.kind) || !limitSends(e, alerting.level)) continue;
       // One send a day per thing and kind: a spike every hour on one Worker tells once.
       const thing = rule ? `${rule}:${day(now)}` : `${e.kind}:${e.rid ?? e.acct}:${e.metric}:${day(now)}`;
       const told = this.get<string[]>('told', []).filter((t) => t.endsWith(day(now)));
@@ -425,6 +443,16 @@ export class Watchdog extends DurableObject<Env> {
     }
     this.put('targets', t);
     this.put('merged', new Date().toISOString());
+  }
+
+  private burnSettings(): BurnSettings {
+    return { ...BURN_DEFAULT, ...this.get<Partial<BurnSettings>>('burnSet', {}) };
+  }
+
+  /** Settings ▸ Alerts ▸ Burning fast: the dials. */
+  async setBurn(b: BurnSettings) {
+    this.put('burnSet', b);
+    return this.notifications();
   }
 
   /** Settings ▸ Alerts: sending on or off, and the limit level. */
@@ -591,7 +619,7 @@ export class Watchdog extends DurableObject<Env> {
             : kind === 'blind'
               ? 'see_no_evil'
               : 'chart_with_upwards_trend',
-        Priority: kind === 'level' || kind === 'runsOut' || kind === 'spike' ? '4' : '3',
+        Priority: kind === 'burn' ? '5' : kind === 'level' || kind === 'rule' ? '4' : '3',
         ...(link ? { Click: link } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
@@ -679,6 +707,7 @@ export class Watchdog extends DurableObject<Env> {
           })),
       ],
       alerting: this.alerting(),
+      burn: this.burnSettings(),
       rules,
       ruleState: this.get<Record<string, RuleState>>('ruleState', {}),
     };
