@@ -15,6 +15,7 @@
  */
 import { DurableObject } from 'cloudflare:workers';
 import { BURN_DEFAULT, type BurnSettings, type BurnSnap, burn } from '../shared/burn';
+import { inferPlan } from '../shared/judge';
 import { MAX_RULES, type Rule, type RuleReading, readingText, readNow, seriesOf } from '../shared/rules';
 import {
   describe,
@@ -308,6 +309,9 @@ export class Watchdog extends DurableObject<Env> {
     };
     const found: (WatchEvent & { text?: string })[] = [];
     if (usage && fresh) {
+      // The plan the app shows: an account Cloudflare won't name a plan for, that went past a
+      // limit Free enforces, is on Paid. Without this a Paid account is judged on Free's daily caps.
+      usage = { ...usage, account: inferPlan(usage) };
       const { warn } = await getPrefs(this.env);
       // Runs out guessed a month from 3 hours; burning fast measures what was used instead.
       const seen = watch({
