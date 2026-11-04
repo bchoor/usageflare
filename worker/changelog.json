@@ -1,5 +1,41 @@
 [
   {
+    "tag": "v0.0.10",
+    "published_at": "2026-11-04T05:20:21Z",
+    "takeaways": [
+      {
+        "text": "**Burning fast and Over budget alarms**: On the Watchdog page and in Settings ▸ Alerts, you can now get alerted when a meter is using up a day's budget too quickly, or when a Paid account's forecast month-end bill passes your budget, with the culprit resource named in each alarm.",
+        "types": [
+          "feature"
+        ]
+      },
+      {
+        "text": "**Containers egress tracking**: On the Usage page, Containers egress now has meters for each Cloudflare pricing region, and container apps and Sandboxes show up by name.",
+        "types": [
+          "feature"
+        ]
+      },
+      {
+        "text": "**Your own alert rules**: In Settings ▸ Alerts ▸ Your rules, you can set a condition on any meter (above or below a number, % of allowance, time to cap, silent for N hours and more) and choose which channels it notifies.",
+        "types": [
+          "feature"
+        ]
+      },
+      {
+        "text": "**Cloudflare API tokens, one row per token**: In Settings ▸ Cloudflare API tokens, each token is now an expandable row where you can test, replace, review the scope of or delete it, and the section shows a health pill for the worst token.",
+        "types": [
+          "improvement"
+        ]
+      },
+      {
+        "text": "**Fewer false alarms**: On the Watchdog page, tiny jumps like 1 request to 10 no longer count as spikes, and accounts whose plan Cloudflare doesn't report are judged on the plan the app shows.",
+        "types": [
+          "fix"
+        ]
+      }
+    ]
+  },
+  {
     "tag": "v0.0.9",
     "published_at": "2026-11-02T19:33:05Z",
     "takeaways": [
