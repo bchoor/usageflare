@@ -21,7 +21,7 @@ import { type Account, HOURLY_SLOTS, METRIC, type Metric, PRODUCT, type Resource
 
 /** `rule`: one of the person's own rules (shared/rules.ts) fired. */
 /** `burn`: a share of an account meter's limit used too fast (shared/burn.ts), the main alarm. */
-export type WatchKind = 'spike' | 'surge' | 'new' | 'level' | 'runsOut' | 'blind' | 'rule' | 'burn';
+export type WatchKind = 'spike' | 'surge' | 'new' | 'level' | 'runsOut' | 'blind' | 'rule' | 'burn' | 'cost';
 
 export interface WatchEvent {
   /** One per thing that happened: the same spike seen on the next check has the same key. */
@@ -330,6 +330,7 @@ function says(e: WatchEvent, fmt: (v: number, unit: string) => string) {
     case 'runsOut':
       return `${meter}: at this pace it reaches its allowance in about ${e.level ?? 0} h, before it resets`;
     case 'rule':
+    case 'cost':
       return e.name;
     case 'burn': {
       const win = (e.level ?? 0) < 60 ? `${e.level} min` : `${(e.level ?? 0) / 60} h`;
@@ -361,6 +362,7 @@ export const KIND_LABEL: Record<WatchKind, string> = {
   blind: "Can't see",
   rule: 'Your rule',
   burn: 'Burning fast',
+  cost: 'Over budget',
 };
 
 /** What each kind means, one line (Settings ▸ Notifications lists them). */
@@ -373,6 +375,7 @@ export const KIND_DETAIL: Record<WatchKind, string> = {
   blind: "The watchdog can't read an account for over an hour",
   rule: 'One of your own rules on a meter',
   burn: "A share of a day's budget used within a short window (set below)",
+  cost: "A Paid account's month-end bill forecast passes your budget (set below)",
 };
 
 export const KINDS = Object.keys(KIND_LABEL) as WatchKind[];

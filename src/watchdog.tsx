@@ -28,7 +28,7 @@ import { useMemo } from 'react';
 import { HOURLY_SLOTS, METRIC, PRODUCT } from '../shared/catalog';
 import { KIND_LABEL, type WatchEvent, type WatchKind } from '../shared/watchdog';
 import { amountParts, limitDomain, view } from './domains';
-import { fmt, type Model, pctText, type Usage, useModel } from './model';
+import { fmt, type Model, pctText, type Usage, usd, useModel } from './model';
 import { MeterPaceCell, paceOf } from './pace';
 import { useSavedView } from './pages';
 import { ProductIcon } from './products';
@@ -67,7 +67,7 @@ export const lastDay = (s: WatchdogStatus | undefined) =>
  * What needs doing: a limit burning fast or crossed, an account it can't read, one of your rules.
  * Spikes, sustained runs and new movers are kept as context and never sent.
  */
-export const ACTION = new Set<WatchKind>(['burn', 'level', 'blind', 'rule']);
+export const ACTION = new Set<WatchKind>(['burn', 'cost', 'level', 'blind', 'rule']);
 const tierOf = (e: StoredEvent) => (ACTION.has(e.kind) ? 'Needs action' : 'Unusual, not sent');
 
 /** The sidebar's count: what needs doing today. */
@@ -170,19 +170,27 @@ export function watchdogSignals(s: WatchdogStatus | undefined): Signal[] {
 }
 
 const xText = (e: StoredEvent) =>
-  e.kind === 'burn'
-    ? `${e.x >= 0.1 ? Math.round(e.x * 100) : (e.x * 100).toFixed(1)}%`
-    : e.kind === 'level' || e.kind === 'runsOut'
-      ? `${Math.round(e.x * 100)}%`
-      : e.kind === 'new'
-        ? 'New'
-        : e.kind === 'blind' || e.kind === 'rule'
-          ? '—'
-          : `${e.x >= 10 ? Math.round(e.x) : e.x.toFixed(1)}×`;
+  e.kind === 'cost'
+    ? `${Math.round(e.x * 100)}%`
+    : e.kind === 'burn'
+      ? `${e.x >= 0.1 ? Math.round(e.x * 100) : (e.x * 100).toFixed(1)}%`
+      : e.kind === 'level' || e.kind === 'runsOut'
+        ? `${Math.round(e.x * 100)}%`
+        : e.kind === 'new'
+          ? 'New'
+          : e.kind === 'blind' || e.kind === 'rule'
+            ? '—'
+            : `${e.x >= 10 ? Math.round(e.x) : e.x.toFixed(1)}×`;
 
 /** An amount in its meter's unit, or nothing (a dash) when there is none to show. */
 function Amount({ e, v }: { e: StoredEvent; v: number }) {
   if (e.kind === 'blind' || !(v > 0)) return null;
+  if (e.kind === 'cost')
+    return (
+      <span title={e.text}>
+        <UnitValue value={v.toFixed(2)} unit="USD" />
+      </span>
+    );
   const [n, unit] = amountParts(v, METRIC[e.metric]?.unit ?? '');
   return (
     <span title={e.text}>
@@ -200,6 +208,7 @@ const meterOf = (e: StoredEvent) => {
 const BUCKET = 10 * 60_000;
 const RANK: Record<WatchKind, number> = {
   burn: 7,
+  cost: 7,
   blind: 6,
   rule: 5,
   spike: 4,
@@ -218,6 +227,7 @@ const TONE: Record<WatchKind, string> = {
   blind: 'text-destructive',
   rule: 'text-warning',
   burn: 'text-destructive',
+  cost: 'text-destructive',
 };
 
 /** The hourly slots a burn's window covers (ending at its check), or null when outside the read. */
@@ -293,6 +303,49 @@ function Culprits({ m, e, u }: { m: Model; e: StoredEvent; u: Usage }) {
   );
 }
 
+/** Who drives a Paid account's forecast usage charges, most first: the culprit is the top row. */
+function CostCulprits({ m, e }: { m: Model; e: StoredEvent }) {
+  const rows = m.resources
+    .filter((r) => r.acct === e.acct)
+    .map((r) => ({ r, v: m.info(r).fcost }))
+    .filter((x) => x.v >= 0.005)
+    .sort((a, b) => b.v - a.v)
+    .slice(0, 12);
+  const total = rows.reduce((t, x) => t + x.v, 0);
+  if (!rows.length) return <p className="text-muted-foreground text-sm">{e.text}</p>;
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-muted-foreground text-xs">{e.text}</p>
+      <DetailsTable
+        head={[
+          { label: 'Resource', grow: true },
+          { label: 'Month end', right: true },
+          { label: 'Share', right: true },
+        ]}
+        rows={rows.map((x, i) => ({
+          key: x.r.id,
+          cells: [
+            <span key="n" className="inline-flex min-w-0 items-center gap-2">
+              <ProductIcon id={x.r.product} />
+              <span
+                className={`truncate ${i === 0 && x.v / total >= 0.5 ? 'font-medium text-destructive' : ''}`}
+              >
+                {x.r.name}
+              </span>
+            </span>,
+            <span key="v" className="num">
+              {usd(x.v)}
+            </span>,
+            <span key="s" className="num">
+              {pctText(x.v / total)}
+            </span>,
+          ],
+        }))}
+      />
+    </div>
+  );
+}
+
 /**
  * The distance beside the speed: where the event's account meter stands now (share of its
  * allowance used this period) and when the pace window's rate takes it to the cap.
@@ -333,6 +386,7 @@ function watchDomain(
         icon: Server,
         open: true,
         render: (e) => {
+          if (e.kind === 'cost') return <CostCulprits m={m} e={e} />;
           const u = usageOf(e);
           return u ? (
             <Culprits m={m} e={e} u={u} />
@@ -379,9 +433,10 @@ function watchDomain(
         label: 'Culprit',
         icon: Server,
         format: 'text',
-        value: (e) => (e.kind === 'burn' && e.rid ? (m.resource[e.rid]?.name ?? null) : null),
+        value: (e) =>
+          (e.kind === 'burn' || e.kind === 'cost') && e.rid ? (m.resource[e.rid]?.name ?? null) : null,
         render: (e) => {
-          const r = e.kind === 'burn' && e.rid ? m.resource[e.rid] : undefined;
+          const r = (e.kind === 'burn' || e.kind === 'cost') && e.rid ? m.resource[e.rid] : undefined;
           return r ? (
             <span className="inline-flex min-w-0 items-center gap-2" title={e.text}>
               <ProductIcon id={r.product} />

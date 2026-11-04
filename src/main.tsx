@@ -61,7 +61,7 @@ import {
 } from './model';
 import { AccountLimitsPage, AccountPage, OverviewPage, ResourcesPage, TagsPage } from './pages';
 import { PRODUCT_ICON } from './products';
-import { TokensSettings } from './settings';
+import { TokensSettings, useTokensHealth } from './settings';
 import { registerTagSaver, TagForm } from './tags';
 import { unusual, useWatchdog, WatchdogPage, watchdogSignals } from './watchdog';
 
@@ -356,6 +356,7 @@ function Shell() {
   const refreshing = useRefreshing();
   const missing = m.accounts.filter((a) => a.missing.length);
   const wd = useWatchdog();
+  const tokensHealth = useTokensHealth();
   return (
     <LumenShell
       app="usageflare"
@@ -414,6 +415,7 @@ function Shell() {
           icon: KeyRound,
           description: 'Tokens that read usage; encrypted, never read back.',
           content: <TokensSettings />,
+          ...tokensHealth,
         },
         {
           id: 'accounts',

@@ -134,7 +134,7 @@ const hookBody = z.object({
     .max(5),
 });
 const eventParam = z.object({
-  key: z.string().regex(/^(spike|surge|new|level|runsOut|blind|rule:r_[0-9a-f]{8})$/),
+  key: z.string().regex(/^(spike|surge|new|level|runsOut|blind|burn|cost|rule:r_[0-9a-f]{8})$/),
 });
 const dial = z.object({
   pct: z.number().finite().min(0.01).max(100),
@@ -145,6 +145,7 @@ const burnBody = z.object({
   day: z.array(dial).min(1).max(3),
   mo: z.array(dial).min(1).max(3),
 });
+const costBody = z.object({ on: z.boolean(), budget: z.number().min(5).max(100_000) });
 const ruleParam = z.object({ id: z.string().regex(/^r_[0-9a-f]{8}$/) });
 const ruleBody = z.object({
   on: z.boolean(),
@@ -249,6 +250,9 @@ const api = new Hono<AppEnv>()
   )
   .put('/notifications/burn', zValidator('json', burnBody), async (c) =>
     c.json(await watchdog(c.env).setBurn(c.req.valid('json'))),
+  )
+  .put('/notifications/cost', zValidator('json', costBody), async (c) =>
+    c.json(await watchdog(c.env).setCost(c.req.valid('json'))),
   )
   .put('/notifications/rules/:id', zValidator('param', ruleParam), zValidator('json', ruleBody), async (c) =>
     c.json(

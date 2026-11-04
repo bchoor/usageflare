@@ -129,8 +129,14 @@ const SPECS: Record<string, Spec[]> = {
     [
       'containers',
       'renderer',
-      { 'ct.cpu': 14, 'ct.mem': 0.9, 'ct.disk': 7 },
-      { type: 'standard', detail: '3 instances' },
+      { 'ct.cpu': 14, 'ct.mem': 0.9, 'ct.disk': 7, 'ct.egress': 22 },
+      { type: 'Container', detail: 'Worker renderer · standard-1' },
+    ],
+    [
+      'containers',
+      'code-sandbox',
+      { 'ct.cpu': 6, 'ct.mem': 0.4, 'ct.disk': 3, 'ct.egress': 9, 'ct.egress.oc': 1.5 },
+      { type: 'Sandbox', detail: 'Worker agent-runner · basic' },
     ],
     ['kv', 'FLAGS', { 'kv.read': 300e3, 'kv.write': 2e3, 'kv.stor': 0.05 }],
     ['d1', 'quizgame-prod', { 'd1.read': 600e6, 'd1.write': 1.6e6, 'd1.stor': 4.4 }],

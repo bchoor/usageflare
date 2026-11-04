@@ -132,7 +132,7 @@ export const PRODUCTS: Product[] = [
     cat: 'compute',
     label: 'Containers',
     color: '#c2255c',
-    source: 'containersMetricsAdaptiveGroups',
+    source: 'containersUsageAdaptiveGroups · containers/applications (Sandboxes included)',
   },
   {
     id: 'do',
@@ -541,6 +541,39 @@ export const METRICS: Metric[] = [
     unit: 'GB-h',
     kind: 'sum',
     paid: [200, 'mo', 0.000252],
+    free: null,
+  },
+  // Containers egress: three regional pools, each with its own allowance and price
+  // (https://developers.cloudflare.com/containers/platform/pricing/#network-egress). Sandboxes run on
+  // Containers and draw on the same allowances (https://developers.cloudflare.com/sandbox/sdk/platform/pricing/).
+  {
+    key: 'ct.egress',
+    family: 'egress',
+    product: 'containers',
+    label: 'Egress · NA & Europe',
+    unit: 'GB',
+    kind: 'sum',
+    paid: [1000, 'mo', 0.025],
+    free: null,
+  },
+  {
+    key: 'ct.egress.oc',
+    family: 'egress',
+    product: 'containers',
+    label: 'Egress · Oceania, Korea, Taiwan',
+    unit: 'GB',
+    kind: 'sum',
+    paid: [500, 'mo', 0.05],
+    free: null,
+  },
+  {
+    key: 'ct.egress.row',
+    family: 'egress',
+    product: 'containers',
+    label: 'Egress · other regions',
+    unit: 'GB',
+    kind: 'sum',
+    paid: [500, 'mo', 0.04],
     free: null,
   },
   {

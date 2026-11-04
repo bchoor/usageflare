@@ -1,15 +1,20 @@
-import { ErrorLine, LumenConfirm, lumenToast, useClock } from '@columenlabs/lumen-ui';
-import { Button } from '@columenlabs/lumen-ui/ui/button';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@columenlabs/lumen-ui/ui/dropdown-menu';
-import { HoverCard, HoverCardContent, HoverCardTrigger } from '@columenlabs/lumen-ui/ui/hover-card';
+  ErrorLine,
+  LumenExpandList,
+  LumenExpandRow,
+  lumenToast,
+  SettingActions,
+  SettingField,
+  SettingStatus,
+  SettingValue,
+  sectionHealth,
+  settingHealth,
+  useClock,
+} from '@columenlabs/lumen-ui';
+import { Button } from '@columenlabs/lumen-ui/ui/button';
 import { Input } from '@columenlabs/lumen-ui/ui/input';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { MoreHorizontal, RefreshCw } from 'lucide-react';
+import { KeyRound, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { api, type SecretInfo, slug } from './api';
 
@@ -42,10 +47,6 @@ const CREATE_TOKEN_URL = `https://dash.cloudflare.com/profile/api-tokens?${new U
   name: 'usageflare',
 })}`;
 
-/** Columns of the token list: name, accounts, scope, status, actions. */
-const GRID =
-  'grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] items-center gap-x-3 sm:grid-cols-[minmax(0,1fr)_4.5rem_6rem_4.5rem_4.5rem]';
-
 /** What a token may do, from its last test: usage reads, and tags where Account › Tag reaches. */
 function scopeOf(s: SecretInfo) {
   if (s.kind === 'cf_tags_token')
@@ -60,31 +61,29 @@ function scopeOf(s: SecretInfo) {
   };
 }
 
+/** The section's pill: the worst token wins. */
+export function useTokensHealth() {
+  const q = useQuery({ queryKey: SECRETS, queryFn: api.secrets });
+  const secrets = q.data?.secrets ?? [];
+  const failed = secrets.filter((s) => s.test && !s.test.ok).map((s) => s.label);
+  return {
+    health: sectionHealth(secrets.map((s) => settingHealth(true, s.test))),
+    healthTitle: failed.length ? `Failed: ${failed.join(', ')}` : undefined,
+  };
+}
+
 /** Settings ▸ Cloudflare API tokens: write-only, the API shows only the last four characters. */
 export function TokensSettings() {
   const q = useQuery({ queryKey: SECRETS, queryFn: api.secrets });
   const secrets = q.data?.secrets ?? [];
   return (
-    <div className="flex flex-col gap-4">
-      <p className="text-muted-foreground text-sm">
-        One token per set of accounts. With Account › Tag › Edit it also saves tags in Cloudflare.
-      </p>
+    <div className="flex flex-col">
       <ErrorLine error={q.error} />
-      {secrets.length > 0 && (
-        <div className="flex flex-col">
-          <div className={`${GRID} border-b pb-2 text-muted-foreground text-xs`}>
-            <span>Token</span>
-            <span className="hidden text-right sm:block">Accounts</span>
-            <span className="hidden sm:block">Scope</span>
-            <span>Status</span>
-            <span className="sr-only">Actions</span>
-          </div>
-          {secrets.map((s) => (
-            <TokenRow key={s.name} secret={s} />
-          ))}
-        </div>
-      )}
-      {q.data && secrets.length === 0 && <p className="text-sm">No tokens yet.</p>}
+      <LumenExpandList>
+        {secrets.map((s) => (
+          <TokenRow key={s.name} secret={s} />
+        ))}
+      </LumenExpandList>
       <AddToken taken={secrets.map((s) => s.name)} />
     </div>
   );
@@ -94,10 +93,8 @@ function TokenRow({ secret }: { secret: SecretInfo }) {
   const qc = useQueryClient();
   const clock = useClock();
   const [replacing, setReplacing] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [value, setValue] = useState('');
   const refresh = () => qc.invalidateQueries({ queryKey: SECRETS });
-  const test = useMutation({ mutationFn: () => api.testSecret(secret.name), onSettled: refresh });
   const replace = useMutation({
     mutationFn: () => api.putSecret(secret.name, { kind: secret.kind, label: secret.label, value }),
     onSuccess: async () => {
@@ -110,121 +107,98 @@ function TokenRow({ secret }: { secret: SecretInfo }) {
   });
   const scope = scopeOf(secret);
   const t = secret.test;
+  const accounts = t?.accounts;
   return (
-    <div className="flex flex-col border-b py-2 last:border-b-0">
-      <div className={GRID}>
-        <span className="min-w-0 truncate text-sm">
-          {secret.label} <span className="font-mono text-muted-foreground text-xs">••{secret.last4}</span>
-        </span>
-        <span className="num hidden text-right text-sm sm:block">{t?.accounts ?? '—'}</span>
-        <span className="hidden text-sm sm:block" title={scope.note}>
-          {scope.text}
-        </span>
-        <HoverCard openDelay={150}>
-          <HoverCardTrigger asChild>
-            <span className="cursor-default whitespace-nowrap text-sm">
-              {!t ? (
-                <span className="text-muted-foreground">Not tested</span>
-              ) : t.ok ? (
-                <span>
-                  <span className="text-gain">✓</span> Valid
-                </span>
-              ) : (
-                <span className="text-loss">✕ Failed</span>
-              )}
-            </span>
-          </HoverCardTrigger>
-          <HoverCardContent className="flex w-72 flex-col gap-1 text-xs">
-            <span className="font-medium text-sm">{secret.label}</span>
-            {t ? (
-              <>
-                <span>Tested {clock(t.at)}</span>
-                <span className={t.ok ? 'text-muted-foreground' : 'text-loss'}>
-                  {t.ok ? t.detail : t.error}
-                </span>
-              </>
-            ) : (
-              <span className="text-muted-foreground">Not tested yet</span>
-            )}
-            <span className="text-muted-foreground">{scope.note}</span>
-            <span className="text-muted-foreground">
-              Saved {clock(secret.updatedAt)} by {secret.updatedBy}
-            </span>
-          </HoverCardContent>
-        </HoverCard>
-        <span className="flex items-center justify-end">
-          <Button
-            size="icon"
-            variant="ghost"
-            aria-label={`Test ${secret.label}`}
-            title="Test again"
-            disabled={test.isPending}
-            onClick={() => test.mutate()}
-          >
-            <RefreshCw className={`size-4 ${test.isPending ? 'animate-spin' : ''}`} />
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button size="icon" variant="ghost" aria-label={`More for ${secret.label}`}>
-                <MoreHorizontal className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={() => setReplacing(true)}>Replace…</DropdownMenuItem>
-              <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(true)}>
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </span>
-      </div>
-      {replacing && (
-        <form
-          className="mt-2 flex gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (value.length >= 8) replace.mutate();
+    <LumenExpandRow
+      id={secret.name}
+      icon={<KeyRound className="size-4 shrink-0 text-muted-foreground" />}
+      name={secret.label}
+      meta={[
+        `••${secret.last4}`,
+        accounts === undefined ? null : `${accounts} account${accounts === 1 ? '' : 's'}`,
+        scope.text,
+      ]
+        .filter(Boolean)
+        .join(' · ')}
+      status={
+        <SettingStatus
+          health={settingHealth(true, t)}
+          title={t ? `${t.ok ? t.detail : t.error} · ${clock(t.at)}` : undefined}
+        />
+      }
+      actions={
+        <SettingActions
+          test={t}
+          onTest={() => api.testSecret(secret.name).finally(refresh)}
+          remove={{
+            label: `Delete ${secret.label}`,
+            title: `Delete ${secret.label}?`,
+            description: 'usageflare stops reading the accounts only this token reaches.',
+            action: 'Delete',
+            run: () => api.deleteSecret(secret.name).then(refresh),
           }}
-        >
-          <Input
-            type="password"
-            autoComplete="off"
-            placeholder="New token value"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            aria-label={`New value for ${secret.label}`}
-            autoFocus
-          />
-          <Button type="submit" disabled={value.length < 8 || replace.isPending}>
-            Replace
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => {
-              setReplacing(false);
-              setValue('');
+        />
+      }
+    >
+      <SettingField label="Token" htmlFor={`replace-${secret.name}`}>
+        {replacing ? (
+          <form
+            className="flex min-w-0 flex-1 items-center gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (value.length >= 8) replace.mutate();
             }}
           >
-            Cancel
-          </Button>
-        </form>
-      )}
-      <ErrorLine error={replace.error ?? test.error} />
-      <LumenConfirm
-        open={deleting}
-        onOpenChange={setDeleting}
-        title={`Delete ${secret.label}?`}
-        description="usageflare stops reading the accounts only this token reaches."
-        action="Delete"
-        onConfirm={() => api.deleteSecret(secret.name).then(refresh)}
-      />
-    </div>
+            <Input
+              id={`replace-${secret.name}`}
+              type="password"
+              autoComplete="off"
+              placeholder="New token value"
+              className="h-8"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              autoFocus
+            />
+            <Button type="submit" size="sm" disabled={value.length < 8 || replace.isPending}>
+              Replace
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setReplacing(false);
+                setValue('');
+              }}
+            >
+              Cancel
+            </Button>
+          </form>
+        ) : (
+          <SettingValue
+            label="Token"
+            value={`••••${secret.last4}`}
+            mono
+            onReplace={() => setReplacing(true)}
+          />
+        )}
+      </SettingField>
+      <SettingField label="Scope" info={scope.note}>
+        <span className="truncate text-sm">{scope.text}</span>
+      </SettingField>
+      <SettingField label="Saved">
+        <span className="truncate text-sm" title={secret.updatedBy}>
+          {clock(secret.updatedAt)} by {secret.updatedBy}
+        </span>
+      </SettingField>
+      <ErrorLine error={replace.error} />
+    </LumenExpandRow>
   );
 }
 
 function AddToken({ taken }: { taken: string[] }) {
   const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
   const [label, setLabel] = useState('');
   const [value, setValue] = useState('');
   const name = slug(label);
@@ -235,54 +209,73 @@ function AddToken({ taken }: { taken: string[] }) {
     onSuccess: async ({ secret }) => {
       setLabel('');
       setValue('');
+      setOpen(false);
       await api.testSecret(secret.name).catch(() => null);
       lumenToast.success(`Added ${secret.label}`);
       return qc.invalidateQueries({ queryKey: SECRETS });
     },
   });
+  if (!open)
+    return (
+      <button
+        type="button"
+        className="flex min-h-11 items-center gap-2 px-1 font-medium text-sm"
+        onClick={() => setOpen(true)}
+      >
+        <Plus className="size-4" />
+        Add token
+      </button>
+    );
   return (
     <form
-      className="flex flex-col gap-2 pt-2"
+      className="flex flex-col border-t pt-1 pl-8"
       onSubmit={(e) => {
         e.preventDefault();
         add.mutate();
       }}
     >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="font-medium text-sm">Add a token</h3>
-        {/* The foreground, underlined: orange text on the page reads at 2.8:1. */}
-        <Button variant="link" size="sm" className="text-foreground underline" asChild>
-          <a href={CREATE_TOKEN_URL} target="_blank" rel="noreferrer">
-            Create one in Cloudflare ↗
-          </a>
-        </Button>
-      </div>
-      <div className="flex flex-wrap gap-2">
+      <SettingField label="Name" htmlFor="token-name">
         <Input
-          placeholder="Name (e.g. Personal)"
+          id="token-name"
+          placeholder="Personal"
+          className="h-8"
           value={label}
           onChange={(e) => setLabel(e.target.value)}
-          className="max-w-52"
-          aria-label="Token name"
+          aria-invalid={exists || undefined}
         />
+      </SettingField>
+      <SettingField
+        label="Token"
+        htmlFor="token-value"
+        info="One token per set of accounts. The Create link pre-fills read access for usage and Account › Tag › Edit for tags; leave Tag out to keep usageflare read-only."
+      >
         <Input
+          id="token-value"
           type="password"
           autoComplete="off"
           placeholder="Cloudflare API token"
+          className="h-8"
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          className="max-w-64"
-          aria-label="Token value"
         />
-        <Button type="submit" disabled={!name || exists || value.length < 8 || add.isPending}>
+      </SettingField>
+      <div className="mt-1 flex min-h-10 items-center gap-2 border-t pt-2 text-sm">
+        <span className="min-w-0 flex-1 truncate">
+          {exists ? (
+            <span className="text-loss">A token with that name exists</span>
+          ) : (
+            <a className="underline" href={CREATE_TOKEN_URL} target="_blank" rel="noreferrer">
+              Create one in Cloudflare ↗
+            </a>
+          )}
+        </span>
+        <Button type="button" size="sm" variant="ghost" onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+        <Button type="submit" size="sm" disabled={!name || exists || value.length < 8 || add.isPending}>
           Save
         </Button>
       </div>
-      <p className="text-muted-foreground text-xs">
-        The link pre-fills read access for usage and Account › Tag › Edit for tags. Leave Tag out to keep
-        usageflare read-only; tags then stay in usageflare.
-      </p>
-      {exists && <p className="text-destructive text-sm">A token with that name exists; replace it above.</p>}
       <ErrorLine error={add.error} />
     </form>
   );

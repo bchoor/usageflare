@@ -10,6 +10,7 @@ import { Switch } from '@columenlabs/lumen-ui/ui/switch';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { BURN_DEFAULT, BURN_WINDOWS, type BurnDial, type BurnSettings, windowText } from '../shared/burn';
+import { COST_DEFAULT, type CostSettings } from '../shared/cost';
 
 const API = '/api/notifications';
 const KEY = ['notifications', API];
@@ -120,6 +121,79 @@ export function BurnSettingsBlock({ value }: { value: BurnSettings | undefined }
             busy={save.isPending}
             disabled={!dirty}
             label="Save dials"
+            onSave={() => save.mutate(d)}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Settings ▸ Alerts ▸ Over budget: a Paid account's month-end bill forecast past this budget. */
+export function CostSettingsBlock({ value }: { value: CostSettings | undefined }) {
+  const qc = useQueryClient();
+  const saved = value ?? COST_DEFAULT;
+  const [d, setD] = useState<CostSettings>(saved);
+  const stamp = JSON.stringify(saved);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `stamp` is the saved budget's content.
+  useEffect(() => setD(saved), [stamp]);
+  const save = useMutation({
+    mutationFn: (b: CostSettings) =>
+      apiJson<unknown>(
+        `${API}/cost`,
+        { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b) },
+        'notifications.cost',
+      ),
+    onSuccess: (r) => {
+      qc.setQueryData(KEY, r);
+      lumenToast.success('Saved the budget');
+    },
+  });
+  const ok = Number.isFinite(d.budget) && d.budget >= 5;
+  return (
+    <div className="flex flex-col gap-3">
+      <SettingRow
+        label="Over budget"
+        htmlFor="cost-on"
+        description="Alert when a Paid account's month-end bill forecast passes this, $5 base included"
+      >
+        <div className="flex items-center gap-2 whitespace-nowrap">
+          {d.on && (
+            <>
+              <span className="text-muted-foreground text-sm">$</span>
+              <Input
+                id="cost-budget"
+                aria-label="Monthly budget per Paid account, USD"
+                type="number"
+                inputMode="decimal"
+                step="any"
+                className="num w-20"
+                value={Number.isFinite(d.budget) ? d.budget : ''}
+                onChange={(e) =>
+                  setD((x) => ({ ...x, budget: e.target.value === '' ? Number.NaN : Number(e.target.value) }))
+                }
+              />
+              <span className="text-muted-foreground text-sm">/mo</span>
+            </>
+          )}
+          <Switch
+            id="cost-on"
+            checked={d.on}
+            disabled={save.isPending}
+            onCheckedChange={(on) => {
+              setD((x) => ({ ...x, on }));
+              save.mutate({ ...(ok ? d : saved), on });
+            }}
+          />
+        </div>
+      </SettingRow>
+      <ErrorLine error={save.error} />
+      {d.on && JSON.stringify(d) !== stamp && (
+        <div className="flex items-center justify-end gap-2">
+          <SaveButton
+            issues={ok ? [] : [{ where: 'Over budget', message: '$5 or more', target: 'cost-budget' }]}
+            busy={save.isPending}
+            label="Save budget"
             onSave={() => save.mutate(d)}
           />
         </div>
