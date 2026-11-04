@@ -782,6 +782,16 @@ async function checkInvariants(p: Page, ctx: Ctx, where: string, scope = 'body')
             const ia = top.findIndex((e) => e === texts[i].el || texts[i].el.contains(e));
             const ib = top.findIndex((e) => e === texts[j].el || texts[j].el.contains(e));
             if (ia < 0 || ib < 0) continue;
+            // elementsFromPoint lists covered elements too: skip when something painted (a
+            // background) sits between the upper text and the lower one, e.g. a sticky status bar
+            // or a hover card over a table row.
+            const lower = texts[ia > ib ? i : j].el;
+            const covered = top.slice(Math.min(ia, ib), Math.max(ia, ib)).some((e) => {
+              if (e.contains(lower)) return false;
+              const bg = getComputedStyle(e).backgroundColor;
+              return bg !== 'transparent' && !/rgba\([^)]*,\s*0\)$/.test(bg);
+            });
+            if (covered) continue;
             const key = `${d(texts[i].el)}|${d(texts[j].el)}`;
             if (seen.has(key)) continue;
             seen.add(key);
