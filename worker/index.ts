@@ -97,6 +97,7 @@ const viewPage = z.object({
     'watchdog-amounts',
     'watchdog-distance',
     'watchdog-burn',
+    'watchdog-alarm',
   ]),
 });
 const prefsBody = z.object({

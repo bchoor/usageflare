@@ -13,6 +13,58 @@
 import { type Account, HOURLY_SLOTS, METRIC, PRODUCT, type Resource } from './catalog';
 import { allowanceOf, type WatchEvent } from './watchdog';
 
+const REQ = 'workers.req';
+/** How far a Worker's requests must jump over its normal to count as the one that changed. */
+export const JUMP = 2;
+
+/** A Worker bound to the alarm's resource, with its requests in the window against its normal. */
+export interface Writer {
+  rid: string;
+  name: string;
+  /** Requests in the window. */
+  v: number;
+  /** Its normal for a window this long: the average hour of the day before, scaled. */
+  normal: number;
+  /** `v / normal` (0 without a normal). */
+  x: number;
+}
+
+/**
+ * Who wrote it: Cloudflare counts a bucket's (or database's, namespace's) operations, not which
+ * Worker made them. The Workers bound to the resource are the candidates: the ones whose requests
+ * jumped in the alarm's window first (most first), then the rest by requests. One bound Worker is certain; several, the best match.
+ * `win` is the hourly slots the window covers; `got` overrides the window's requests per Worker
+ * (the 15 minute alarm measures them from the last read).
+ */
+export function writersOf(
+  resources: Resource[],
+  rid: string,
+  win: [number, number],
+  mins: number,
+  got?: Record<string, number>,
+): Writer[] {
+  const target = resources.find((r) => r.id === rid);
+  if (!target || target.product === 'workers') return [];
+  return resources
+    .filter((r) => r.product === 'workers' && r.acct === target.acct && r.binds?.includes(rid))
+    .map((r) => {
+      const h = r.hourly?.[REQ] ?? [];
+      let v = 0;
+      for (let i = win[0]; i <= win[1]; i++) v += h[i] ?? 0;
+      if (got && got[r.id] !== undefined) v = got[r.id] ?? 0;
+      const before = h.slice(Math.max(0, win[0] - 24), win[0]);
+      const avg = before.length ? before.reduce((a, b) => a + b, 0) / before.length : 0;
+      const normal = (avg * mins) / 60;
+      return { rid: r.id, name: r.name, v, normal, x: normal > 0 ? v / normal : 0 };
+    })
+    .sort((a, b) => {
+      // A Worker whose traffic jumped (JUMP× its normal) is the writer; without one, the busiest.
+      const ja = a.x >= JUMP;
+      const jb = b.x >= JUMP;
+      return ja !== jb ? (ja ? -1 : 1) : ja ? b.x - a.x : b.v - a.v;
+    });
+}
+
 export interface BurnDial {
   /** Share of the limit, in percent. */
   pct: number;
@@ -155,12 +207,23 @@ export function burn({
     new Date(now).getUTCMonth(),
     new Date(now).getUTCDate(),
   );
+  // Each Worker's requests since the last read, for the 15 minute alarm's writer.
+  const reqNow = meters.find((x) => x.key === REQ);
+  const reqPrev = prev?.meters[REQ];
+  const reqDelta =
+    reqNow && reqPrev && reqNow.period === reqPrev.period
+      ? Object.fromEntries(
+          Object.entries(reqNow.parts).map(([rid, v]) => [rid, Math.max(0, v - (reqPrev.parts[rid] ?? 0))]),
+        )
+      : undefined;
   for (const x of meters) {
     const budget = dailyBudget(x.limit, x.per);
     for (const dial of settings.day) {
       let burned = 0;
       let mins = dial.mins;
       let parts: Record<string, number> = {};
+      let win: [number, number] = [last, last];
+      let got: Record<string, number> | undefined;
       if (dial.mins < 60) {
         const p = prev?.meters[x.key];
         const ago = prev ? (now - prev.at) / 60_000 : 0;
@@ -169,6 +232,7 @@ export function burn({
         burned = x.used - p.used;
         mins = Math.round(ago);
         for (const [rid, v] of Object.entries(x.parts)) parts[rid] = v - (p.parts[rid] ?? 0);
+        got = reqDelta;
       } else {
         if (!x.hours) continue;
         const k = Math.min(HOURLY_SLOTS, Math.round(dial.mins / 60));
@@ -177,6 +241,7 @@ export function burn({
         if (x.per === 'day' && Number.isFinite(from))
           first = Math.max(first, Math.ceil((dayStart - from) / 3_600_000));
         if (first > last) continue;
+        win = [first, last];
         for (let i = first; i <= last; i++) burned += x.hours[i] ?? 0;
         parts = {};
         for (const [rid, h] of Object.entries(x.rhours)) {
@@ -191,6 +256,9 @@ export function burn({
       const by = top && top[1] > 0 ? { rid: top[0], share: top[1] / burned } : null;
       const rate = burned / (mins / 60);
       const m = METRIC[x.key];
+      const ws = by ? writersOf(resources, by.rid, win, mins, got).filter((w) => w.v > 0) : [];
+      const w = ws[0];
+      const n2 = ws[1];
       events.push({
         key: `burn:${a.id}:${x.key}:${hour}`,
         kind: 'burn',
@@ -207,6 +275,16 @@ export function burn({
         empties: rate > 0 ? Math.max(0, (x.limit - x.used) / rate) : undefined,
         by: by
           ? { name: resources.find((r) => r.id === by.rid)?.name ?? by.rid, share: by.share }
+          : undefined,
+        writer: w
+          ? {
+              rid: w.rid,
+              name: w.name,
+              v: w.v,
+              x: w.x,
+              sure: ws.length === 1,
+              next: n2 ? { name: n2.name, x: n2.x } : undefined,
+            }
           : undefined,
       });
       break; // one alarm per meter: the fastest dial that fired
