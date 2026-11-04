@@ -32,7 +32,17 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.3
+          # No Actions cache server on OpenShip direct: a cache restore or save only fails after retries.
+          no-cache: true
       - run: bun install --frozen-lockfile
       - run: bun run lint
       - run: bun run type-check
-      - run: bun run build
+      # OpenShip reads a job's log 200 lines at a time, so a noisy build holds the check after the
+      # job ends. Keep the log short.
+      - name: bun run build
+        run: |
+          if ! bun run build > "$RUNNER_TEMP/build.log" 2>&1; then
+            tail -n 200 "$RUNNER_TEMP/build.log"
+            exit 1
+          fi
+          tail -n 20 "$RUNNER_TEMP/build.log"
