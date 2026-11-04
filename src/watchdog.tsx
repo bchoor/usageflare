@@ -6,6 +6,7 @@
  */
 import {
   apiJson,
+  ColorChip,
   DetailsTable,
   LumenLayout,
   lumenToast,
@@ -24,11 +25,12 @@ import {
 import { Button } from '@columenlabs/lumen-ui/ui/button';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Activity, Building2, Clock, Gauge, RefreshCw, Server, ShieldCheck, Zap } from 'lucide-react';
-import { useMemo } from 'react';
-import { HOURLY_SLOTS, METRIC, PRODUCT } from '../shared/catalog';
+import { type ReactNode, useMemo } from 'react';
+import { type Writer, writersOf } from '../shared/burn';
+import { HOURLY_SLOTS, METRIC, PRODUCT, type Resource } from '../shared/catalog';
 import { KIND_LABEL, type WatchEvent, type WatchKind } from '../shared/watchdog';
 import { amountParts, limitDomain, view } from './domains';
-import { fmt, type Model, pctText, type Usage, usd, useModel } from './model';
+import { fmt, type Model, pctText, tagColor, type Usage, usd, useModel } from './model';
 import { MeterPaceCell, paceOf } from './pace';
 import { useSavedView } from './pages';
 import { ProductIcon } from './products';
@@ -303,6 +305,87 @@ function Culprits({ m, e, u }: { m: Model; e: StoredEvent; u: Usage }) {
   );
 }
 
+/** The chain an alarm reads as: the account, the Worker that wrote it, the resource it burned. */
+function Chain({
+  account,
+  writer,
+  resource,
+}: {
+  account: string;
+  writer?: Writer & { sure: boolean };
+  resource?: Resource;
+}) {
+  const node = (k: string, v: string, hot: boolean, icon?: ReactNode) => (
+    <span
+      className={`inline-flex min-w-0 flex-col rounded-md border px-2.5 py-1 ${hot ? 'border-destructive/60 bg-destructive/10' : ''}`}
+    >
+      <span className="text-muted-foreground text-xs uppercase tracking-wide">{k}</span>
+      <span className="inline-flex min-w-0 items-center gap-1.5 font-medium">
+        {icon}
+        <span className="truncate">{v}</span>
+      </span>
+    </span>
+  );
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {node('Account', account, false)}
+      {writer && (
+        <>
+          <span className="text-muted-foreground">→</span>
+          {node(writer.sure ? 'Worker' : 'Worker, likely', writer.name, true, <ProductIcon id="workers" />)}
+        </>
+      )}
+      {resource && (
+        <>
+          <span className="text-muted-foreground">→</span>
+          {node(
+            PRODUCT[resource.product]?.label ?? 'Resource',
+            resource.name,
+            true,
+            <ProductIcon id={resource.product} />,
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/** The Workers bound to the alarm's resource, by how far their requests jumped in its window. */
+function Writers({ ws, resource }: { ws: Writer[]; resource: Resource }) {
+  if (!ws.length) return null;
+  return (
+    <div className="flex flex-col gap-2">
+      <DetailsTable
+        head={[
+          { label: 'Worker', grow: true },
+          { label: 'Requests', right: true },
+          { label: 'Normal', right: true },
+        ]}
+        rows={ws.slice(0, 6).map((w, i) => ({
+          key: w.rid,
+          cells: [
+            <span key="n" className="inline-flex min-w-0 items-center gap-2">
+              <ProductIcon id="workers" />
+              <span className={`truncate ${i === 0 ? 'font-medium text-destructive' : ''}`}>{w.name}</span>
+            </span>,
+            <span key="v" className="num">
+              {fmt(w.v, '')}
+            </span>,
+            <span key="x" className="num">
+              {w.x > 0 ? `×${w.x >= 10 ? Math.round(w.x) : w.x.toFixed(1)}` : '—'}
+            </span>,
+          ],
+        }))}
+      />
+      <p className="text-muted-foreground text-xs">
+        {ws.length === 1
+          ? `The only Worker bound to ${resource.name}: it made these operations.`
+          : `Cloudflare counts the operations on ${resource.name}, not which Worker made them. These Workers are bound to it: the one whose requests jumped in the window comes first, else the busiest.`}
+      </p>
+    </div>
+  );
+}
+
 /** Who drives a Paid account's forecast usage charges, most first: the culprit is the top row. */
 function CostCulprits({ m, e }: { m: Model; e: StoredEvent }) {
   const rows = m.resources
@@ -378,11 +461,56 @@ function watchDomain(
         ]
       : [];
   };
+  const seen = new Map<string, Writer[]>();
+  const writers = (e: StoredEvent): Writer[] => {
+    if (e.kind !== 'burn' || !e.rid) return [];
+    const hit = seen.get(e.key);
+    if (hit) return hit;
+    const u = usageOf(e);
+    const win = u ? windowSlots(e, u.a.hoursFrom) : null;
+    const ws = win
+      ? writersOf(m.resources, e.rid, win, (win[1] - win[0] + 1) * 60).filter((w) => w.v > 0)
+      : [];
+    seen.set(e.key, ws);
+    return ws;
+  };
   return {
     details: [
       {
+        id: 'who',
+        label: 'Who did it',
+        icon: Server,
+        open: true,
+        render: (e) => {
+          const r = e.rid ? m.resource[e.rid] : undefined;
+          const ws = writers(e);
+          const w = ws[0];
+          const wr = w ? m.resource[w.rid] : undefined;
+          const tags = [...new Set([...(wr ? m.tagsOf(wr) : []), ...(r ? m.tagsOf(r) : [])])];
+          return (
+            <div className="flex flex-col gap-3">
+              <Chain
+                account={accountName(e.acct)}
+                writer={w ? { ...w, sure: ws.length === 1 } : undefined}
+                resource={r}
+              />
+              {tags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {tags.map((t) => (
+                    <ColorChip key={t} color={tagColor(m.tags, t, e.acct)}>
+                      {t}
+                    </ColorChip>
+                  ))}
+                </div>
+              )}
+              {r && <Writers ws={ws} resource={r} />}
+            </div>
+          );
+        },
+      },
+      {
         id: 'culprit',
-        label: 'Who used it',
+        label: 'Which resource',
         icon: Server,
         open: true,
         render: (e) => {
@@ -429,8 +557,27 @@ function watchDomain(
         hideOnPhone: true,
       },
       {
+        key: 'writer',
+        label: 'Worker',
+        icon: Server,
+        format: 'text',
+        value: (e) => writers(e)[0]?.name ?? null,
+        render: (e) => {
+          const ws = writers(e);
+          const w = ws[0];
+          return w ? (
+            <span className="inline-flex min-w-0 items-center gap-2" title={e.text}>
+              <ProductIcon id="workers" />
+              <span className="truncate">{w.name}</span>
+              {ws.length > 1 && <span className="text-muted-foreground text-xs">likely</span>}
+            </span>
+          ) : null;
+        },
+        filterable: true,
+      },
+      {
         key: 'by',
-        label: 'Culprit',
+        label: 'Resource',
         icon: Server,
         format: 'text',
         value: (e) =>
@@ -590,7 +737,7 @@ function watchDomain(
 
 const WATCHDOG = view({
   name: 'Watchdog',
-  columns: ['what', 'by', 'kind', 'x', 'value', 'used', 'lands', 'account', 'when', 'sent'],
+  columns: ['what', 'writer', 'by', 'kind', 'x', 'value', 'used', 'lands', 'account', 'when', 'sent'],
   group: { fields: ['tier', 'kind', 'account', 'meter'], default: 'tier' },
   sort: { key: 'when', desc: true },
 });
@@ -600,7 +747,7 @@ export function WatchdogPage() {
   const q = useWatchdog();
   const qc = useQueryClient();
   const load = useLumenLoad(q);
-  const saved = useSavedView('watchdog-burn', WATCHDOG);
+  const saved = useSavedView('watchdog-alarm', WATCHDOG);
   const [w] = usePaceWindow();
   const run = useMutation({
     mutationFn: () => apiJson<WatchdogStatus>('/api/watchdog/run', { method: 'POST' }, 'watchdog.run'),

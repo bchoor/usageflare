@@ -52,6 +52,20 @@ export interface WatchEvent {
   by?: { name: string; share: number };
   /** burn: hours until the limit is used up at the window's rate. */
   empties?: number;
+  /**
+   * burn: the Worker that most likely made the culprit's operations (bound to it, requests jumped
+   * most in the window); `sure` when it is the only Worker bound. Text only; not stored on its own.
+   */
+  writer?: {
+    rid: string;
+    name: string;
+    v: number;
+    x: number;
+    sure: boolean;
+    next?: { name: string; x: number };
+  };
+  /** burn, cost: tag names on the writer and the culprit, for the text a person reads. */
+  tags?: string[];
 }
 
 export const SPIKE_X = 5;
@@ -305,6 +319,33 @@ export function describe(
   return account && e.kind !== 'blind' ? `${account} · ${line}` : line;
 }
 
+/**
+ * The lines an email adds under the alarm's sentence: who did it, as a chain from the account to
+ * the resource, the writer's jump, and the tags on both. Empty for an alarm without a culprit.
+ */
+export function alarmLines(
+  e: WatchEvent,
+  account: string,
+  fmt: (v: number, unit: string) => string = (v) => `${Math.round(v)}`,
+): string[] {
+  if (!e.by) return [];
+  const w = e.writer;
+  const chain = [account, w ? `${w.name} (Worker${w.sure ? '' : ', likely'})` : null, e.by.name]
+    .filter(Boolean)
+    .join(' → ');
+  const out = [`Who: ${chain}`];
+  if (w) {
+    const jumped = w.x >= 2;
+    const jump = jumped ? `, ×${w.x >= 10 ? Math.round(w.x) : w.x.toFixed(1)} its normal` : '';
+    const why = w.sure
+      ? `the only Worker bound to ${e.by.name}`
+      : `${jumped ? 'its traffic jumped most' : 'the busiest'} of the Workers bound to ${e.by.name}${w.next ? ` (next: ${w.next.name})` : ''}`;
+    out.push(`Worker: ${w.name}, ${fmt(w.v, '')} requests in the window${jump}; ${why}.`);
+  }
+  if (e.tags?.length) out.push(`Tags: ${e.tags.join(', ')}`);
+  return out;
+}
+
 /** `· 34% of today's allowance used, on pace for 140% by reset`: the distance beside the speed. */
 export function capText(cap: WatchEvent['cap']) {
   if (!cap) return '';
@@ -335,7 +376,12 @@ function says(e: WatchEvent, fmt: (v: number, unit: string) => string) {
     case 'burn': {
       const win = (e.level ?? 0) < 60 ? `${e.level} min` : `${(e.level ?? 0) / 60} h`;
       const pct = (v: number) => `${v >= 0.1 ? Math.round(v * 100) : (v * 100).toFixed(1)}%`;
-      const by = e.by ? `, ${Math.round(e.by.share * 100)}% from ${e.by.name}` : '';
+      const share = e.by && e.by.share < 0.995 ? ` (${Math.round(e.by.share * 100)}%)` : '';
+      const by = e.by
+        ? e.writer
+          ? `. Who: ${e.writer.name}${e.writer.sure ? '' : ' (likely)'} → ${e.by.name}${share}`
+          : `. From ${e.by.name}${share}`
+        : '';
       const budget =
         e.cap?.per === 'mo'
           ? `a day's budget (${fmt(e.normal, unit)}: ${fmt(e.normal * 30, unit)} a month ÷ 30)`
@@ -344,7 +390,7 @@ function says(e: WatchEvent, fmt: (v: number, unit: string) => string) {
         (e.cap?.used ?? 0) >= 1
           ? ' Already past the limit.'
           : e.empties !== undefined
-            ? ` The ${e.cap?.per === 'mo' ? "month's" : "day's"} limit is used up in ${e.empties < 1 ? 'under 1 h' : `${Math.round(e.empties)} h`} at this rate.`
+            ? ` The ${e.cap?.per === 'mo' ? "month's" : "day's"} limit is gone in ${e.empties < 1 ? 'under 1 h' : `${Math.round(e.empties)} h`} at this rate.`
             : '';
       return `${meter}: ${pct(e.x)} of ${budget} in ${win} (${fmt(e.value, unit)})${by}.${left}`;
     }

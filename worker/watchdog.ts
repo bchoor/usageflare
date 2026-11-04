@@ -19,6 +19,7 @@ import { COST_DEFAULT, type CostSettings, cost } from '../shared/cost';
 import { inferPlan } from '../shared/judge';
 import { MAX_RULES, type Rule, type RuleReading, readingText, readNow, seriesOf } from '../shared/rules';
 import {
+  alarmLines,
   describe,
   KIND_DETAIL,
   KIND_LABEL,
@@ -31,6 +32,7 @@ import { historyDates } from './cloudflare';
 import type { Env } from './env';
 import { fixtureRefs, fixtureUsage } from './fixtures';
 import { seal, unseal } from './secrets';
+import { getTagsState } from './tags';
 import { accountRefs, accountUsage, getPrefs } from './usage';
 
 /** One step a while: each account is read every `STEP_MS × accounts`. */
@@ -41,6 +43,8 @@ const NOW_MS = 2_000;
 const BLIND_MS = 60 * 60_000;
 const KEEP_DAYS = 30;
 const SEND_MS = 8_000;
+/** Tags for a sent alarm's text: past this the alarm goes without them. */
+const TAGS_MS = 3_000;
 /** Settings ▸ Alerts before anything is saved: send, and limits from Will exceed. */
 const ALERTING: Alerting = { on: true, level: 'soon' };
 /** The hub's relay takes longer: it may go out over a tunnel. */
@@ -376,6 +380,18 @@ export class Watchdog extends DurableObject<Env> {
     const targets = this.targets();
     const alerting = this.alerting();
     const origin = this.get<string>('origin', '');
+    // Tags only matter to a sent alarm with a culprit: read once, and only then.
+    let tagsOf: ((rid: string) => string[]) | null = null;
+    const tagsFor = async (ids: string[]) => {
+      if (!tagsOf) {
+        const assign = await within(getTagsState(this.env, false), TAGS_MS, 'Tags')
+          .then((r) => r.assign)
+          .catch(() => ({}) as Record<string, string[]>);
+        tagsOf = (rid) => assign[rid] ?? [];
+      }
+      const get = tagsOf;
+      return [...new Set(ids.flatMap((id) => get(id)))];
+    };
     for (const e of fresh) {
       const text = e.text ?? describe(e, fmt, account);
       this.sql.exec(
@@ -401,7 +417,10 @@ export class Watchdog extends DurableObject<Env> {
       const thing = rule ? `${rule}:${day(now)}` : `${e.kind}:${e.rid ?? e.acct}:${e.metric}:${day(now)}`;
       const told = this.get<string[]>('told', []).filter((t) => t.endsWith(day(now)));
       if (told.includes(thing)) continue;
-      const out = await this.send(targets, e.kind, { ...e, text }, origin, rule ?? e.kind);
+      const ids = [e.writer?.rid, e.rid].filter((x): x is string => !!x);
+      const tags = ids.length && (e.kind === 'burn' || e.kind === 'cost') ? await tagsFor(ids) : [];
+      const lines = alarmLines({ ...e, tags }, account, fmt);
+      const out = await this.send(targets, e.kind, { ...e, text }, origin, rule ?? e.kind, account, lines);
       if (out.sent.length || out.failed.length)
         this.sql.exec(
           `UPDATE ${tableOf(e.kind)} SET sent = ?, failed = ? WHERE key = ?`,
@@ -568,10 +587,18 @@ export class Watchdog extends DurableObject<Env> {
     origin: string,
     /** The row of Settings ▸ Alerts it answers to: its kind, or `rule:<id>`. */
     offKey: string = kind,
+    account = '',
+    /** What an email adds under the sentence: who did it, and the tags. */
+    lines: string[] = [],
   ) {
     const off = new Set(t.off[offKey] ?? []);
     const link = origin ? `${origin}/app/watchdog` : '';
-    const title = kind === 'rule' ? e.name : `${KIND_LABEL[kind]}: ${e.name}`;
+    const title =
+      kind === 'rule' || kind === 'cost'
+        ? e.name
+        : kind === 'burn' && account
+          ? `${e.name} burning fast · ${account}`
+          : `${KIND_LABEL[kind]}: ${e.name}`;
     const sent: string[] = [];
     const failed: string[] = [];
     const go = async (id: string, f: () => Promise<KeyTest>) => {
@@ -582,7 +609,7 @@ export class Watchdog extends DurableObject<Env> {
     const { email, ntfy } = t;
     await Promise.all([
       email && !off.has('email')
-        ? go('email', () => this.mail(email.address, title, e.text, link, kind))
+        ? go('email', () => this.mail(email.address, title, e.text, link, kind, lines))
         : null,
       ntfy && !off.has('ntfy') ? go('ntfy', () => this.push(ntfy, title, e.text, link, kind)) : null,
       ...t.webhooks
@@ -602,6 +629,7 @@ export class Watchdog extends DurableObject<Env> {
     text: string,
     link: string,
     kind: WatchKind | 'test',
+    more: string[] = [],
   ): Promise<KeyTest> {
     const at = new Date().toISOString();
     if (!this.env.MAIL) return { at, ok: false, error: 'Email is not set up on this server' };
@@ -612,7 +640,7 @@ export class Watchdog extends DurableObject<Env> {
         brand: { name: 'usageflare', color: '#f38020', mark: 'u' },
         tag: kind === 'test' ? 'Test' : KIND_LABEL[kind],
         title,
-        lines: [text],
+        lines: [text, ...more],
         links: link ? [{ text: 'Open the watchdog', href: link }] : undefined,
         footer: { text: 'Sent by usageflare. Choose what you hear in Settings ▸ Alerts.' },
       }),

@@ -110,9 +110,17 @@ const SPECS: Record<string, Spec[]> = {
       'workers',
       'quizgame',
       { 'workers.req': 240e3, 'workers.cpu': 700e3 },
-      { routes: ['quizgame.example.com'] },
+      {
+        routes: ['quizgame.example.com'],
+        binds: [`${PROD}:d1:quizgame-prod`, `${PROD}:r2:assets`, `${PROD}:kv:FLAGS`],
+      },
     ],
-    ['workers', 'admin', { 'workers.req': 30e3, 'workers.cpu': 90e3 }],
+    [
+      'workers',
+      'admin',
+      { 'workers.req': 30e3, 'workers.cpu': 90e3 },
+      { binds: [`${PROD}:d1:quizgame-prod`, `${PROD}:r2:assets`] },
+    ],
     [
       'workers',
       'storefront-web',
