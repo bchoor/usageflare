@@ -11,7 +11,7 @@ import {
   type SectionItem,
   SettingRow,
   SidebarSection,
-  StatusItem,
+  type Signal,
   savedAnswers,
   useLumenFinderRows,
 } from '@columenlabs/lumen-ui';
@@ -63,7 +63,7 @@ import { AccountLimitsPage, AccountPage, OverviewPage, ResourcesPage, TagsPage }
 import { PRODUCT_ICON } from './products';
 import { TokensSettings, useTokensHealth } from './settings';
 import { registerTagSaver, TagForm } from './tags';
-import { unusual, useWatchdog, WatchdogPage, watchdogMessages } from './watchdog';
+import { unusual, useWatchdog, WatchdogPage, watchdogSignals } from './watchdog';
 
 // Every table's columns resize by dragging a header's edge (desktop); widths kept per table.
 configureLumen({ prefsCookie: 'usageflare_prefs', resizableColumns: true });
@@ -92,19 +92,21 @@ const persistOptions = {
   },
 };
 
-/** `just now`, `4 min ago`, `2 h ago`: how old the numbers on screen are, ticking each 30 s. */
-function useAgo(iso: string | undefined) {
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(t);
-  }, []);
-  if (!iso) return null;
-  const min = Math.floor((now - new Date(iso).getTime()) / 60_000);
-  if (min < 1) return 'just now';
-  if (min < 60) return `${min} min ago`;
-  const h = Math.floor(min / 60);
-  return h < 24 ? `${h} h ago` : `${Math.floor(h / 24)} d ago`;
+/** Accounts whose token can't read some products: one "Can't see" signal each, fixed in Settings ▸ Tokens. */
+function scopeSignals(
+  accounts: { id: string; name: string; missing: string[]; syncedAt?: string }[],
+): Signal[] {
+  return accounts.map((a) => ({
+    key: `scopes:${a.id}`,
+    level: 'look',
+    kind: "Can't see",
+    what: a.missing.join(', '),
+    where: a.name,
+    group: a.name,
+    at: a.syncedAt ?? 0,
+    why: `This account's token has no access to ${a.missing.join(', ')}, so those numbers are missing.`,
+    fix: { label: 'Check token', settings: 'tokens' },
+  }));
 }
 
 /** The brand: "usage" in the foreground, "flare" in the app accent. */
@@ -351,7 +353,6 @@ function Shell() {
   const saveTags = useSaveTags();
   registerTagSaver((doc, base, push, force) => saveTags.mutateAsync({ doc, base, push, force }));
   const synced = m.accounts.map((a) => a.syncedAt).sort()[0];
-  const ago = useAgo(synced);
   const refreshing = useRefreshing();
   const missing = m.accounts.filter((a) => a.missing.length);
   const wd = useWatchdog();
@@ -390,16 +391,17 @@ function Shell() {
           <AccountNav m={m} />
         </>
       }
-      status={
-        <>
-          <StatusItem label="Cloudflare GraphQL" ok={m.error ? false : m.accounts.length ? true : null} />
-          {missing.length > 0 && (
-            <StatusItem label="Scopes missing" value={missing.map((a) => a.name).join(', ')} ok={false} />
-          )}
-          {synced && <StatusItem label="Synced" value={refreshing ? `${ago} · refreshing…` : ago} />}
-        </>
-      }
-      bar={{ messages: watchdogMessages(wd.data) }}
+      bar={{
+        sync: m.accounts.length
+          ? {
+              state: m.error ? 'failed' : refreshing ? 'syncing' : 'ok',
+              label: 'Cloudflare',
+              at: synced ?? null,
+            }
+          : null,
+        signals: [...scopeSignals(missing), ...watchdogSignals(wd.data)],
+        signalOptions: { settings: 'alerts', groupLabel: 'Account' },
+      }}
       releases="/api/releases"
       user={me.data ? { email: me.data.email, name: null } : null}
       finder={{
