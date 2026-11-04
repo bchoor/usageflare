@@ -4,6 +4,8 @@ name: CI
 # red flag). No unit tests (2026-10-24). The UI smoke and the returning-user check run locally
 # (`bun e2e/local.ts`), not here. Deploys are Cloudflare Workers Builds on push to main, which
 # verify live and roll back (scripts/deploy.ts).
+# Runs on OpenShip direct (controller openship): jobs go straight to our runners, not
+# through GitHub's job queue (Bikram, 2026-11-04). OpenShip posts the PR check.
 on:
   push:
     branches: [main]
