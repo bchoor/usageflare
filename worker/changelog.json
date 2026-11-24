@@ -1,5 +1,35 @@
 [
   {
+    "tag": "v0.0.11",
+    "published_at": "2026-11-24T07:55:45Z",
+    "takeaways": [
+      {
+        "text": "**Burning-fast alarms name the Worker behind them**: On the Watchdog page, each alarm now shows the account, the Worker and the resource it hit, plus their tags. The same chain appears in push and email alerts.",
+        "types": [
+          "feature"
+        ]
+      },
+      {
+        "text": "**Watchdog findings are ranked by urgency**: On the Watchdog page, findings are grouped by account and marked Needs action, Worth a look or Harmless, so you can see what to deal with first.",
+        "types": [
+          "improvement"
+        ]
+      },
+      {
+        "text": "**Cloudflare API tokens are easier to manage**: In Settings ▸ Cloudflare API tokens, each token shows a masked value with Replace, Test and Delete actions and a health dot. \"Add a token\" is now the last row of the list.",
+        "types": [
+          "improvement"
+        ]
+      },
+      {
+        "text": "**Setting labels fit on phones**: In Settings on a phone, rows that hold only a switch or status pill give the label the full row, so short labels no longer cut off.",
+        "types": [
+          "fix"
+        ]
+      }
+    ]
+  },
+  {
     "tag": "v0.0.10",
     "published_at": "2026-11-04T05:20:21Z",
     "takeaways": [
