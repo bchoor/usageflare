@@ -10,7 +10,7 @@ import {
   apiJson,
   ErrorLine,
   NotificationsSettings,
-  SettingRow,
+  SettingField,
   SettingsFooter,
   useClock,
 } from '@columenlabs/lumen-ui';
@@ -78,17 +78,17 @@ export function AlertsSettings() {
   if (q.isError) return <ErrorLine error={q.error} />;
   return (
     <div className="flex flex-col gap-4">
-      <SettingRow label="Send alerts" htmlFor="alerts-on">
+      <SettingField label="Send alerts" htmlFor="alerts-on">
         <Switch
           id="alerts-on"
           checked={a.on}
           disabled={!q.data || save.isPending}
           onCheckedChange={(on) => save.mutate({ ...a, on })}
         />
-      </SettingRow>
+      </SettingField>
       <BurnSettingsBlock value={q.data?.burn} />
       <CostSettingsBlock value={q.data?.cost} />
-      <SettingRow label="Limit alert at" description={LEVELS.find((l) => l.id === a.level)?.note}>
+      <SettingField label="Limit alert at" info={LEVELS.find((l) => l.id === a.level)?.note}>
         <ToggleGroup
           type="single"
           variant="outline"
@@ -104,7 +104,7 @@ export function AlertsSettings() {
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
-      </SettingRow>
+      </SettingField>
       <ErrorLine error={save.error} />
       <NotificationsSettings api={API} product="usageflare" sender={SENDER} parts="events" />
       <div className="flex flex-col gap-2">

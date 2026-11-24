@@ -1,21 +1,14 @@
 import {
   ErrorLine,
+  LumenConnection,
   LumenExpandList,
-  LumenExpandRow,
   lumenToast,
-  SettingActions,
-  SettingField,
-  SettingStatus,
-  SettingValue,
   sectionHealth,
   settingHealth,
   useClock,
 } from '@columenlabs/lumen-ui';
-import { Button } from '@columenlabs/lumen-ui/ui/button';
-import { Input } from '@columenlabs/lumen-ui/ui/input';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { KeyRound, Plus } from 'lucide-react';
-import { useState } from 'react';
 import { api, type SecretInfo, slug } from './api';
 
 const SECRETS = ['secrets'];
@@ -83,36 +76,33 @@ export function TokensSettings() {
         {secrets.map((s) => (
           <TokenRow key={s.name} secret={s} />
         ))}
+        <AddToken taken={secrets.map((s) => s.name)} />
       </LumenExpandList>
-      <AddToken taken={secrets.map((s) => s.name)} />
     </div>
   );
 }
 
+const TOKEN_INFO =
+  'One token per set of accounts. Create one in Cloudflare pre-fills read access for usage and Account › Tag › Edit for tags; leave Tag out to keep usageflare read-only.';
+
+/** A token's value: typed as a password, at least 8 characters. */
+const valueOk = (value: string | undefined) => {
+  if ((value ?? '').trim().length >= 8) return true;
+  lumenToast.error('That token is too short');
+  return false;
+};
+
 function TokenRow({ secret }: { secret: SecretInfo }) {
   const qc = useQueryClient();
   const clock = useClock();
-  const [replacing, setReplacing] = useState(false);
-  const [value, setValue] = useState('');
   const refresh = () => qc.invalidateQueries({ queryKey: SECRETS });
-  const replace = useMutation({
-    mutationFn: () => api.putSecret(secret.name, { kind: secret.kind, label: secret.label, value }),
-    onSuccess: async () => {
-      setValue('');
-      setReplacing(false);
-      await api.testSecret(secret.name).catch(() => null);
-      lumenToast.success(`Replaced ${secret.label}`);
-      return refresh();
-    },
-  });
   const scope = scopeOf(secret);
-  const t = secret.test;
-  const accounts = t?.accounts;
+  const accounts = secret.test?.accounts;
   return (
-    <LumenExpandRow
+    <LumenConnection
       id={secret.name}
-      icon={<KeyRound className="size-4 shrink-0 text-muted-foreground" />}
       name={secret.label}
+      logo={<KeyRound className="size-4 shrink-0 text-muted-foreground" />}
       meta={[
         `••${secret.last4}`,
         accounts === undefined ? null : `${accounts} account${accounts === 1 ? '' : 's'}`,
@@ -120,163 +110,83 @@ function TokenRow({ secret }: { secret: SecretInfo }) {
       ]
         .filter(Boolean)
         .join(' · ')}
-      status={
-        <SettingStatus
-          health={settingHealth(true, t)}
-          title={t ? `${t.ok ? t.detail : t.error} · ${clock(t.at)}` : undefined}
-        />
-      }
-      actions={
-        <SettingActions
-          test={t}
-          onTest={() => api.testSecret(secret.name).finally(refresh)}
-          remove={{
-            label: `Delete ${secret.label}`,
-            title: `Delete ${secret.label}?`,
-            description: 'usageflare stops reading the accounts only this token reaches.',
-            action: 'Delete',
-            run: () => api.deleteSecret(secret.name).then(refresh),
-          }}
-        />
-      }
-    >
-      <SettingField label="Token" htmlFor={`replace-${secret.name}`}>
-        {replacing ? (
-          <form
-            className="flex min-w-0 flex-1 items-center gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (value.length >= 8) replace.mutate();
-            }}
-          >
-            <Input
-              id={`replace-${secret.name}`}
-              type="password"
-              autoComplete="off"
-              placeholder="New token value"
-              className="h-8"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              autoFocus
-            />
-            <Button type="submit" size="sm" disabled={value.length < 8 || replace.isPending}>
-              Replace
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setReplacing(false);
-                setValue('');
-              }}
-            >
-              Cancel
-            </Button>
-          </form>
-        ) : (
-          <SettingValue
-            label="Token"
-            value={`••••${secret.last4}`}
-            mono
-            onReplace={() => setReplacing(true)}
-          />
-        )}
-      </SettingField>
-      <SettingField label="Scope" info={scope.note}>
-        <span className="truncate text-sm">{scope.text}</span>
-      </SettingField>
-      <SettingField label="Saved">
-        <span className="truncate text-sm" title={secret.updatedBy}>
-          {clock(secret.updatedAt)} by {secret.updatedBy}
-        </span>
-      </SettingField>
-      <ErrorLine error={replace.error} />
-    </LumenExpandRow>
+      ways={[
+        {
+          id: 'token',
+          label: 'Token',
+          set: true,
+          ident: `••••${secret.last4}`,
+          test: secret.test,
+          fields: [{ id: 'value', label: 'Token', secret: true, placeholder: 'New token value' }],
+          getUrl: CREATE_TOKEN_URL,
+          onSave: async ({ value }) => {
+            if (!valueOk(value)) return false;
+            await api.putSecret(secret.name, {
+              kind: secret.kind,
+              label: secret.label,
+              value: (value ?? '').trim(),
+            });
+            await api.testSecret(secret.name).catch(() => null);
+            lumenToast.success(`Replaced ${secret.label}`);
+            await refresh();
+          },
+          onTest: () => api.testSecret(secret.name).finally(refresh),
+          onRemove: () => api.deleteSecret(secret.name).then(refresh),
+          removeLabel: 'Delete',
+          removeTitle: `Delete ${secret.label}?`,
+          removeText: 'usageflare stops reading the accounts only this token reaches.',
+        },
+      ]}
+      lines={[
+        { label: 'Scope', value: scope.text, info: scope.note },
+        { label: 'Saved', value: `${clock(secret.updatedAt)} by ${secret.updatedBy}` },
+      ]}
+    />
   );
 }
 
 function AddToken({ taken }: { taken: string[] }) {
   const qc = useQueryClient();
-  const [open, setOpen] = useState(false);
-  const [label, setLabel] = useState('');
-  const [value, setValue] = useState('');
-  const name = slug(label);
-  const exists = taken.includes(name);
-  const add = useMutation({
-    mutationFn: () =>
-      api.putSecret(name, { kind: 'cf_api_token', label: label.trim(), value }, { create: true }),
-    onSuccess: async ({ secret }) => {
-      setLabel('');
-      setValue('');
-      setOpen(false);
-      await api.testSecret(secret.name).catch(() => null);
-      lumenToast.success(`Added ${secret.label}`);
-      return qc.invalidateQueries({ queryKey: SECRETS });
-    },
-  });
-  if (!open)
-    return (
-      <button
-        type="button"
-        className="flex min-h-11 items-center gap-2 px-1 font-medium text-sm"
-        onClick={() => setOpen(true)}
-      >
-        <Plus className="size-4" />
-        Add token
-      </button>
-    );
   return (
-    <form
-      className="flex flex-col border-t pt-1 pl-8"
-      onSubmit={(e) => {
-        e.preventDefault();
-        add.mutate();
-      }}
-    >
-      <SettingField label="Name" htmlFor="token-name">
-        <Input
-          id="token-name"
-          placeholder="Personal"
-          className="h-8"
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          aria-invalid={exists || undefined}
-        />
-      </SettingField>
-      <SettingField
-        label="Token"
-        htmlFor="token-value"
-        info="One token per set of accounts. The Create link pre-fills read access for usage and Account › Tag › Edit for tags; leave Tag out to keep usageflare read-only."
-      >
-        <Input
-          id="token-value"
-          type="password"
-          autoComplete="off"
-          placeholder="Cloudflare API token"
-          className="h-8"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-        />
-      </SettingField>
-      <div className="mt-1 flex min-h-10 items-center gap-2 border-t pt-2 text-sm">
-        <span className="min-w-0 flex-1 truncate">
-          {exists ? (
-            <span className="text-loss">A token with that name exists</span>
-          ) : (
-            <a className="underline" href={CREATE_TOKEN_URL} target="_blank" rel="noreferrer">
-              Create one in Cloudflare ↗
-            </a>
-          )}
-        </span>
-        <Button type="button" size="sm" variant="ghost" onClick={() => setOpen(false)}>
-          Cancel
-        </Button>
-        <Button type="submit" size="sm" disabled={!name || exists || value.length < 8 || add.isPending}>
-          Save
-        </Button>
-      </div>
-      <ErrorLine error={add.error} />
-    </form>
+    <LumenConnection
+      id="add-token"
+      name="Add a token"
+      meta="A Cloudflare API token for one set of accounts"
+      logo={<Plus className="size-4 shrink-0 text-muted-foreground" />}
+      ways={[
+        {
+          id: 'token',
+          label: 'Token',
+          set: false,
+          info: TOKEN_INFO,
+          addLabel: 'Add token',
+          fields: [
+            { id: 'label', label: 'Name', placeholder: 'Personal' },
+            { id: 'value', label: 'Token', secret: true, placeholder: 'Cloudflare API token' },
+          ],
+          getUrl: CREATE_TOKEN_URL,
+          onSave: async ({ label, value }) => {
+            const name = slug(label ?? '');
+            if (!name) {
+              lumenToast.error('Give the token a name');
+              return false;
+            }
+            if (taken.includes(name)) {
+              lumenToast.error('A token with that name exists');
+              return false;
+            }
+            if (!valueOk(value)) return false;
+            const { secret } = await api.putSecret(
+              name,
+              { kind: 'cf_api_token', label: (label ?? '').trim(), value: (value ?? '').trim() },
+              { create: true },
+            );
+            await api.testSecret(secret.name).catch(() => null);
+            lumenToast.success(`Added ${secret.label}`);
+            await qc.invalidateQueries({ queryKey: SECRETS });
+          },
+        },
+      ]}
+    />
   );
 }

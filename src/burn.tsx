@@ -3,7 +3,14 @@
  * share of a day's budget used within a window; a monthly limit's day is the limit over 30. Each
  * line reads as a sentence: "Runaway: 10% in 15 min".
  */
-import { apiJson, ErrorLine, LumenSelector, lumenToast, SaveButton, SettingRow } from '@columenlabs/lumen-ui';
+import {
+  apiJson,
+  ErrorLine,
+  LumenSelector,
+  lumenToast,
+  SaveButton,
+  SettingField,
+} from '@columenlabs/lumen-ui';
 import { Button } from '@columenlabs/lumen-ui/ui/button';
 import { Input } from '@columenlabs/lumen-ui/ui/input';
 import { Switch } from '@columenlabs/lumen-ui/ui/switch';
@@ -61,10 +68,10 @@ export function BurnSettingsBlock({ value }: { value: BurnSettings | undefined }
   );
   return (
     <div className="flex flex-col gap-3">
-      <SettingRow
+      <SettingField
         label="Burning fast"
         htmlFor="burn-on"
-        description="Alert when a day's budget is used up too fast"
+        info="Alert when a day's budget is used up too fast"
       >
         <Switch
           id="burn-on"
@@ -75,10 +82,10 @@ export function BurnSettingsBlock({ value }: { value: BurnSettings | undefined }
             save.mutate({ ...d, on });
           }}
         />
-      </SettingRow>
+      </SettingField>
       {d.on &&
         PER.map((p) => (
-          <SettingRow key={p.id} label={p.label} description={p.note}>
+          <SettingField key={p.id} label={p.label} info={p.note}>
             <div className="flex flex-col items-end gap-1.5">
               {d[p.id].map((g, i) => (
                 <div key={`${p.id}-${LINE[i]}`} className="flex items-center gap-2 whitespace-nowrap">
@@ -106,7 +113,7 @@ export function BurnSettingsBlock({ value }: { value: BurnSettings | undefined }
                 </div>
               ))}
             </div>
-          </SettingRow>
+          </SettingField>
         ))}
       <ErrorLine error={save.error} />
       {d.on && (
@@ -152,10 +159,10 @@ export function CostSettingsBlock({ value }: { value: CostSettings | undefined }
   const ok = Number.isFinite(d.budget) && d.budget >= 5;
   return (
     <div className="flex flex-col gap-3">
-      <SettingRow
+      <SettingField
         label="Over budget"
         htmlFor="cost-on"
-        description="Alert when a Paid account's month-end bill forecast passes this, $5 base included"
+        info="Alert when a Paid account's month-end bill forecast passes this, $5 base included"
       >
         <div className="flex items-center gap-2 whitespace-nowrap">
           {d.on && (
@@ -186,7 +193,7 @@ export function CostSettingsBlock({ value }: { value: CostSettings | undefined }
             }}
           />
         </div>
-      </SettingRow>
+      </SettingField>
       <ErrorLine error={save.error} />
       {d.on && JSON.stringify(d) !== stamp && (
         <div className="flex items-center justify-end gap-2">
