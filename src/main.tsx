@@ -9,7 +9,7 @@ import {
   LumenSuiteSwitcher,
   NavGroup,
   type SectionItem,
-  SettingRow,
+  SettingField,
   SidebarSection,
   type Signal,
   savedAnswers,
@@ -232,10 +232,10 @@ function AccountsSettings() {
   return (
     <div className="flex flex-col gap-2">
       {m.accounts.map((a) => (
-        <SettingRow
+        <SettingField
           key={a.id}
           label={a.name}
-          description={
+          info={
             <span className="flex min-w-0 flex-col gap-0.5">
               <span className="truncate font-mono text-xs" title={a.id}>
                 {a.id}
@@ -269,7 +269,7 @@ function AccountsSettings() {
               save.mutate({ ...m.prefs, plans });
             }}
           />
-        </SettingRow>
+        </SettingField>
       ))}
     </div>
   );
@@ -282,7 +282,7 @@ function LimitsSettings() {
   const [warn, setWarn] = useState(m.prefs.warn);
   useEffect(() => setWarn(m.prefs.warn), [m.prefs.warn]);
   return (
-    <SettingRow label="Watch at" description="Metrics above this share of their allowance show as Watch.">
+    <SettingField label="Watch at" info="Metrics above this share of their allowance show as Watch.">
       <div className="flex w-56 items-center gap-3">
         <Slider
           min={50}
@@ -295,7 +295,7 @@ function LimitsSettings() {
         />
         <span className="w-10 text-right font-mono text-sm">{warn}%</span>
       </div>
-    </SettingRow>
+    </SettingField>
   );
 }
 

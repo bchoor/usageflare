@@ -1,0 +1,39 @@
+# Dependency updates, weekly (Monday, Pacific). Lumen publishes a patch on every merge, all its
+# packages at one version: one PR moves every @columenlabs/lumen-* pin together (the kit's rule:
+# ui and ui-types bump as a pair). Everything else's minor and patch bumps come as one more PR,
+# majors one at a time. Each merge deploys, so merge them one at a time (CLAUDE.md, Prod safety 6).
+version: 2
+updates:
+  - package-ecosystem: bun
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Los_Angeles
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "infra:"
+    # Lumen was renumbered to 0.1.*; the 0.2.0 to 0.4.x builds on npm are older.
+    ignore:
+      - dependency-name: "@columenlabs/lumen-*"
+        versions: [">= 0.2.0"]
+    groups:
+      lumen:
+        patterns: ["@columenlabs/lumen-*"]
+      minor-and-patch:
+        exclude-patterns: ["@columenlabs/lumen-*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Los_Angeles
+    commit-message:
+      prefix: "infra:"
+    groups:
+      actions:
+        patterns: ["*"]

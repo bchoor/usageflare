@@ -16,7 +16,7 @@ import {
   LumenSelector,
   lumenToast,
   SaveButton,
-  SettingRow,
+  SettingField,
 } from '@columenlabs/lumen-ui';
 import { Button } from '@columenlabs/lumen-ui/ui/button';
 import { Input } from '@columenlabs/lumen-ui/ui/input';
@@ -192,7 +192,7 @@ function RuleForm({ m, rule, onDone }: { m: Model; rule?: Rule; onDone: () => vo
   return (
     <div className="flex flex-col gap-3">
       {rule && (
-        <SettingRow label="On" htmlFor={`rule-on-${d.id}`}>
+        <SettingField label="On" htmlFor={`rule-on-${d.id}`}>
           <Switch
             id={`rule-on-${d.id}`}
             checked={d.on}
@@ -202,17 +202,17 @@ function RuleForm({ m, rule, onDone }: { m: Model; rule?: Rule; onDone: () => vo
               save.mutate({ ...rule, on });
             }}
           />
-        </SettingRow>
+        </SettingField>
       )}
-      <SettingRow label="Account">
+      <SettingField label="Account">
         <LumenSelector
           label="Account"
           options={m.accounts.map((a) => ({ value: a.id, label: a.name }))}
           value={d.acct}
           onChange={(acct) => set({ acct, rid: undefined })}
         />
-      </SettingRow>
-      <SettingRow label="Meter">
+      </SettingField>
+      <SettingField label="Meter">
         <LumenSelector
           id="rule-meter"
           label="Meter"
@@ -221,16 +221,16 @@ function RuleForm({ m, rule, onDone }: { m: Model; rule?: Rule; onDone: () => vo
           onChange={(metric) => set({ metric, rid: undefined })}
           placeholder="Pick a meter"
         />
-      </SettingRow>
-      <SettingRow label="On what">
+      </SettingField>
+      <SettingField label="On what">
         <LumenSelector
           label="On what"
           options={holders}
           value={d.rid ?? '*'}
           onChange={(v) => set({ rid: v === '*' ? undefined : v })}
         />
-      </SettingRow>
-      <SettingRow label="When" description={COND[d.cond].hint}>
+      </SettingField>
+      <SettingField label="When" info={COND[d.cond].hint}>
         <LumenSelector
           label="When"
           options={RULE_CONDS.map((c) => ({ value: c, label: COND[c].label, description: COND[c].hint }))}
@@ -246,9 +246,9 @@ function RuleForm({ m, rule, onDone }: { m: Model; rule?: Rule; onDone: () => vo
             });
           }}
         />
-      </SettingRow>
+      </SettingField>
       {(d.cond === 'above' || d.cond === 'below') && (
-        <SettingRow label="Over">
+        <SettingField label="Over">
           <ToggleGroup
             type="single"
             variant="outline"
@@ -269,10 +269,10 @@ function RuleForm({ m, rule, onDone }: { m: Model; rule?: Rule; onDone: () => vo
               </ToggleGroupItem>
             )}
           </ToggleGroup>
-        </SettingRow>
+        </SettingField>
       )}
       {(d.cond === 'change' || d.cond === 'momentum') && (
-        <SettingRow label="Which way">
+        <SettingField label="Which way">
           <ToggleGroup
             type="single"
             variant="outline"
@@ -288,9 +288,9 @@ function RuleForm({ m, rule, onDone }: { m: Model; rule?: Rule; onDone: () => vo
               {d.cond === 'momentum' ? 'At or under' : 'Down'}
             </ToggleGroupItem>
           </ToggleGroup>
-        </SettingRow>
+        </SettingField>
       )}
-      <SettingRow label="Value" htmlFor="rule-value">
+      <SettingField label="Value" htmlFor="rule-value">
         <div className="flex items-center gap-2">
           <Input
             id="rule-value"
@@ -302,8 +302,8 @@ function RuleForm({ m, rule, onDone }: { m: Model; rule?: Rule; onDone: () => vo
           />
           {unit && <span className="whitespace-nowrap text-muted-foreground text-sm">{unit}</span>}
         </div>
-      </SettingRow>
-      <SettingRow label="Name" htmlFor={`rule-name-${d.id}`}>
+      </SettingField>
+      <SettingField label="Name" htmlFor={`rule-name-${d.id}`}>
         <Input
           id={`rule-name-${d.id}`}
           className="w-full min-w-0 sm:w-72"
@@ -312,7 +312,7 @@ function RuleForm({ m, rule, onDone }: { m: Model; rule?: Rule; onDone: () => vo
           value={d.name}
           onChange={(e) => set({ name: e.target.value })}
         />
-      </SettingRow>
+      </SettingField>
       <p className="truncate text-muted-foreground text-xs" title={condText(d, fmt)}>
         {hourOnly
           ? 'This meter has no hourly read on this account: pick another condition'
