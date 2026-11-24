@@ -249,6 +249,9 @@ async function checkPopup(
   where: string,
   sel = '[role=dialog]:visible, [role=menu]:visible, [role=listbox]:visible',
 ) {
+  // A confirm (AlertDialog) opened from inside a dialog is the topmost popup: check it, not the
+  // dialog behind it, whose × the confirm hides from the accessibility tree.
+  if (sel.includes('[role=dialog]')) sel += ', [role=alertdialog]:visible';
   const pop = p.locator(sel).last();
   if (!(await pop.count())) return false;
   const box = await pop.boundingBox();
@@ -268,7 +271,7 @@ async function checkPopup(
   const slot = await pop.getAttribute('data-slot');
   // One Esc closes this popup and only this one.
   const before = await p.locator(sel).count();
-  if (role === 'dialog') {
+  if (role === 'dialog' || role === 'alertdialog') {
     const id = await pop.evaluate((e) => {
       e.setAttribute('data-smoke-pop', '1');
       return 1;
